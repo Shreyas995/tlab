@@ -5,17 +5,15 @@
 !# Calculate the pressure field from a divergence free velocity field and a body force.
 !#
 !########################################################################
-subroutine FI_PRESSURE_BOUSSINESQ(q, s, p, tmp1, tmp2, tmp, pdecomp)
-! pdecomp is optional. Check if we can add the default value directly as a argument
-    use TLAB_CONSTANTS, only: wp, wi, BCS_NN
+subroutine FI_PRESSURE_BOUSSINESQ(q, s, p, tmp1, tmp2, tmp, decomposition)
+    use TLab_Constants, only: wp, wi, BCS_NN
     use TLAB_VARS, only: g
-    use TLAB_VARS, only: imax, jmax, kmax, isize_field
+    use TLAB_VARS, only: imax, jmax, kmax, isize_field, inb_txc
     use TLAB_VARS, only: imode_eqns
     use TLAB_VARS, only: PressureFilter, stagger_on
     use TLAB_VARS, only: buoyancy, coriolis
-    use TLAB_VARS, only: inb_txc
     use TLAB_ARRAYS, only: wrk1d
-    use TLAB_POINTERS_3D, only: p_wrk2d
+    use TLab_Pointers_3D, only: p_wrk2d
     use THERMO_ANELASTIC
     use IBM_VARS, only: imode_ibm, ibm_burgers
     use OPR_PARTIAL
@@ -23,23 +21,23 @@ subroutine FI_PRESSURE_BOUSSINESQ(q, s, p, tmp1, tmp2, tmp, pdecomp)
     use OPR_ELLIPTIC
     use FI_SOURCES
     use OPR_FILTERS
-    use IO_FIELDS
 
     implicit none
 
-    real(wp),     intent(in)           :: q(isize_field, 3)
-    real(wp),     intent(in)           :: s(isize_field, *)
-    real(wp),     intent(out)          :: p(isize_field)
-    real(wp),     intent(inout)        :: tmp1(isize_field), tmp2(isize_field)
-    real(wp),     intent(inout)        :: tmp(isize_field, inb_txc - 3)
-    integer(wi),  intent(in)           :: pdecomp
+
+    real(wp), intent(in) :: q(isize_field, 3)
+    real(wp), intent(in) :: s(isize_field, *)
+    real(wp), intent(out) :: p(isize_field)
+    real(wp), intent(inout) :: tmp1(isize_field), tmp2(isize_field)
+    real(wp), intent(inout) :: tmp(isize_field, inb_txc - 3)
+    integer(wi),  intent(in) :: decomposition
 
     target q, tmp, s
 ! -----------------------------------------------------------------------
-    integer(wi) bcs(2, 2)
-    integer(wi) iq
-    integer(wi) siz, srt, end
-    integer(wi) :: i, decomposition
+    integer(wi) :: bcs(2, 2)
+    integer(wi) :: iq
+    integer(wi) :: srt
+    integer(wi) :: i
 
 ! -----------------------------------------------------------------------
     real(wp) dummy
@@ -68,6 +66,8 @@ subroutine FI_PRESSURE_BOUSSINESQ(q, s, p, tmp1, tmp2, tmp, pdecomp)
 
 ! #######################################################################
 ! Sources
+    call FI_SOURCES_FLOW(q, s, tmp, tmp1)
+
     tmp3 => tmp(:, 1)
     tmp4 => tmp(:, 2)
     tmp5 => tmp(:, 3)
@@ -177,13 +177,12 @@ subroutine FI_PRESSURE_BOUSSINESQ(q, s, p, tmp1, tmp2, tmp, pdecomp)
                         call FI_BUOYANCY(buoyancy, imax, jmax, kmax, s, tmp1, wrk1d)
                     end if
 
-                    call DNS_OMP_PARTITION(isize_field, srt, end, siz)
                     dummy = buoyancy%vector(iq)
 #ifdef USE_BLAS
                     ILEN = isize_field
                     call DAXPY(ILEN, dummy, tmp1(srt), 1, tmp(srt, iq), 1)
 #else
-                    do i = srt, end
+                    do i = 1, isize_field
                             tmp(i, iq) = tmp(i, iq) + dummy*tmp1(i)
                     end do
 #endif
