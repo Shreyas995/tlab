@@ -383,6 +383,8 @@ contains
             call OPR_FOURIER_F_X_EXEC(nx, ny, nz, p, bcs_hb, bcs_ht, c_tmp1)
         end if
 
+#ifndef USE_APU
+
         ! ###################################################################
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
         ! ###################################################################
@@ -492,6 +494,109 @@ contains
                     ip = (j - 1)*isize_line + i
                     c_tmp1(ip, k) = c_wrk1d(j, 6)
                 end do
+#else
+! -----------------------------------------------------------------------
+! With APU ACCELERATION 
+! -----------------------------------------------------------------------
+        do k = 1, nz
+            kglobal = k
+
+            do i = 1, isize_line
+                iglobal = i
+                ! forcing term in c_wrk1d(:,5), i.e. p_wrk1d(:,9), solution will be in c_wrk1d(:,6), i.e., p_wrk1d(:,11)
+                do j = 1, ny
+                    ip = (j - 1)*isize_line + i; c_wrk1d(j, 5) = c_tmp1(ip, k)
+                end do
+
+                ! BCs
+                j = ny + 1; ip = (j - 1)*isize_line + i; bcs(1) = c_tmp1(ip, k) ! Dirichlet or Neumann
+                j = ny + 2; ip = (j - 1)*isize_line + i; bcs(2) = c_tmp1(ip, k) ! Dirichlet or Neumann
+
+                ! Compatibility constraint for singular modes. 2nd order FDMs are non-zero at Nyquist
+                ! The reference value of p at the lower boundary is set to zero
+                if (iglobal == 1 .and. kglobal == 1 .and. ibc == BCS_NN) then
+                    ibc_loc = BCS_DN
+                    bcs(1) = (0.0_wp, 0.0_wp)
+                else
+                    ibc_loc = ibc
+                end if
+
+                ! -----------------------------------------------------------------------
+                if (ibc /= BCS_NN) then     ! Need to calculate and factorize LHS
+                    ! Define \lambda based on modified wavenumbers (real)
+                    if (g(3)%size > 1) then
+                        lambda = g(1)%mwn2(iglobal) + g(3)%mwn2(kglobal)
+                    else
+                        lambda = g(1)%mwn2(iglobal)
+                    end if
+
+                    ! Solve for each (kx,kz) a system of 1 complex equation as 2 independent real equations
+                    call FDM_Int2_Initialize(ny, g(2)%nodes, ibc_loc, lhs, rhs, lambda, &
+                                             p_wrk1d(:, 1:5), p_wrk1d(:, 6:7), p_wrk1d(:, 13:14))
+
+                    ! LU factorization
+                    call PENTADFS(ny - 2, p_wrk1d(2, 1), p_wrk1d(2, 2), p_wrk1d(2, 3), p_wrk1d(2, 4), p_wrk1d(2, 5))
+
+                    ! Particular solutions
+                    call PENTADSS(ny - 2, i1, p_wrk1d(2, 1), p_wrk1d(2, 2), p_wrk1d(2, 3), p_wrk1d(2, 4), p_wrk1d(2, 5), p_wrk1d(2, 6))
+                    call PENTADSS(ny - 2, i1, p_wrk1d(2, 1), p_wrk1d(2, 2), p_wrk1d(2, 3), p_wrk1d(2, 4), p_wrk1d(2, 5), p_wrk1d(2, 7))
+
+                    ! Construct rhs
+                    p_wrk1d(1:2, 11) = 0.0_wp       ! This element is simply the solution at imin of p(0)
+                    p_wrk1d(ny - 1:ny, 12) = 0.0_wp ! This element is simply the solution at imax of p(0)
+                    call MatMul_3d(ny - 2, 2, p_wrk1d(2:, 13), p_wrk1d(2:, 14), p_wrk1d(3:, 9), p_wrk1d(3:, 11))
+
+                    ! Solve pentadiagonal linear system
+                    call PENTADSS(ny - 2, i2, p_wrk1d(2, 1), p_wrk1d(2, 2), p_wrk1d(2, 3), p_wrk1d(2, 4), p_wrk1d(2, 5), p_wrk1d(3, 11))
+
+                    c_wrk1d(:, 6) = (c_wrk1d(:, 6) + bcs(1)*p_wrk1d(:, 6) + bcs(2)*p_wrk1d(:, 7))*norm
+
+                    !   Corrections to the BCS_DD to account for Neumann
+                    if (any([BCS_ND, BCS_NN] == ibc_loc)) then
+                        c_wrk1d(1, 6) = c_wrk1d(1, 6) + p_wrk1d(1, 3)*c_wrk1d(2, 6) &
+                                        + p_wrk1d(1, 4)*c_wrk1d(3, 6) + p_wrk1d(1, 5)*c_wrk1d(4, 6) &
+                                        + p_wrk1d(1, 2)*c_wrk1d(2, 5)*norm
+                    end if
+
+                    if (any([BCS_DN, BCS_NN] == ibc_loc)) then
+                        c_wrk1d(ny, 6) = c_wrk1d(ny, 6) + p_wrk1d(ny, 3)*c_wrk1d(ny - 1, 6) &
+                                         + p_wrk1d(ny, 2)*c_wrk1d(ny - 2, 6) + p_wrk1d(ny, 1)*c_wrk1d(ny - 3, 6) &
+                                         + p_wrk1d(ny, 5)*c_wrk1d(ny - 1, 5)*norm
+                    end if
+
+                else                        ! use precalculated LU factorization
+                    ! Construct rhs
+                    p_wrk1d(1:2, 11) = 0.0_wp       ! This element is simply the solution at imin of p(0)
+                    p_wrk1d(ny - 1:ny, 12) = 0.0_wp ! This element is simply the solution at imax of p(0)
+                    call MatMul_3d(ny - 2, 2, lu_poisson(2,8,i,k), lu_poisson(2,9,i,k), p_wrk1d(3:, 9), p_wrk1d(3:, 11))
+
+                    ! Solve pentadiagonal linear system
+                    call PENTADSS(ny - 2, i2, p_a(2, i, k), p_b(2, i, k), p_c(2, i, k), p_d(2, i, k), p_e(2, i, k), p_wrk1d(3, 11))
+
+                    c_wrk1d(:, 6) = (c_wrk1d(:, 6) + bcs(1)*p_f1(:, i, k) + bcs(2)*p_f2(:, i, k))*norm
+
+                    !   Corrections to the BCS_DD to account for Neumann
+                    if (any([BCS_ND, BCS_NN] == ibc_loc)) then
+                        c_wrk1d(1, 6) = c_wrk1d(1, 6) + p_c(1, i, k)*c_wrk1d(2, 6) &
+                                        + p_d(1, i, k)*c_wrk1d(3, 6) + p_e(1, i, k)*c_wrk1d(4, 6) &
+                                        + p_b(1, i, k)*c_wrk1d(2, 5)*norm
+                    end if
+
+                    if (any([BCS_DN, BCS_NN] == ibc_loc)) then
+                        c_wrk1d(ny, 6) = c_wrk1d(ny, 6) + p_c(ny, i, k)*c_wrk1d(ny - 1, 6) &
+                                         + p_b(ny, i, k)*c_wrk1d(ny - 2, 6) + p_a(ny, i, k)*c_wrk1d(ny - 3, 6) &
+                                         + p_e(ny, i, k)*c_wrk1d(ny - 1, 5)*norm
+                    end if
+
+                end if
+
+                ! Rearrange in memory and normalize
+                do j = 1, ny
+                    ip = (j - 1)*isize_line + i
+                    c_tmp1(ip, k) = c_wrk1d(j, 6)
+                end do
+
+#endif
 
             end do
         end do
