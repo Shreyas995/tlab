@@ -129,6 +129,7 @@ contains
     ! #######################################################################
     ! Calculate f = f + B u, assuming B is tri-diagonal
     subroutine MatMul_3d_add(nx, nlines, r1, r2, r3, u, f)
+        use Tlab_Time, only: mat3dadd_time
         integer(wi), intent(in) :: nx, nlines                       ! nlines linear systems or size n
         real(wp), intent(in) :: r1(nx), r2(nx), r3(nx)              ! RHS diagonals
         real(wp), intent(in) :: u(nlines, nx)                       ! function u
@@ -136,6 +137,19 @@ contains
 
         ! -------------------------------------------------------------------
         integer(wi) n
+
+        ! APU offloading 
+#ifdef USE_APU
+        integer(wi) l
+#endif
+        integer clock_0, clock_1, clock_cycle
+
+        ! -----------------------------------------------------------------------
+        ! Profiling
+        ! -----------------------------------------------------------------------
+        call SYSTEM_CLOCK(clock_0,clock_cycle) 
+        
+#ifndef USE_APU
 
         ! -------------------------------------------------------------------
         ! Boundary
@@ -152,6 +166,51 @@ contains
         ! Boundary
         n = nx
         f(:, n) = f(:, n) + u(:, n - 2)*r3(n) + u(:, n - 1)*r1(n) + u(:, n)*r2(n)   ! r3(nx) contains extended stencil
+
+        ! -----------------------------------------------------------------------
+        ! With APU ACCELERATION 
+        ! -----------------------------------------------------------------------
+#else
+        ! -------------------------------------------------------------------
+        ! Boundary
+        n = 1
+        !$omp target teams distribute parallel do default(none) &
+        !$omp private(l) &
+        !$omp shared(nlines,f,u,n,r2,r3)
+        do l = 1, nlines
+            f(l, n) = f(l, n) + u(l, n)*r2(n) + u(l, n + 1)*r3(n) + u(l, n + 2)*r1(n)   ! r1(1) contains extended stencil
+        end do
+        !$omp end target teams distribute parallel do
+        ! -------------------------------------------------------------------
+        ! Interior points; accelerate
+        !$omp target teams distribute parallel do collapse(2) default(none) &
+        !$omp private(n,l) &
+        !$omp shared(nlines,f,u,nx,r1,r2,r3)
+        do n = 2, nx - 1
+            do l = 1, nlines
+                f(l, n) = f(l, n) + u(l, n - 1)*r1(n) + u(l, n)*r2(n) + u(l, n + 1)*r3(n)
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+
+        ! -------------------------------------------------------------------
+        ! Boundary
+        n = nx
+        !$omp target teams distribute parallel do default(none) &
+        !$omp private(l) &
+        !$omp shared(nlines,f,u,n,r1,r2)
+        do l = 1, nlines
+            f(l, n) = f(l, n) + u(l, n - 2)*r3(n) + u(l, n - 1)*r1(n) + u(l, n)*r2(n)   ! r3(nx) contains extended stencil
+        end do
+        !$omp end target teams distribute parallel do
+
+#endif
+
+        ! -----------------------------------------------------------------------
+        ! Profiling
+        ! -----------------------------------------------------------------------
+        call SYSTEM_CLOCK(clock_1)
+        mat3dadd_time = mat3dadd_time + real(clock_1 - clock_0)/ clock_cycle 
 
         return
     end subroutine MatMul_3d_add
@@ -385,6 +444,8 @@ contains
     ! Calculate f = B u, assuming B is antisymmetric penta-diagonal with 1. upper-diagonal equal to 1
     ! It also assumes equal coefficients in the 2. upper-diagonal for the interior points
     subroutine MatMul_5d_antisym(nx, nlines, r1, r2, r3, r4, r5, u, f, periodic, ibc, rhs_b, rhs_t, bcs_b, bcs_t)
+        use TLab_Time, only: mat5dantisym_time
+
         integer(wi), intent(in) :: nx, nlines          ! nlines linear systems or size n
         real(wp), intent(in) :: r1(nx), r2(nx), r3(nx), r4(nx), r5(nx)  ! RHS diagonals
         real(wp), intent(in) :: u(nlines, nx)          ! function u
@@ -399,6 +460,11 @@ contains
         real(wp) r5_loc     ! 2. upper-diagonal
         integer ibc_loc
 
+! APU offloading 
+#ifdef USE_APU
+        integer(wi) l
+#endif
+        integer clock_0, clock_1, clock_cycle
         ! -------------------------------------------------------------------
         r5_loc = r5(4)      ! The first 3 equations, last 3 equations, can be normalized differently
 
@@ -407,6 +473,13 @@ contains
         else
             ibc_loc = BCS_DD
         end if
+
+        ! -----------------------------------------------------------------------
+        ! Profiling
+        ! -----------------------------------------------------------------------
+        call SYSTEM_CLOCK(clock_0,clock_cycle) 
+
+#ifndef USE_APU
 
         ! -------------------------------------------------------------------
         ! Boundary
@@ -456,6 +529,119 @@ contains
             end if
 
         end if
+        ! -------------------------------------------------------------------
+        ! -----------------------------------------------------------------------
+        ! With APU ACCELERATION 
+        ! not possible to use rx_b preprocessors here!
+        ! -----------------------------------------------------------------------
+#else
+        ! Boundary
+        if (periodic) then
+            !$omp target teams distribute parallel do default(none) &
+            !$omp private(l) &
+            !$omp shared(nlines,f,u,nx,r5_loc)
+            do l = 1, nlines
+                f(l, 1) = u(l, 2) - u(l, nx) + r5_loc*(u(l, 3) - u(l, nx - 1))
+                f(l, 2) = u(l, 3) - u(l, 1 ) + r5_loc*(u(l, 4) - u(l, nx))
+                f(l, 3) = u(l, 4) - u(l, 2 ) + r5_loc*(u(l, 5) - u(l, 1))
+            end do
+            !$omp end target teams distribute parallel do
+
+        else
+            if (any([BCS_ND, BCS_NN, BCS_MIN, BCS_BOTH] == ibc_loc)) then
+                ! f(1) contains boundary condition
+                if (present(bcs_b)) then
+                    !$omp target teams distribute parallel do default(none) &
+                    !$omp private(l) &
+                    !$omp shared(nlines,bcs_b,f,u,rhs_b)
+                    do l = 1, nlines
+                        bcs_b(l) = f(l, 1)*rhs_b(1,3) + u(l, 2)*rhs_b(1,4) + u(l, 3)*rhs_b(1,5) + u(l, 4)*rhs_b(1,1) ! r1(1) with extended stencil
+                        f(l, 2)  = f(l, 1)*rhs_b(2,2) + u(l, 2)*rhs_b(2,3) + u(l, 3)*rhs_b(2,4) + u(l, 4)*rhs_b(2,5)
+                        f(l, 3)  = f(l, 1)*rhs_b(3,1) + u(l, 2)*rhs_b(3,2) + u(l, 3)*rhs_b(3,3) + u(l, 4)*rhs_b(3,4) + u(l, 5)*rhs_b(3,5)
+                    end do
+                    !$omp end target teams distribute parallel do
+                end if
+
+            else
+                !$omp target teams distribute parallel do default(none) &
+                !$omp private(l) &
+                !$omp shared(nlines,f,u,r1,r2,r3,r4,r5)
+                do l = 1, nlines
+                    f(l, 1) = u(l, 1)*r3(1) + u(l, 2)*r4(1) + u(l, 3)*r5(1) + u(l, 4)*r1(1)   ! r1(1) with extended stencil
+                    f(l, 2) = u(l, 1)*r2(2) + u(l, 2)*r3(2) + u(l, 3)*r4(2) + u(l, 4)*r5(2)
+                    f(l, 3) = u(l, 1)*r1(3) + u(l, 2)*r2(3) + u(l, 3)*r3(3) + u(l, 4)*r4(3) + u(l, 5)*r5(3)
+                end do
+                !$omp end target teams distribute parallel do
+
+            end if
+
+        end if
+
+        ! Interior points
+        !$omp target teams distribute parallel do collapse(2) default(none) &
+        !$omp private(n,l) &
+        !$omp shared(nlines,f,u,nx,r5_loc)
+        do l = 1, nlines
+            do n = 4, nx - 3
+                f(l, n) = u(l, n + 1) - u(l, n - 1) + r5_loc*(u(l, n + 2) - u(l, n - 2))
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+
+        ! Boundary
+        if (periodic) then
+            !$omp target teams distribute parallel do default(none) &
+            !$omp private(l) &
+            !$omp shared(nlines,f,nx,u,r5_loc)
+            do l = 1, nlines
+                f(l, nx - 2) = u(l, nx - 1) - u(l, nx - 3) + r5_loc*(u(l, nx) - u(l, nx - 4))
+                f(l, nx - 1) = u(l, nx    ) - u(l, nx - 2) + r5_loc*(u(l, 1 ) - u(l, nx - 3))
+                f(l, nx    ) = u(l, 1     ) - u(l, nx - 1) + r5_loc*(u(l, 2 ) - u(l, nx - 2))
+            end do
+            !$omp end target teams distribute parallel do
+        else
+            if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc_loc)) then
+                ! f(n) contains boundary condition
+                !$omp target teams distribute parallel do default(none) &
+                !$omp private(l) &
+                !$omp shared(nlines,f,nx,u,rhs_t)
+                do l = 1, nlines
+                    f(l, nx - 2) = u(l, nx - 4)*rhs_t(1,1) + u(l, nx - 3)*rhs_t(1,2) + u(l, nx - 2)*rhs_t(1,3) + u(l, nx - 1)*rhs_t(1,4) + f(l, nx)*rhs_t(1,5)
+                    f(l, nx - 1) = u(l, nx - 3)*rhs_t(2,1) + u(l, nx - 2)*rhs_t(2,2) + u(l, nx - 1)*rhs_t(2,3) + f(l, nx    )*rhs_t(2,4)
+                end do
+                !$omp end target teams distribute parallel do
+                
+                if (present(bcs_b)) then
+                    !$omp target teams distribute parallel do default(none) &
+                    !$omp private(l) &
+                    !$omp shared(nlines,bcs_t,f,u,nx,rhs_t)
+                    do l = 1, nlines
+                        bcs_t(l) = u(l, nx - 3)*rhs_t(3,5) + u(l, nx - 2)*rhs_t(3,1) + u(l, nx - 1)*rhs_t(3,2) + f(l, nx)*rhs_t(3,3) ! r5(nx) with extended stencil
+                    end do
+                    !$omp end target teams distribute parallel do
+                end if
+
+            else
+                !$omp target teams distribute parallel do default(none) &
+                !$omp private(l) &
+                !$omp shared(nlines,f,u,nx,r1,r2,r3,r4,r5)
+                do l = 1, nlines
+                    f(l, nx - 2) = u(l, nx - 4)*r1(nx - 2) + u(l, nx - 3)*r2(nx - 2) + u(l, nx - 2)*r3(nx - 2) + u(l, nx - 1)*r4(nx - 2) + u(l, nx)*r5(nx - 2)
+                    f(l, nx - 1) = u(l, nx - 3)*r1(nx - 1) + u(l, nx - 2)*r2(nx - 1) + u(l, nx - 1)*r3(nx - 1) + u(l, nx    )*r4(nx - 1)
+                    f(l, nx    ) = u(l, nx - 3)*r5(nx    ) + u(l, nx - 2)*r1(nx    ) + u(l, nx - 1)*r2(nx    ) + u(l, nx    )*r3(nx    )! r5(nx) with extended stencil
+                end do
+                !$omp end target teams distribute parallel do
+            end if
+
+        end if
+
+#endif
+
+        ! -----------------------------------------------------------------------
+        ! Profiling
+        ! -----------------------------------------------------------------------
+        call SYSTEM_CLOCK(clock_1)
+        mat5dantisym_time = mat5dantisym_time + real(clock_1 - clock_0)/ clock_cycle 
 
         return
     end subroutine MatMul_5d_antisym
@@ -475,6 +661,12 @@ contains
         real(wp) r3_loc     ! center diagonal
         real(wp) r5_loc     ! 2. upper-diagonal
         integer ibc_loc
+
+        ! APU offloading 
+#ifdef USE_APU
+        integer(wi) l
+#endif
+        integer clock_0, clock_1, clock_cycle
 
         ! -------------------------------------------------------------------
         r5_loc = r5(3)      ! The first 2 equations, last 2 equations, are normalized differently
