@@ -54,8 +54,9 @@ end subroutine TRIDFS
 ! Backward substitution step in the Thomas algorith
 ! #######################################################################
 subroutine TRIDSS(nmax, len, a, b, c, f)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, longi
     use TLab_OpenMP
+    use TLab_Time, only: tridss_time
 
 #ifdef USE_OPENMP
     use OMP_LIB
@@ -73,29 +74,39 @@ subroutine TRIDSS(nmax, len, a, b, c, f)
     integer(wi) :: srt, end, siz
     real(wp) :: dummy1, dummy2
 
+integer clock_0, clock_1, clock_cycle
+
 #ifdef USE_BLAS
     real(wp) alpha
     integer ilen
 #else
-    integer(wi) l
+    integer(longi) l
 #endif
 
 ! ###################################################################
 ! -----------------------------------------------------------------------
+! Profiling
+! -----------------------------------------------------------------------
+    call SYSTEM_CLOCK(clock_0,clock_cycle) 
+
+#ifndef USE_APU
+
+! -----------------------------------------------------------------------
 ! Forward sweep
 ! -----------------------------------------------------------------------
+
 #ifdef USE_BLAS
     ilen = len
 #endif
 
 #ifdef USE_BLAS
-!$omp parallel default(none) &
-!$omp private(n,ilen,srt,end,siz,dummy1,dummy2) &
-!$omp shared(f,a,b,c,nmax,len)
+!!$omp parallel default(none) &
+!!$omp private(n,ilen,srt,end,siz,dummy1,dummy2) &
+!!$omp shared(f,a,b,c,nmax,len)
 #else
-!$omp parallel default(none) &
-!$omp private(n,l,srt,end,siz,dummy1,dummy2) &
-!$omp shared(f,a,b,c,nmax,len)
+!!$omp parallel default(none) &
+!!$omp private(n,l,srt,end,siz,dummy1,dummy2) &
+!!$omp shared(f,a,b,c,nmax,len)
 #endif
 
     call TLab_OMP_PARTITION(len, srt, end, siz)
@@ -144,7 +155,41 @@ subroutine TRIDSS(nmax, len, a, b, c, f)
 #endif
     end do
 999 continue
-!$omp end parallel
+!!$omp end parallel
+
+! -----------------------------------------------------------------------
+! With APU ACCELERATION 
+! -----------------------------------------------------------------------
+
+#else
+
+    ! Forward sweep
+    !$omp target teams distribute parallel do default(none) &
+    !$omp private(l) &
+    !$omp shared(f,dummy1,n,nmax,len,a,b,c)
+    do l = 1, len
+
+        do n = 2, nmax
+            f(l, n) = f(l, n) + a(n)*f(l, n - 1)
+        end do
+
+        ! Backward sweep
+
+        f(l, nmax) = f(l, nmax)*b(nmax)
+
+        do n = nmax - 1, 1, -1
+            f(l, n) = (f(l, n) + c(n)*f(l, n + 1))*b(n)
+        end do
+    end do
+    !$omp end target teams distribute parallel do
+    
+#endif
+
+! -----------------------------------------------------------------------
+! Profiling
+! -----------------------------------------------------------------------
+    call SYSTEM_CLOCK(clock_1)
+    tridss_time = tridss_time + real(clock_1 - clock_0)/ clock_cycle 
 
     return
 end subroutine TRIDSS
@@ -189,13 +234,13 @@ subroutine TRIDSS_ADD(nmax, len, a, b, c, f, g, h, d)
 #endif
 
 #ifdef USE_BLAS
-!$omp parallel default(none) &
-!$omp private(n,l,ilen,srt,end,siz,dummy1,dummy2) &
-!$omp shared(f,a,b,c,d,g,h,nmax,len)
+!!$omp parallel default(none) &
+!!$omp private(n,l,ilen,srt,end,siz,dummy1,dummy2) &
+!!$omp shared(f,a,b,c,d,g,h,nmax,len)
 #else
-!$omp parallel default(none) &
-!$omp private(n,l,srt,end,siz,dummy1,dummy2) &
-!$omp shared(f,a,b,c,d,g,h,nmax,len)
+!!$omp parallel default(none) &
+!!$omp private(n,l,srt,end,siz,dummy1,dummy2) &
+!!$omp shared(f,a,b,c,d,g,h,nmax,len)
 #endif
 
     call TLab_OMP_PARTITION(len, srt, end, siz)
@@ -251,7 +296,7 @@ subroutine TRIDSS_ADD(nmax, len, a, b, c, f, g, h, d)
     end do
 
 999 continue
-!$omp end parallel
+!!$omp end parallel
 
     return
 end subroutine TRIDSS_ADD
@@ -267,7 +312,7 @@ end subroutine TRIDSS_ADD
 ! LU factorization stage
 ! #######################################################################
 subroutine TRIDPFS(nmax, a, b, c, d, e)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, longi
 
     implicit none
 
@@ -319,8 +364,9 @@ end subroutine TRIDPFS
 ! Backward substitution step in the Thomas algorith
 ! #######################################################################
 subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, longi
     use TLab_OpenMP
+    use TLab_Time, only: tridpss_time
 
 #ifdef USE_OPENMP
     use OMP_LIB
@@ -337,23 +383,34 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
     real(wp) :: dummy1, dummy2
     integer(wi) :: srt, end, siz
 
-    integer(wi) l, n
+    integer clock_0, clock_1, clock_cycle
+
+    integer(longi) l, n, idx, idx_p
+    real(wp)  wrk_tmp
 #ifdef USE_BLAS
     integer :: ilen
 #endif
+
+! ###################################################################
+! -----------------------------------------------------------------------
+! Profiling
+! -----------------------------------------------------------------------
+call SYSTEM_CLOCK(clock_0,clock_cycle) 
+
+#ifndef USE_APU
 
 ! -------------------------------------------------------------------
 ! Forward sweep
 ! -------------------------------------------------------------------
 
 #ifdef USE_BLAS
-!$omp parallel default( none ) &
-!$omp private(n, l,ilen, dummy1, dummy2, srt, end,siz) &
-!$omp shared(f,wrk,nmax,a,b,c,d,e,len)
+!!$omp parallel default( none ) &
+!!$omp private(n, l,ilen, dummy1, dummy2, srt, end,siz) &
+!!$omp shared(f,wrk,nmax,a,b,c,d,e,len)
 #else
-!$omp parallel default( none ) &
-!$omp private(n, l, dummy1, dummy2, srt, end,siz) &
-!$omp shared(f,wrk,nmax,a,b,c,d,e,len)
+!!$omp parallel default( none ) &
+!!$omp private(n, l, dummy1, dummy2, srt, end,siz) &
+!!$omp shared(f,wrk,nmax,a,b,c,d,e,len)
 #endif
 
     call TLab_OMP_PARTITION(len, srt, end, siz)
@@ -436,7 +493,51 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
 #endif
     end do
 999 continue
-!$omp end parallel
+!!$omp end parallel
+
+! -----------------------------------------------------------------------
+! With APU ACCELERATION 
+! -----------------------------------------------------------------------
+
+#else
+ 
+    !$omp target teams distribute parallel do default(none) &
+    !$omp private(l) &
+    !$omp shared(f,len,n,nmax,wrk,a,b,c,d,e)
+    do l = 1, len
+        ! -------------------------------------------------------------------
+        ! Forward sweep
+        ! -------------------------------------------------------------------
+        f(l, 1) = f(l, 1)*b(1)
+
+        wrk(l) = 0.0_wp
+
+        do n = 2, nmax - 1
+            f(l, n) = f(l, n)*b(n) + a(n)*f(l, n - 1) 
+            wrk(l) = wrk(l) + d(n)*f(l, n)
+        end do
+
+        wrk(l) = wrk(l) + d(1)*f(l, 1)
+
+        f(l, nmax) = (f(l, nmax) - wrk(l))*b(nmax)
+
+        ! -------------------------------------------------------------------
+        ! Backward sweep
+        ! -------------------------------------------------------------------
+        f(l, nmax - 1) = e(nmax - 1)*f(l, nmax) + f(l, nmax - 1)
+        do n = nmax - 2, 1, -1
+            f(l, n) = f(l, n) + c(n)*f(l, n + 1) + e(n)*f(l, nmax)
+        end do
+    end do
+    !$omp end target teams distribute parallel do
+
+#endif
+
+! -----------------------------------------------------------------------
+! Profiling
+! -----------------------------------------------------------------------
+    call SYSTEM_CLOCK(clock_1)
+    tridpss_time = tridpss_time + real(clock_1 - clock_0)/ clock_cycle 
 
     return
 end subroutine TRIDPSS
@@ -474,13 +575,13 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
 ! -------------------------------------------------------------------
 
 #ifdef USE_BLAS
-!$omp parallel default( none ) &
-!$omp private(n, l,ilen, dummy1, dummy2, srt, end,siz) &
-!$omp shared(f,g,h,wrk,nmax,a,b,c,d,e,len)
+!!$omp parallel default( none ) &
+!!$omp private(n, l,ilen, dummy1, dummy2, srt, end,siz) &
+!!$omp shared(f,g,h,wrk,nmax,a,b,c,d,e,len)
 #else
-!$omp parallel default( none ) &
-!$omp private(n, l, dummy1, dummy2, srt, end,siz) &
-!$omp shared(f,g,h,wrk,nmax,a,b,c,d,e,len)
+!!$omp parallel default( none ) &
+!!$omp private(n, l, dummy1, dummy2, srt, end,siz) &
+!!$omp shared(f,g,h,wrk,nmax,a,b,c,d,e,len)
 #endif
 
     call TLab_OMP_PARTITION(len, srt, end, siz)
@@ -571,7 +672,7 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
         f(l, nmax) = f(l, nmax) - g(l, nmax)*h(l, nmax)
     end do
 999 continue
-!$omp end parallel
+!!$omp end parallel
 
     return
 end subroutine TRIDPSS_ADD
