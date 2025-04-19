@@ -176,7 +176,7 @@ contains
         n = 1
         !$omp target teams distribute parallel do default(none) &
         !$omp private(l) &
-        !$omp shared(nlines,f,u,n,r2,r3)
+        !$omp shared(nlines,f,u,n,r1,r2,r3)
         do l = 1, nlines
             f(l, n) = f(l, n) + u(l, n)*r2(n) + u(l, n + 1)*r3(n) + u(l, n + 2)*r1(n)   ! r1(1) contains extended stencil
         end do
@@ -198,7 +198,7 @@ contains
         n = nx
         !$omp target teams distribute parallel do default(none) &
         !$omp private(l) &
-        !$omp shared(nlines,f,u,n,r1,r2)
+        !$omp shared(nlines,f,u,n,r1,r2,r3)
         do l = 1, nlines
             f(l, n) = f(l, n) + u(l, n - 2)*r3(n) + u(l, n - 1)*r1(n) + u(l, n)*r2(n)   ! r3(nx) contains extended stencil
         end do
