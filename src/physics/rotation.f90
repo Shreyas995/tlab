@@ -122,8 +122,8 @@ contains
             geo_u = cos(locProps%parameters(1))*locProps%parameters(2)
             geo_w = -sin(locProps%parameters(1))*locProps%parameters(2)
 
-!$omp parallel default( shared ) &
-!$omp private( ij, dummy,srt,end,siz )
+!!$omp parallel default( shared ) &
+!!$omp private( ij, dummy,srt,end,siz )
             call TLab_OMP_PARTITION(field_sz, srt, end, siz)
 
             dummy = locProps%vector(2)
@@ -132,7 +132,7 @@ contains
                 r(ii, 1) = r(ii, 1) + dummy*(geo_w - u(ii, 3))
                 r(ii, 3) = r(ii, 3) + dummy*(u(ii, 1) - geo_u)
             end do
-!$omp end parallel
+!!$omp end parallel
         end select
 
     end subroutine Rotation_Coriolis
