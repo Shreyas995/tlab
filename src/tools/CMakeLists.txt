@@ -77,7 +77,7 @@ endif()
 # Transformation
 FILE(GLOB sourcefiles "transform/transgrid.f90")
 add_executable(transgrid.x ${sourcefiles})
-target_link_libraries(transgrid.x operators io ${LEVEL1_LIBS} ${LIBS})
+target_link_libraries(transgrid.x operators io fdm ${LEVEL1_LIBS} ${LIBS})
 
 FILE(GLOB sourcefiles "transform/transfields.f90")
 add_executable(transfields.x ${sourcefiles})
