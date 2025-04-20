@@ -196,7 +196,6 @@
    mat5dsym_time = 0.0_wp
    mat3dadd_time = 0.0_wp
    mat3d_time = 0.0_wp
-   MatMul_3d_time = 0.0_wp
 
    DO irun=1,nrun
 
