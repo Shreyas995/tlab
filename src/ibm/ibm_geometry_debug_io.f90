@@ -33,6 +33,8 @@ subroutine IBM_GEOMETRY_DEBUG_IO(epsi, epsj, epsk, tmp1, tmp2, tmp3)
     use FDM, only: g
     use TLab_Memory, only: imax, jmax, kmax, isize_field
     use TLab_Constants, only: wi, wp
+    use IO_Fields, only: io_header_q, IO_Write_Fields
+    use TLab_Time, only: itime
 #ifdef USE_MPI
     use TLabMPI_Transpose
     use TLabMPI_VARS, only: ims_pro

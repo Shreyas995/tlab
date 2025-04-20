@@ -487,13 +487,13 @@ contains
                 end do
 
             else
-!$omp parallel default( shared ) private( ij )
-!$omp do
+!!$omp parallel default( shared ) private( ij )
+!!$omp do
                 do ij = 1, nlines*g%size
                     result(ij, 1) = result(ij, 1) - uf(ij, 1)*dsf(ij, 1)
                 end do
-!$omp end do
-!$omp end parallel
+!!$omp end do
+!!$omp end parallel
             end if
 
             nullify (uf, dsf)
@@ -505,13 +505,13 @@ contains
                 end do
 
             else
-!$omp parallel default( shared ) private( ij )
-!$omp do
+!!$omp parallel default( shared ) private( ij )
+!!$omp do
                 do ij = 1, nlines*g%size
                     result(ij, 1) = result(ij, 1) - u(ij, 1)*dsdx(ij, 1)
                 end do
-!$omp end do
-!$omp end parallel
+!!$omp end do
+!!$omp end parallel
             end if
         end if
 
