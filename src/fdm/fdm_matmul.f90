@@ -124,7 +124,7 @@ contains
         ! -----------------------------------------------------------------------
         ! With APU ACCELERATION 
         ! -----------------------------------------------------------------------
-        !$omp target teams distribute parallel do collapse(2)  default(none) &
+        !$omp target teams distribute parallel do default(none) &
         !$omp private(l,n) &
         !$omp shared(u,f,rhs,len,nx)
         do n = 4, nx - 3
