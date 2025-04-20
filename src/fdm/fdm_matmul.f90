@@ -128,7 +128,6 @@ contains
         !$omp private(l,n) &
         !$omp shared(u,f,rhs,len,nx)
         do n = 4, nx - 3
-            !$omp simd
             do l = 1, len
                 f(l, n) = u(l, n - 1)*rhs(n,1) + u(l, n)*rhs(n,2) + u(l, n + 1)
             end do
