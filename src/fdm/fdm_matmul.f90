@@ -124,13 +124,13 @@ contains
         ! -----------------------------------------------------------------------
         ! With APU ACCELERATION 
         ! -----------------------------------------------------------------------
-        !$omp target teams distribute parallel do default(none) &
+        !$omp target teams distribute parallel do collapse(2)  default(none) &
         !$omp private(l,n) &
-        !$omp shared(u,f,r1_i,r2_i,len,nx)
+        !$omp shared(u,f,rhs,len,nx)
         do n = 4, nx - 3
             !$omp simd
             do l = 1, len
-                f(l, n) = u(l, n - 1)*r1_i(n) + u(l, n)*r2_i(n) + u(l, n + 1)
+                f(l, n) = u(l, n - 1)*rhs(n,1) + u(l, n)*rhs(n,2) + u(l, n + 1)
             end do
         end do
         !$omp end target teams distribute parallel do
