@@ -67,6 +67,7 @@ contains
     !                r_41  1.  r_43         <- interior points start here
     !                     ...  ...  ...
     subroutine MatMul_3d(rhs, u, f, ibc, rhs_b, rhs_t, bcs_b, bcs_t)
+        use TLab_Time, only: mat3d_time
         real(wp), intent(in) :: rhs(:, :)                                   ! diagonals of B
         real(wp), intent(in) :: u(:, :)                                     ! vector u
         real(wp), intent(out) :: f(:, :)                                    ! vector f = B u
@@ -75,11 +76,22 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, len
         integer ibc_loc
+        ! APU offloading 
+#ifdef USE_APU
+        integer(wi) l
+#endif
+        integer clock_0, clock_1, clock_cycle
+
+        ! -----------------------------------------------------------------------
+        ! Profiling
+        ! -----------------------------------------------------------------------
+        call SYSTEM_CLOCK(clock_0,clock_cycle) 
 
         ! #######################################################################
         nx = size(rhs, 1)
+        len = size(f,1)
         ! print *, nd = size(rhs, 2)    ! # diagonals, should be 3
         ! size(u,2) and size(f,2) should be nx
         ! size(u,1) and size(f,1) and size(bcs_b) and size(bcs_t) should be the same (number of equations to solve)
@@ -102,13 +114,27 @@ contains
             f(:, 2) = u(:, 1)*r1_i(2) + u(:, 2)*r2_i(2) + u(:, 3)*r3_i(2)
             f(:, 3) = u(:, 2)*r1_i(3) + u(:, 3)*r2_i(3) + u(:, 4)*r3_i(3)
         end if
-
+#ifndef USE_APU
         ! -------------------------------------------------------------------
         ! Interior points; accelerate
         do n = 4, nx - 3
             f(:, n) = u(:, n - 1)*r1_i(n) + u(:, n)*r2_i(n) + u(:, n + 1)
         end do
-
+#else
+        ! -----------------------------------------------------------------------
+        ! With APU ACCELERATION 
+        ! -----------------------------------------------------------------------
+        !$omp target teams distribute parallel do default(none) &
+        !$omp private(l) &
+        !$omp shared(u,f,r1_i,r2_i,len,nx)
+        do n = 4, nx - 3
+            !$omp simd
+            do l = 1, len
+                f(l, n) = u(l, n - 1)*r1_i(n) + u(l, n)*r2_i(n) + u(l, n + 1)
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+#endif
         ! -------------------------------------------------------------------
         ! Boundary; the last 3/2+1+1=3 rows might be different
         if (any([BCS_MAX, BCS_BOTH] == ibc_loc)) then
@@ -121,6 +147,12 @@ contains
             f(:, nx - 1) = u(:, nx - 2)*r1_i(nx - 1) + u(:, nx - 1)*r2_i(nx - 1) + u(:, nx)*r3_i(nx - 1)
             f(:, nx) = u(:, nx - 2)*r3_i(nx) + u(:, nx - 1)*r1_i(nx) + u(:, nx)*r2_i(nx) ! r3(nx) contains extended stencil
         end if
+
+        ! -----------------------------------------------------------------------
+        ! Profiling
+        ! -----------------------------------------------------------------------
+        call SYSTEM_CLOCK(clock_1)
+        mat3d_time = mat3d_time + real(clock_1 - clock_0)/ clock_cycle 
 
         return
     end subroutine MatMul_3d
