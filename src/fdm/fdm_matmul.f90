@@ -135,7 +135,7 @@ contains
                 end do
             end do
             call SYSTEM_CLOCK(clock_4,clock_cycle) 
-            !$omp end target teams distribute parallel 
+            !$omp end target teams distribute parallel do
         !$omp end target data
         call SYSTEM_CLOCK(clock_5,clock_cycle) 
 #endif
