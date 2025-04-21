@@ -199,6 +199,9 @@
    mat5dsym_time = 0.0_wp
    mat3dadd_time = 0.0_wp
    mat3d_time = 0.0_wp
+   t_map_in = 0.0_wp
+   t_compute = 0.0_wp
+   t_map_out = 0.0_wp
 
    DO irun=1,nrun
 
@@ -275,6 +278,9 @@
    PRINT 101, 'MATMUL5D_SYM  ',mat5dsym_time/nrun, 100*mat5dsym_time/SUM(runtime)
    PRINT 101, 'MATMUL3D_ADD  ',mat3dadd_time/nrun, 100*mat3dadd_time/SUM(runtime)
    PRINT 101, 'MATMUL3D      ',mat3d_time/nrun, 100*mat3d_time/SUM(runtime)
+   PRINT 101, 'MATMUL3D      ',t_map_in/nrun, 100*t_map_in/SUM(runtime)
+   PRINT 101, 'MATMUL3D      ',t_compute/nrun, 100*t_compute/SUM(runtime)
+   PRINT 101, 'MATMUL3D      ',t_map_out/nrun, 100*t_map_out/SUM(runtime)
 100 FORMAT('T MEAN|MIN|MAX                 [s]:', F7.3, 1x, F7.3, 1x , F7.3)
 101 FORMAT('Time per run in ',A15,'[s]:', F9.5,'s (', F7.4,'%)') 
 
