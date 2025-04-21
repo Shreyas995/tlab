@@ -114,7 +114,7 @@ contains
             f(:, 2) = u(:, 1)*r1_i(2) + u(:, 2)*r2_i(2) + u(:, 3)*r3_i(2)
             f(:, 3) = u(:, 2)*r1_i(3) + u(:, 3)*r2_i(3) + u(:, 4)*r3_i(3)
         end if
-#ifndef USE_APU
+#ifdef USE_APU
         ! -------------------------------------------------------------------
         ! Interior points; accelerate
         do n = 4, nx - 3

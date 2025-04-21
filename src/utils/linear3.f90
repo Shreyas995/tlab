@@ -89,7 +89,7 @@ integer clock_0, clock_1, clock_cycle
 ! -----------------------------------------------------------------------
     call SYSTEM_CLOCK(clock_0,clock_cycle) 
 
-#ifndef USE_APU
+#ifdef USE_APU
 
 ! -----------------------------------------------------------------------
 ! Forward sweep
@@ -397,7 +397,7 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
 ! -----------------------------------------------------------------------
 call SYSTEM_CLOCK(clock_0,clock_cycle) 
 
-#ifndef USE_APU
+#ifdef USE_APU
 
 ! -------------------------------------------------------------------
 ! Forward sweep
