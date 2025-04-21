@@ -67,7 +67,7 @@ contains
     !                r_41  1.  r_43         <- interior points start here
     !                     ...  ...  ...
     subroutine MatMul_3d(rhs, u, f, ibc, rhs_b, rhs_t, bcs_b, bcs_t)
-        use TLab_Time, only: mat3d_time, t_map_in, t_compute, t_map_out
+        use TLab_Time, only: mat3d_time, t_compute
         real(wp), intent(in) :: rhs(:, :)                                   ! diagonals of B
         real(wp), intent(in) :: u(:, :)                                     ! vector u
         real(wp), intent(out) :: f(:, :)                                    ! vector f = B u
@@ -82,7 +82,7 @@ contains
 #ifdef USE_APU
         integer(wi) l
 #endif
-        integer clock_0, clock_1, clock_2, clock_cycle, clock_3, clock_4, clock_5
+        integer clock_0, clock_1, clock_2, clock_cycle, clock_3
 
         ! -----------------------------------------------------------------------
         ! Profiling
@@ -124,20 +124,17 @@ contains
         ! -----------------------------------------------------------------------
         ! With APU ACCELERATION 
         ! -----------------------------------------------------------------------
-        call SYSTEM_CLOCK(clock_2,clock_cycle) 
-        !$omp target data map(to:u,rhs) map(from:f)
-            call SYSTEM_CLOCK(clock_3,clock_cycle) 
-            !$omp target teams distribute parallel do collapse(2) default(none) &
-            !$omp private(l,n) shared(u,f,rhs,len,nx)
-            do l = 1, len
-                do n = 4, nx - 3
+        call SYSTEM_CLOCK(clock_2) 
+        !$omp target teams distribute parallel do collapse(2) default(none) &
+        !$omp private(l,n) & 
+        !$omp shared(len,u,f,rhs,nx)
+            do n = 4, nx - 3
+                do l = 1, len
                     f(l, n) = u(l, n - 1)*rhs(n,1) + u(l, n)*rhs(n,2) + u(l, n + 1)
                 end do
             end do
-            !$omp end target teams distribute parallel do
-            call SYSTEM_CLOCK(clock_4,clock_cycle) 
-        !$omp end target data
-        call SYSTEM_CLOCK(clock_5,clock_cycle) 
+        !$omp end target teams distribute parallel do
+        call SYSTEM_CLOCK(clock_3) 
 #endif
         ! -------------------------------------------------------------------
         ! Boundary; the last 3/2+1+1=3 rows might be different
@@ -157,9 +154,7 @@ contains
         ! -----------------------------------------------------------------------
         call SYSTEM_CLOCK(clock_1)
         mat3d_time = mat3d_time + real(clock_1 - clock_0)/ real(clock_cycle) 
-        t_map_in   = t_map_in + real(clock_3 - clock_2) / real(clock_cycle)
-        t_compute  = t_compute + real(clock_4 - clock_3) / real(clock_cycle)
-        t_map_out  = t_map_out + real(clock_5 - clock_4) / real(clock_cycle)
+        t_compute  = t_compute + real(clock_3 - clock_2) / real(clock_cycle)
         return
     end subroutine MatMul_3d
 
