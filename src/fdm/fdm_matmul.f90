@@ -124,13 +124,11 @@ contains
         ! -----------------------------------------------------------------------
         ! With APU ACCELERATION 
         ! -----------------------------------------------------------------------
-        !$omp target data map(to: u, rhs) map(from: f)
-        !$omp target teams distribute parallel do default(none) &
+        !$omp target teams distribute parallel do collapse(2) default(none) &
         !$omp private(l,n) shared(u,f,rhs,len,nx)
         do l = 1, len
-            !$omp simd
             do n = 4, nx - 3
-            f(l, n) = u(l, n - 1)*rhs(n,1) + u(l, n)*rhs(n,2) + u(l, n + 1)
+                f(l, n) = u(l, n - 1)*rhs(n,1) + u(l, n)*rhs(n,2) + u(l, n + 1)
             end do
         end do
         !$omp end target teams distribute parallel do
