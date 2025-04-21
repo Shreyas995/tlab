@@ -124,7 +124,6 @@ contains
         ! -----------------------------------------------------------------------
         ! With APU ACCELERATION 
         ! -----------------------------------------------------------------------
-        print *, "APU loop executed"
         call SYSTEM_CLOCK(clock_2,clock_cycle) 
         !$omp target data map(to:u,rhs) map(from:f)
             call SYSTEM_CLOCK(clock_3,clock_cycle) 
