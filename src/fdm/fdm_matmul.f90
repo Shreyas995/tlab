@@ -114,7 +114,7 @@ contains
             f(:, 2) = u(:, 1)*r1_i(2) + u(:, 2)*r2_i(2) + u(:, 3)*r3_i(2)
             f(:, 3) = u(:, 2)*r1_i(3) + u(:, 3)*r2_i(3) + u(:, 4)*r3_i(3)
         end if
-#ifdef USE_APU
+#ifndef USE_APU
         ! -------------------------------------------------------------------
         ! Interior points; accelerate
         do n = 4, nx - 3
@@ -124,19 +124,17 @@ contains
         ! -----------------------------------------------------------------------
         ! With APU ACCELERATION 
         ! -----------------------------------------------------------------------
-        ! !$omp target teams distribute parallel do default(none) &
-        ! !$omp private(l,n) &
-        ! !$omp shared(u,f,rhs,len,nx)
-        ! do n = 4, nx - 3
-        !     !$omp simd
-        !     do l = 1, len
-        !         f(l, n) = u(l, n - 1)*rhs(n,1) + u(l, n)*rhs(n,2) + u(l, n + 1)
-        !     end do
-        ! end do
-        ! !$omp end target teams distribute parallel do
-        do n = 4, nx - 3
-            f(:, n) = u(:, n - 1)*r1_i(n) + u(:, n)*r2_i(n) + u(:, n + 1)
+        !$omp target data map(to: u, rhs) map(from: f)
+        !$omp target teams distribute parallel do default(none) &
+        !$omp private(l,n) shared(u,f,rhs,len,nx)
+        do l = 1, len
+            !$omp simd
+            do n = 4, nx - 3
+            f(l, n) = u(l, n - 1)*rhs(n,1) + u(l, n)*rhs(n,2) + u(l, n + 1)
+            end do
         end do
+        !$omp end target teams distribute parallel do
+        !$omp end target data
 #endif
         ! -------------------------------------------------------------------
         ! Boundary; the last 3/2+1+1=3 rows might be different
