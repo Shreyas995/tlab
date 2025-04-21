@@ -7,7 +7,7 @@
    use TLab_Constants, only: BCS_NN, wfile
    use TLab_Time, only: itime
    use TLab_Time, only: mat5dantisym_time,mat5dsym_time,mat3dadd_time,mat3d_time
-   use TLab_Time, only: trans_time, tridss_time, tridpss_time
+   use TLab_Time, only: trans_time, tridss_time, tridpss_time, t_map_in, t_compute, t_map_out
    use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop, TLab_Start, stagger_on
    use TLab_Memory, only: TLab_Initialize_Memory
    use TLab_Memory, only: imax, jmax, kmax, inb_txc
