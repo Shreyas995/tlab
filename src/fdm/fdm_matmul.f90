@@ -134,8 +134,8 @@ contains
                     f(l, n) = u(l, n - 1)*rhs(n,1) + u(l, n)*rhs(n,2) + u(l, n + 1)
                 end do
             end do
-            call SYSTEM_CLOCK(clock_4,clock_cycle) 
             !$omp end target teams distribute parallel do
+            call SYSTEM_CLOCK(clock_4,clock_cycle) 
         !$omp end target data
         call SYSTEM_CLOCK(clock_5,clock_cycle) 
 #endif
