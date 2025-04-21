@@ -132,7 +132,6 @@ contains
             end do
         end do
         !$omp end target teams distribute parallel do
-        !$omp end target data
 #endif
         ! -------------------------------------------------------------------
         ! Boundary; the last 3/2+1+1=3 rows might be different
