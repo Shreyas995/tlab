@@ -124,6 +124,7 @@ contains
         ! -----------------------------------------------------------------------
         ! With APU ACCELERATION 
         ! -----------------------------------------------------------------------
+        print *, "APU loop executed"
         call SYSTEM_CLOCK(clock_2,clock_cycle) 
         !$omp target data map(to:u,rhs) map(from:f)
             call SYSTEM_CLOCK(clock_3,clock_cycle) 
@@ -157,9 +158,9 @@ contains
         ! -----------------------------------------------------------------------
         call SYSTEM_CLOCK(clock_1)
         mat3d_time = mat3d_time + real(clock_1 - clock_0)/ real(clock_cycle) 
-        t_map_in   = real(clock_3 - clock_2) / real(clock_cycle)
-        t_compute  = real(clock_4 - clock_3) / real(clock_cycle)
-        t_map_out  = real(clock_5 - clock_4) / real(clock_cycle)
+        t_map_in   = t_map_in + real(clock_3 - clock_2) / real(clock_cycle)
+        t_compute  = t_compute + real(clock_4 - clock_3) / real(clock_cycle)
+        t_map_out  = t_map_out + real(clock_5 - clock_4) / real(clock_cycle)
         return
     end subroutine MatMul_3d
 

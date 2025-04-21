@@ -267,7 +267,7 @@
       runtime(irun) = real(clock_1-clock_0)/clock_cycle
    
    end do
-   
+
    PRINT 100,SUM(runtime)/nrun, MINVAL(runtime),MAXVAL(runtime)
    PRINT 101, 'Transpos      ',trans_time/nrun, 100*trans_time/SUM(runtime)
    PRINT 101, 'Addition      ',add_time/nrun, 100*add_time/SUM(runtime) 
@@ -278,9 +278,9 @@
    PRINT 101, 'MATMUL5D_SYM  ',mat5dsym_time/nrun, 100*mat5dsym_time/SUM(runtime)
    PRINT 101, 'MATMUL3D_ADD  ',mat3dadd_time/nrun, 100*mat3dadd_time/SUM(runtime)
    PRINT 101, 'MATMUL3D      ',mat3d_time/nrun, 100*mat3d_time/SUM(runtime)
-   PRINT 101, 'MATMUL3D      ',t_map_in/nrun, 100*t_map_in/SUM(runtime)
-   PRINT 101, 'MATMUL3D      ',t_compute/nrun, 100*t_compute/SUM(runtime)
-   PRINT 101, 'MATMUL3D      ',t_map_out/nrun, 100*t_map_out/SUM(runtime)
+   PRINT 101, 'MATMUL3Din    ',t_map_in/nrun, 100*t_map_in/SUM(runtime)
+   PRINT 101, 'MATMUL3Dcom   ',t_compute/nrun, 100*t_compute/SUM(runtime)
+   PRINT 101, 'MATMUL3Dout   ',t_map_out/nrun, 100*t_map_out/SUM(runtime)
 100 FORMAT('T MEAN|MIN|MAX                 [s]:', F7.3, 1x, F7.3, 1x , F7.3)
 101 FORMAT('Time per run in ',A15,'[s]:', F9.5,'s (', F7.4,'%)') 
 
