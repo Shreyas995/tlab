@@ -17,10 +17,7 @@ program INIRAND
 #endif
     use IO_Fields
     use TLab_Grid
-    use FDM, only: FDM_Initialize
-    use Thermodynamics, only: Thermodynamics_Initialize_Parameters
     use NavierStokes, only: NavierStokes_Initialize_Parameters
-    use TLab_Background, only: TLab_Initialize_Background
     use OPR_Fourier, only: OPR_Fourier_Initialize
     use RAND_LOCAL
 
@@ -39,19 +36,13 @@ program INIRAND
 #endif
 
     call TLab_Grid_Read(gfile, x, y, z)
-    call FDM_Initialize(ifile)
 
     call NavierStokes_Initialize_Parameters(ifile)
-    call Thermodynamics_Initialize_Parameters(ifile)
-
-    call TLab_Consistency_Check()
 
     call Inirand_Initialize_Parameters(ifile)
 
     ! ###################################################################
     call TLab_Initialize_Memory(C_FILE_LOC)
-
-    call TLab_Initialize_Background(ifile)
 
     if (fourier_on) then
         call OPR_Fourier_Initialize()

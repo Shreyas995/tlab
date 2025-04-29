@@ -96,7 +96,6 @@ module TLab_Pointers_C
     use TLab_Constants, only: wp
     implicit none
 
-    complex(wp), pointer :: c_wrk1d(:, :) => null()
     complex(wp), pointer :: c_wrk3d(:, :) => null()
 
 end module TLab_Pointers_C
@@ -294,7 +293,6 @@ contains
         use TLab_Pointers_C
         use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
 
-        if (allocated(wrk1d)) call c_f_pointer(c_loc(wrk1d), c_wrk1d, shape=[jmax, inb_wrk1d/2])
         if (allocated(wrk3d)) call c_f_pointer(c_loc(wrk3d), c_wrk3d, shape=[isize_txc_dimz/2, kmax])
 
         return

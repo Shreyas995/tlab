@@ -2,7 +2,7 @@
 #include "dns_error.h"
 
 module TLab_WorkFlow
-    use TLab_Constants, only: sp, wp, wi, longi, lfile, efile
+    use TLab_Constants, only: sp, wp, wi, longi, lfile, efile, fmt_r
 #ifdef USE_OPENMP
     use OMP_LIB
 #endif
@@ -136,17 +136,15 @@ contains
 
 #ifdef USE_MPI
         ims_time_max = MPI_WTIME()
-        write (line, 1000) ims_time_max - ims_time_min
+        write (line, '('//fmt_r//')') ims_time_max - ims_time_min
         line = 'Time elapse ....................: '//trim(adjustl(line))
         call TLab_Write_ASCII(lfile, line)
 
 #ifdef PROFILE_ON
-        write (line, 1000) ims_time_trans
+        write (line, '('//fmt_r//')') ims_time_trans
         line = 'Time in array transposition ....: '//trim(ADJUST(line))
         call TLab_Write_ASCII(lfile, line)
 #endif
-
-1000    format(G_FORMAT_R)
 
 #endif
 

@@ -195,12 +195,6 @@ contains
             visc = 1.0_wp/reynolds
         end if
 
-        select case (nse_eqns)
-        case (DNS_EQNS_INCOMPRESSIBLE, DNS_EQNS_ANELASTIC)
-            prandtl = schmidt(1)
-
-        end select
-
         ! ###################################################################
         if (FilterDomain(1)%type == DNS_FILTER_HELMHOLTZ .and. &
             all([DNS_FILTER_BCS_DIRICHLET, DNS_FILTER_BCS_SOLID, DNS_FILTER_BCS_NEUMANN] /= FilterDomain(2)%BcsMin)) then

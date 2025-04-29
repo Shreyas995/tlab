@@ -10,10 +10,7 @@ subroutine TLab_Initialize_Parameters(inifile)
     use TLab_WorkFlow, only: imode_sim, imode_verbosity
     use TLab_WorkFlow, only: flow_on, scal_on, fourier_on, stagger_on
     use TLab_Memory, only: imax, jmax, kmax
-#ifdef USE_MPI
-    use TLabMPI_VARS, only: ims_npro, ims_npro_i, ims_npro_j, ims_npro_k
-#endif
-    use IO_Fields
+    use IO_Fields, only: io_fileformat, io_datatype, IO_MPIIO, IO_NETCDF, IO_NOFILE, IO_TYPE_DOUBLE, IO_TYPE_SINGLE
     implicit none
 
     character(len=*), intent(in) :: inifile

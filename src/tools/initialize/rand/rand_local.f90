@@ -8,7 +8,7 @@ module RAND_LOCAL
 #ifdef USE_MPI
     use TLabMPI_VARS, only: ims_pro
 #endif
-    use FDM, only: g
+    use TLab_Grid, only: y, z
     use Averages, only: AVG1V2D
     use Distributions
     use OPR_Fourier
@@ -138,7 +138,7 @@ contains
         end select
 
         if (psd%type > 0) then
-            if (g(2)%size == 1) then        ! 2D Fourier transform
+            if (y%size == 1) then        ! 2D Fourier transform
                 idim = 2
             else                            ! 3D Fourier transform
                 idim = 3
@@ -181,7 +181,7 @@ contains
 #define Ryz cov(6)
 
         ! ###################################################################
-        if (g(3)%size > 1) then
+        if (z%size > 1) then
             if (Rxz /= 0.0_wp .or. Ryz /= 0.0_wp) then ! only 2D case developed
                 call TLab_Write_ASCII(efile, 'Terms Rxz and Ryz not developed yet.')
                 call TLab_Stop(DNS_ERROR_UNDEVELOP)
