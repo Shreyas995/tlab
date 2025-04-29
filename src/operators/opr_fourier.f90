@@ -2,7 +2,7 @@
 
 module OPR_Fourier
     use TLab_Constants, only: wp, wi, pi_wp, efile
-    use TLab_Memory, only: isize_txc_field, isize_txc_dimz
+    use TLab_Memory, only: isize_txc_field, isize_txc_dimz, isize_field
     use TLab_Memory, only: imax, jmax, kmax
     use TLab_Arrays, only: wrk3d
     use TLab_Pointers_C, only: c_wrk3d
@@ -437,7 +437,7 @@ contains
     subroutine OPR_Fourier_F(flag_mode, nx, ny, nz, in, out, tmp1)
         integer(wi) :: flag_mode                                ! 1D, 2D or 3D
         integer(wi) :: nx, ny, nz
-        real(wp), intent(INOUT) :: in(isize_txc_field)          ! extended w/ BCs below
+        real(wp), intent(in) :: in(isize_field)
         real(wp), intent(OUT) :: out(isize_txc_dimz, nz)
         real(wp), intent(INOUT) :: tmp1(isize_txc_dimz, nz)
 

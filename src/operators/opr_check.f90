@@ -6,7 +6,6 @@
 subroutine OPR_CHECK()
     use TLab_Constants, only: lfile, wp, wi
     use TLab_Memory, only: imax, jmax, kmax, isize_field, inb_flow_array, inb_txc
-    use FDM, only: g
     use TLab_WorkFlow, only: fourier_on
     use TLab_WorkFlow, only: TLab_Write_ASCII
     use TLab_Arrays
@@ -18,6 +17,7 @@ subroutine OPR_CHECK()
     use TLabMPI_VARS, only: ims_npro_i, ims_npro_k
     use TLabMPI_Transpose
 #endif
+    use TLab_Grid, only: x, z
 
     implicit none
 
@@ -34,31 +34,31 @@ subroutine OPR_CHECK()
 #endif
 
 ! ###################################################################
-    if ( inb_flow_array < 3 .or. inb_txc < 4 ) return ! not enough memory
+    if (inb_flow_array < 3 .or. inb_txc < 2) return ! not enough memory
 
 ! Create random array
-    call RANDOM_NUMBER(q(1:isize_field, 1))
+    call random_number(q(1:isize_field, 1))
 
 ! -------------------------------------------------------------------
 ! Transposition along OX
 ! -------------------------------------------------------------------
 #ifdef USE_MPI
     if (ims_npro_i > 1) then
-        call SYSTEM_CLOCK(t_srt, PROC_CYCLES, MAX_CYCLES)
+        call system_clock(t_srt, PROC_CYCLES, MAX_CYCLES)
         call TLabMPI_Trp_ExecI_Forward(q(:, 1), wrk3d, tmpi_plan_dx)
         call TLabMPI_Trp_ExecI_Backward(wrk3d, q(:, 2), tmpi_plan_dx)
-        call SYSTEM_CLOCK(t_end, PROC_CYCLES, MAX_CYCLES)
+        call system_clock(t_end, PROC_CYCLES, MAX_CYCLES)
 
         idummy = t_end - t_srt
         call MPI_REDUCE(idummy, t_dif, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD, ims_err)
-        write (str, 100) real(t_dif,wp)/PROC_CYCLES
+        write (str, 100) real(t_dif, wp)/PROC_CYCLES
 
-        dummy = MAXVAL(ABS(q(1:isize_field, 1) - q(1:isize_field, 2)))
+        dummy = maxval(abs(q(1:isize_field, 1) - q(1:isize_field, 2)))
         call MPI_REDUCE(dummy, residual, 1, MPI_REAL8, MPI_MAX, 0, MPI_COMM_WORLD, ims_err)
 
         write (line, 100) residual
         line = 'Checking MPI transposition for Ox derivatives: Residual ' &
-               //TRIM(ADJUSTL(line))//'. Max. elapsed time '//TRIM(ADJUSTL(str))//' sec.'
+               //trim(adjustl(line))//'. Max. elapsed time '//trim(adjustl(str))//' sec.'
         call TLab_Write_ASCII(lfile, line)
 
     end if
@@ -69,23 +69,23 @@ subroutine OPR_CHECK()
 ! -------------------------------------------------------------------
 #ifdef USE_MPI
     if (ims_npro_k > 1) then
-        call SYSTEM_CLOCK(t_srt, PROC_CYCLES, MAX_CYCLES)
+        call system_clock(t_srt, PROC_CYCLES, MAX_CYCLES)
         idummy = itime; itime = -1  ! set itime to -1 for this call to trigger interruption
         call TLabMPI_Trp_ExecK_Forward(q(:, 1), wrk3d, tmpi_plan_dz)
         itime = idummy
         call TLabMPI_Trp_ExecK_Backward(wrk3d, q(:, 2), tmpi_plan_dz)
-        call SYSTEM_CLOCK(t_end, PROC_CYCLES, MAX_CYCLES)
+        call system_clock(t_end, PROC_CYCLES, MAX_CYCLES)
 
         idummy = t_end - t_srt
         call MPI_REDUCE(idummy, t_dif, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD, ims_err)
-        write (str, 100) real(t_dif,wp)/PROC_CYCLES
+        write (str, 100) real(t_dif, wp)/PROC_CYCLES
 
-        dummy = MAXVAL(ABS(q(1:isize_field, 1) - q(1:isize_field, 2)))
+        dummy = maxval(abs(q(1:isize_field, 1) - q(1:isize_field, 2)))
         call MPI_REDUCE(dummy, residual, 1, MPI_REAL8, MPI_MAX, 0, MPI_COMM_WORLD, ims_err)
 
         write (line, 100) residual
         line = 'Checking MPI transposition for Oz derivatives: Residual ' &
-               //TRIM(ADJUSTL(line))//'. Max. elapsed time '//TRIM(ADJUSTL(str))//' sec.'
+               //trim(adjustl(line))//'. Max. elapsed time '//trim(adjustl(str))//' sec.'
         call TLab_Write_ASCII(lfile, line)
 
     end if
@@ -96,14 +96,10 @@ subroutine OPR_CHECK()
 ! -------------------------------------------------------------------
     if (fourier_on) then
 
-        txc(1:isize_field, 3) = q(1:isize_field, 1)
-
-        call SYSTEM_CLOCK(t_srt, PROC_CYCLES, MAX_CYCLES)
-        call OPR_Fourier_F(2, imax, jmax, kmax, txc(1, 3), txc(1, 1), txc(1, 2))
-        call OPR_Fourier_B(2, imax, jmax, kmax, txc(1, 1), txc(1, 2))
-        call SYSTEM_CLOCK(t_end, PROC_CYCLES, MAX_CYCLES)
-
-        q(1:isize_field, 2) = txc(1:isize_field, 2)
+        call system_clock(t_srt, PROC_CYCLES, MAX_CYCLES)
+        call OPR_Fourier_F(2, imax, jmax, kmax, q(1, 1), txc(1, 1), txc(1, 2))
+        call OPR_Fourier_B(2, imax, jmax, kmax, txc(1, 1), q(1, 2))
+        call system_clock(t_end, PROC_CYCLES, MAX_CYCLES)
 
 #ifdef USE_MPI
         idummy = t_end - t_srt
@@ -111,20 +107,20 @@ subroutine OPR_CHECK()
 #else
         t_dif = t_end - t_srt
 #endif
-        write (str, 100) real(t_dif,wp)/PROC_CYCLES
+        write (str, 100) real(t_dif, wp)/PROC_CYCLES
 
-        norm = 1.0_wp/real(g(1)%size*g(3)%size,wp)
+        norm = 1.0_wp/real(x%size*z%size, wp)
 
 #ifdef USE_MPI
-        dummy = MAXVAL(ABS(norm*q(1:isize_field, 2) - q(1:isize_field, 1)))
+        dummy = maxval(abs(norm*q(1:isize_field, 2) - q(1:isize_field, 1)))
         call MPI_REDUCE(dummy, residual, 1, MPI_REAL8, MPI_MAX, 0, MPI_COMM_WORLD, ims_err)
 #else
-        residual = MAXVAL(ABS(norm*q(1:isize_field, 2) - q(1:isize_field, 1)))
+        residual = maxval(abs(norm*q(1:isize_field, 2) - q(1:isize_field, 1)))
 #endif
 
         write (line, 100) residual
         line = 'Checking FFT routines: Residual ' &
-               //TRIM(ADJUSTL(line))//'. Max. elapsed time '//TRIM(ADJUSTL(str))//' sec.'
+               //trim(adjustl(line))//'. Max. elapsed time '//trim(adjustl(str))//' sec.'
         call TLab_Write_ASCII(lfile, line)
 
     end if
