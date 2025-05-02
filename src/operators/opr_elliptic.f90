@@ -399,8 +399,9 @@ contains
         tmp1 = tmp1*norm
 
         ! ###################################################################
-        ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
+        ! Computing transpositions
         ! ###################################################################
+        ibc_loc = ibc 
         do k = 1, nz
 #ifdef USE_MPI
             kglobal = k + ims_offset_k
@@ -410,47 +411,99 @@ contains
 
             ! Make x direction last one and leave y direction first
             call TLab_Transpose_COMPLEX(c_tmp1(:, k), isize_line, ny + 2, isize_line, c_tmp2(:, k), ny + 2)
-
+        end do
+        ! ###################################################################
+        ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
+        ! ###################################################################
+        i = 1; k = 1
+#ifdef USE_MPI
+        iglobal = i + ims_offset_i/2
+        kglobal = k + ims_offset_k
+#else
+        iglobal = i
+        kglobal = k
+#endif
+        if (iglobal == 1 .and. kglobal == 1 .and. ibc == BCS_NN) then
             f(1:2*(ny + 2), 1:isize_line) => tmp2(1:2*(ny + 2)*isize_line, k)
             u(1:2*ny, 1:isize_line) => wrk3d(1:2*ny*isize_line)
+            ibc_loc = BCS_DN
+            u(1:2, 1) = 0.0_wp  
+        end if
 
-            do i = 1, isize_line
+        if (ibc /= BCS_NN) then ! Need to calculate and factorize LHS
+            do k = 1, nz
 #ifdef USE_MPI
-                iglobal = i + ims_offset_i/2
+                kglobal = k + ims_offset_k
 #else
-                iglobal = i
+                kglobal = k
 #endif
 
-                ! BCs
-                ip = 2*ny
-                u(1:2, i) = f(ip + 1:ip + 2, i)
-                u(ip - 1:ip, i) = f(ip + 3:ip + 4, i)
+                ! Make x direction last one and leave y direction first
+                ! call TLab_Transpose_COMPLEX(c_tmp1(:, k), isize_line, ny + 2, isize_line, c_tmp2(:, k), ny + 2)
 
-                ! Compatibility constraint for singular modes. 2nd order FDMs are non-zero at Nyquist
-                ! The reference value of p at the lower boundary is set to zero
-                if (iglobal == 1 .and. kglobal == 1 .and. ibc == BCS_NN) then
-                    ibc_loc = BCS_DN
-                    u(1:2, i) = 0.0_wp
-                else
-                    ibc_loc = ibc
-                end if
+                f(1:2*(ny + 2), 1:isize_line) => tmp2(1:2*(ny + 2)*isize_line, k)
+                u(1:2*ny, 1:isize_line) => wrk3d(1:2*ny*isize_line)
 
-                ! Solve for each (kx,kz) a system of 1 complex equation as 2 independent real equations
-                if (ibc /= BCS_NN) then     ! Need to calculate and factorize LHS
+                do i = 1, isize_line        
+#ifdef USE_MPI
+                    iglobal = i + ims_offset_i/2
+#else
+                    iglobal = i
+#endif
+
+                    ! BCs
+                    ip = 2*ny
+                    u(1:2, i) = f(ip + 1:ip + 2, i)
+                    u(ip - 1:ip, i) = f(ip + 3:ip + 4, i)
+
+                    ! Compatibility constraint for singular modes. 2nd order FDMs are non-zero at Nyquist
+                    ! The reference value of p at the lower boundary is set to zero
+
+                    ! Solve for each (kx,kz) a system of 1 complex equation as 2 independent real equations   
                     fdm_int2_loc%bc = ibc_loc
                     call FDM_Int2_Initialize(fdm_loc%nodes(:), fdm_loc%lhs2(:, 1:ndl), fdm_loc%rhs2(:, 1:ndr), lambda(i, k), fdm_int2_loc)
                     call FDM_Int2_Solve(2, fdm_int2_loc, fdm_int2_loc%rhs, f(:, i), u(:, i), wrk2d)
 
-                else                        ! use precalculated LU factorization
-                    call FDM_Int2_Solve(2, fdm_int2(i, k), rhs_d, f(:, i), u(:, i), wrk2d)
+                end do
 
-                end if
+                call TLab_Transpose_COMPLEX(c_wrk3d, ny, isize_line, ny, c_tmp1(:, k), isize_line)
 
             end do
+        else 
+            do k = 1, nz
+#ifdef USE_MPI
+                kglobal = k + ims_offset_k
+#else
+                kglobal = k
+#endif
 
-            call TLab_Transpose_COMPLEX(c_wrk3d, ny, isize_line, ny, c_tmp1(:, k), isize_line)
+                ! Make x direction last one and leave y direction first
+                ! call TLab_Transpose_COMPLEX(c_tmp1(:, k), isize_line, ny + 2, isize_line, c_tmp2(:, k), ny + 2)
 
-        end do
+                f(1:2*(ny + 2), 1:isize_line) => tmp2(1:2*(ny + 2)*isize_line, k)
+                u(1:2*ny, 1:isize_line) => wrk3d(1:2*ny*isize_line)
+
+                do i = 1, isize_line
+#ifdef USE_MPI
+                    iglobal = i + ims_offset_i/2
+#else
+                    iglobal = i
+#endif
+
+                    ! BCs
+                    ip = 2*ny
+                    u(1:2, i) = f(ip + 1:ip + 2, i)
+                    u(ip - 1:ip, i) = f(ip + 3:ip + 4, i)
+
+                    ! use precalculated LU factorization
+                    call FDM_Int2_Solve(2, fdm_int2(i, k), rhs_d, f(:, i), u(:, i), wrk2d)
+
+                end do
+
+                call TLab_Transpose_COMPLEX(c_wrk3d, ny, isize_line, ny, c_tmp1(:, k), isize_line)
+
+            end do
+        end if
 
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
