@@ -6,7 +6,7 @@
 
 program AVERAGES
 
-    use TLab_Pointers, only: pointers_dt
+    use TLab_Pointers, only: pointers_dt, u, v, w, p
     use TLab_Constants, only: wp, wi, small_wp, MAX_AVG_TEMPORAL
     use TLab_Constants, only: ifile, gfile, lfile, efile, wfile, tag_flow, tag_scal, tag_part
     use TLab_Memory, only: imax, jmax, kmax, inb_scal_array, inb_txc, isize_wrk3d, inb_flow, inb_scal, isize_field
@@ -19,6 +19,8 @@ program AVERAGES
     use TLabMPI_PROCS, only: TLabMPI_Initialize
     use TLabMPI_Transpose, only: TLabMPI_Trp_Initialize
 #endif
+    use TLab_Grid
+    use IO_Fields
     use FDM, only: g, FDM_Initialize
     use Thermodynamics, only: Thermodynamics_Initialize_Parameters
     use Thermodynamics, only: imixture, MIXT_TYPE_NONE, MIXT_TYPE_AIRWATER, MIXT_TYPE_AIRWATER_LINEAR
@@ -35,8 +37,6 @@ program AVERAGES
     use PARTICLE_ARRAYS
     use PARTICLE_PROCS
     use IBM_VARS
-    use TLab_Grid
-    use IO_Fields
     use FI_VECTORCALCULUS
     use FI_STRAIN_EQN
     use FI_GRADIENT_EQN
@@ -96,8 +96,8 @@ program AVERAGES
 
     integer(wi) io_sizes(5)
 
-    ! Pointers to existing allocated space
-    real(wp), dimension(:), pointer :: u, v, w, p
+    ! ! Pointers to existing allocated space
+    ! real(wp), dimension(:), pointer :: u, v, w, p
 
     type(io_subarray_dt) io_envelopes
 
@@ -305,7 +305,6 @@ program AVERAGES
     ! -------------------------------------------------------------------
     ! Allocating memory space
     ! -------------------------------------------------------------------
-    allocate (gate(isize_field))
 
     ! in case g(2)%size is not divisible by opt_block, drop the upper most planes
     jmax_aux = g(2)%size/opt_block
@@ -338,6 +337,8 @@ program AVERAGES
     isize_wrk3d = max(isize_wrk3d, opt_order*nfield*jmax)
 
     call TLab_Initialize_Memory(C_FILE_LOC)
+
+    allocate (gate(isize_field))
 
     call Particle_Initialize_Memory(C_FILE_LOC)
 
@@ -377,11 +378,11 @@ program AVERAGES
         y_aux(is) = y_aux(is) + g(2)%nodes(ij)/real(opt_block, wp)
     end do
 
-    if (iread_flow) then
-        u => q(:, 1)
-        v => q(:, 2)
-        w => q(:, 3)
-    end if
+    ! if (iread_flow) then
+    !     u => q(:, 1)
+    !     v => q(:, 2)
+    !     w => q(:, 3)
+    ! end if
 
     if (imode_ibm == 1) then
         call IBM_INITIALIZE_GEOMETRY(txc, wrk3d)
@@ -413,7 +414,9 @@ program AVERAGES
             if (scal_on) call IBM_INITIALIZE_SCAL(0, s)
         end if
 
-        call FI_DIAGNOSTIC(imax, jmax, kmax, q, s)
+        if (iread_flow .and. iread_scal) then
+            call FI_DIAGNOSTIC(imax, jmax, kmax, q, s)
+        end if
 
         ! -------------------------------------------------------------------
         ! Calculate intermittency
@@ -528,7 +531,7 @@ program AVERAGES
                 write (varname(is), *) is; varname(is) = 'Partition'//trim(adjustl(varname(is)))
             end do
             write (fname, *) itime; fname = 'int'//trim(adjustl(fname))
-            call INTER_N_XZ(fname, itime, rtime, imax, jmax, kmax, igate_size, varname, gate, y, mean)
+            call INTER_N_XZ(fname, itime, rtime, imax, jmax, kmax, igate_size, varname, gate, y%nodes, mean)
 
             if (opt_cond > 1) then ! write only if the gate information has not been read
                 write (fname, *) itime; fname = 'gate.'//trim(adjustl(fname))
