@@ -118,12 +118,13 @@ contains
     !########################################################################
     subroutine Gravity_Hydrostatic_Enthalpy(fdmi, y, s, ep, T, p, yref, pref, wrk1d)
         use TLab_Constants, only: BCS_MIN
-        use FDM_Integral, only: FDM_Int1_Solve, fdm_integral_dt
+        use FDM_Integral, only: FDM_Int1_Solve
         use Thermodynamics
         use Thermo_Anelastic
         use THERMO_AIRWATER
         use THERMO_THERMAL
         use OPR_ODES
+        use Tlab_Type, only : fdm_integral_dt
 
         type(fdm_integral_dt), intent(in) :: fdmi(2)
         real(wp), intent(in) :: y(:)

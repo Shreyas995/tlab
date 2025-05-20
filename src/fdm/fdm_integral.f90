@@ -11,18 +11,20 @@ module FDM_Integral
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use FDM_MatMul
     use FDM_PROCS
+    use Tlab_Type, only : fdm_integral_dt
+    use LinearPtdss, only: PENTADSS_test
     implicit none
     private
 
-    type, public :: fdm_integral_dt
-        sequence
-        integer mode_fdm                            ! original finite-difference method; only informative
-        real(wp) :: lambda                          ! constant of the equation
-        integer :: bc                               ! type of boundary condition, [ BCS_MIN, BCS_MAX ]
-        real(wp) :: rhs_b(1:5, 0:7), rhs_t(0:4, 8)  ! # of diagonals is 7, # rows is 7/2+1
-        real(wp), allocatable :: lhs(:, :)          ! Often overwritten to LU decomposition.
-        real(wp), allocatable :: rhs(:, :)
-    end type fdm_integral_dt
+    ! type, public :: fdm_integral_dt
+    !     sequence
+    !     integer mode_fdm                            ! original finite-difference method; only informative
+    !     real(wp) :: lambda                          ! constant of the equation
+    !     integer :: bc                               ! type of boundary condition, [ BCS_MIN, BCS_MAX ]
+    !     real(wp) :: rhs_b(1:5, 0:7), rhs_t(0:4, 8)  ! # of diagonals is 7, # rows is 7/2+1
+    !     real(wp), allocatable :: lhs(:, :)          ! Often overwritten to LU decomposition.
+    !     real(wp), allocatable :: rhs(:, :)
+    ! end type fdm_integral_dt
     ! This type is used in elliptic operators for difference eigenvalues. This can lead to fragmented memory.
     ! One could use pointers instead of allocatable for lhs and rhs, and point the pointers to the
     ! corresponding memory space.
@@ -36,6 +38,7 @@ module FDM_Integral
     public FDM_Int2_Initialize                      ! Prepare to solve (u')' - \lamba^2 u = f
     public FDM_Int2_CreateSystem
     public FDM_Int2_Solve
+    public FDM_Int2_Solve_test
 
 contains
     !########################################################################
@@ -668,5 +671,54 @@ contains
 
         return
     end subroutine FDM_Int2_Solve
+
+    subroutine FDM_Int2_Solve_test(nlines, ilines, fdmi, rhsi, f, result, wrk2d)
+        integer(wi) nlines, ilines
+        type(fdm_integral_dt), intent(in) :: fdmi(:)
+        real(wp), intent(in) :: rhsi(:, :)
+        real(wp), intent(in) :: f(nlines, size(fdmi(1)%lhs, 1), ilines)
+        real(wp), intent(inout) :: result(nlines, size(fdmi(1)%lhs, 1), ilines)   ! contains bcs
+        real(wp), intent(inout) :: wrk2d(nlines, 2, ilines)
+
+        ! -------------------------------------------------------------------
+        integer(wi) :: nx, ndl, ndr, i
+
+        ! ###################################################################
+        nx = size(fdmi(1)%lhs, 1)
+        ndl = size(fdmi(1)%lhs, 2)
+        ndr = size(rhsi, 2)
+
+        select case (ndr)
+        case (3)
+            call MatMul_3d_test(nlines, ilines, rhsi(:, 1:3), f, result, BCS_BOTH, fdmi, bcs_b=wrk2d(:, 1, :), bcs_t=wrk2d(:, 2,:))
+        case (5)
+            ! call MatMul_5d(rhsi(:, 1:5), f, result, &
+            !                BCS_BOTH, rhs_b=fdmi%rhs_b(1:4, 0:5), rhs_t=fdmi%rhs_t(0:3, 1:6), bcs_b=wrk2d(:, 1), bcs_t=wrk2d(:, 2))
+        end select
+
+        ! Solve pentadiagonal linear system
+        select case (ndl)
+        case (3)
+            ! call TRIDSS(nx - 2, nlines, ilines, fdmi(1)%lhs(2:, 1), fdmi(1)%lhs(2:, 2), fdmi(1)%lhs(2:, 3), result(:, 2:,:))
+        case (5)
+            call PENTADSS_test(nx - 2, nlines, ilines, fdmi(:), result(:, 2:, :))  !%lhs(2:, 1), fdmi%lhs(2:, 2), fdmi%lhs(2:, 3), fdmi%lhs(2:, 4), fdmi%lhs(2:, 5), result(:, 2:))
+        case (7)
+            ! call HEPTADSS(nx - 2, nlines, ilines, fdmi(1)%lhs(2:, 1), fdmi(1)%lhs(2:, 2), fdmi(1)%lhs(2:, 3), fdmi(1)%lhs(2:, 4), fdmi(1)%lhs(2:, 5), fdmi(1)%lhs(2:, 6), fdmi(1)%lhs(2:, 7), result(:, 2:,:))
+        end select
+        
+        do i = 1, ilines
+            !   Corrections to the BCS_DD to account for Neumann
+            if (any([BCS_ND, BCS_NN] == fdmi(i)%bc)) then
+                result(:, 1, i) = wrk2d(:, 1, i) &
+                            + fdmi(i)%lhs(1, 1)*result(:, 2, i) + fdmi(i)%lhs(1, 2)*result(:, 3, i) + fdmi(i)%lhs(1, 3)*result(:, 4, i)
+            end if
+
+            if (any([BCS_DN, BCS_NN] == fdmi(i)%bc)) then
+                result(:, nx, i) = wrk2d(:, 2, i) &
+                                + fdmi(i)%lhs(nx, ndl)*result(:, nx - 1, i) + fdmi(i)%lhs(nx, ndl - 1)*result(:, nx - 2, i) + fdmi(i)%lhs(nx, ndl - 2)*result(:, nx - 3, i)
+            end if
+        end do
+        return
+    end subroutine FDM_Int2_Solve_test
 
 end module FDM_Integral

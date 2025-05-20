@@ -4,7 +4,7 @@
 module Radiation
     use TLab_Constants, only: wp, wi, pi_wp, BCS_MAX, BCS_MIN, efile, MAX_PARS, MAX_VARS
     use TLab_Grid, only: y
-    use FDM_Integral, only: FDM_Int1_Solve, fdm_integral_dt, fdm_Int0
+    use FDM_Integral, only: FDM_Int1_Solve, fdm_Int0
     use NavierStokes, only: nse_eqns
     use TLab_Memory, only: inb_scal_array
     use TLab_Memory, only: isize_field
@@ -14,6 +14,7 @@ module Radiation
     use Thermodynamics, only: imixture
     use OPR_ODES
     use Integration
+    use Tlab_Type, only : fdm_integral_dt
     implicit none
     private
 

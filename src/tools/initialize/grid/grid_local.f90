@@ -80,7 +80,8 @@ contains
     subroutine BLD_EXP(idir, iseg, x, nmax, w)
         use TLab_Constants, only: BCS_MIN
         use FDM, only: fdm_dt, FDM_Initialize, FDM_COM6_JACOBIAN
-        use FDM_Integral, only: FDM_Int1_Solve, fdm_integral_dt
+        use FDM_Integral, only: FDM_Int1_Solve
+        use Tlab_Type, only : fdm_integral_dt
         integer(wi), intent(IN) :: idir, iseg, nmax
         real(wp), intent(INOUT) :: x(nmax), w(nmax, 8)
 

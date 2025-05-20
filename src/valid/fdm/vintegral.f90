@@ -12,6 +12,7 @@ program VINTEGRAL
     use FDM_Integral
     use OPR_PARTIAL
     use OPR_ODES
+    use Tlab_Type, only : fdm_integral_dt
 
     implicit none
 

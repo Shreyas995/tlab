@@ -7,11 +7,13 @@
 module FDM_MatMul
     use TLab_Constants, only: wp, wi
     use TLab_Constants, only: BCS_DD, BCS_DN, BCS_ND, BCS_NN, BCS_NONE, BCS_MIN, BCS_MAX, BCS_BOTH
+    use Tlab_Type, only : fdm_integral_dt
     implicit none
     private
 
     ! generic cases
     public MatMul_3d            ! Calculate f = B u, assuming B is tridiagonal
+    public MatMul_3d_test
     public MatMul_3d_add        ! Calculate f = f + B u, assuming B is tridiagonal
     ! special cases where coefficients are constant in the interior points
     public MatMul_3d_antisym    ! Calculate f = B u, assuming B is tridiagonal, antisymmetric
@@ -55,6 +57,23 @@ module FDM_MatMul
 #define r5_i(j) rhs(j,5)
 #define r6_i(j) rhs(j,6)
 #define r7_i(j) rhs(j,7)
+
+#define r0b(i,j) fdmi(i)%rhs_b(j,0)
+#define r1b(i,j) fdmi(i)%rhs_b(j,1)
+#define r2b(i,j) fdmi(i)%rhs_b(j,2)
+#define r3b(i,j) fdmi(i)%rhs_b(j,3)
+#define r4b(i,j) fdmi(i)%rhs_b(j,4)
+#define r5b(i,j) fdmi(i)%rhs_b(j,5)
+#define r6b(i,j) fdmi(i)%rhs_b(j,6)
+#define r7b(i,j) fdmi(i)%rhs_b(j,7)
+
+#define r1t(i,j) fdmi(i)%rhs_t(j,1)
+#define r2t(i,j) fdmi(i)%rhs_t(j,2)
+#define r3t(i,j) fdmi(i)%rhs_t(j,3)
+#define r4t(i,j) fdmi(i)%rhs_t(j,4)
+#define r5t(i,j) fdmi(i)%rhs_t(j,5)
+#define r6t(i,j) fdmi(i)%rhs_t(j,6)
+#define r7t(i,j) fdmi(i)%rhs_t(j,7)
 
 contains
     ! #######################################################################
@@ -157,6 +176,81 @@ contains
         t_compute  = t_compute + real(clock_3 - clock_2) / real(clock_cycle)
         return
     end subroutine MatMul_3d
+
+    subroutine MatMul_3d_test(nlines, ilines, rhs, u, f, ibc, fdmi, bcs_b, bcs_t)
+        use TLab_Time, only: mat3d_time, t_compute
+        integer(wi) nlines, ilines
+        real(wp), intent(in) :: rhs(:, :)                                   ! diagonals of B
+        real(wp), intent(in) :: u(:, :, :)                                  ! vector u
+        real(wp), intent(out) :: f(:, :, :)                                 ! vector f = B u
+        integer, intent(in), optional :: ibc
+        type(fdm_integral_dt), intent(in) :: fdmi(:) !rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
+        real(wp), intent(out), optional :: bcs_b(:,:), bcs_t(:,:)
+
+        ! -------------------------------------------------------------------
+        integer(wi) n, nx, len, i
+        integer ibc_loc
+        ! APU offloading 
+
+        integer clock_0, clock_1, clock_2, clock_cycle, clock_3
+
+        ! -----------------------------------------------------------------------
+        ! Profiling
+        ! -----------------------------------------------------------------------
+        call SYSTEM_CLOCK(clock_0,clock_cycle) 
+
+        ! #######################################################################
+        nx = size(rhs, 1)
+        len = size(f,1)
+        ! print *, nd = size(rhs, 2)    ! # diagonals, should be 3
+        ! size(u,2) and size(f,2) should be nx
+        ! size(u,1) and size(f,1) and size(bcs_b) and size(bcs_t) should be the same (number of equations to solve)
+
+        if (present(ibc)) then
+            ibc_loc = ibc
+        else
+            ibc_loc = BCS_NONE
+        end if
+
+        do i = 1, ilines
+            ! -------------------------------------------------------------------
+            ! Boundary; the first 3/2+1+1=3 rows might be different
+            if (any([BCS_MIN, BCS_BOTH] == ibc_loc)) then
+                if (present(bcs_b)) bcs_b(:,i) = f(:, 1, i)*r2b(i, 1) + u(:, 2, i)*r3b(i, 1) + u(:, 3, i)*r1b(i, 1) ! r1(1) contains extended stencil
+                ! f(1) contains the boundary condition
+                f(:, 2, i) = f(:, 1, i)*r1b(i, 2) + u(:, 2, i)*r2b(i, 2) + u(:, 3, i)*r3b(i, 2)
+                f(:, 3, i) = f(:, 1, i)*r0b(i,3) + u(:, 2, i)*r1b(i, 3) + u(:, 3, i)*r2b(i, 3) + u(:, 4, i)*r3b(i, 3)
+            else
+                f(:, 1, i) = u(:, 1, i)*r2_i(1) + u(:, 2, i)*r3_i(1) + u(:, 3, i)*r1_i(1)   ! r1(1) contains extended stencil
+                f(:, 2, i) = u(:, 1, i)*r1_i(2) + u(:, 2, i)*r2_i(2) + u(:, 3, i)*r3_i(2)
+                f(:, 3, i) = u(:, 2, i)*r1_i(3) + u(:, 3, i)*r2_i(3) + u(:, 4, i)*r3_i(3)
+            end if
+            ! -------------------------------------------------------------------
+            ! Interior points; accelerate
+                do n = 4, nx - 3
+                    f(:, n, i) = u(:, n - 1, i)*r1_i(n) + u(:, n, i)*r2_i(n) + u(:, n + 1, i)
+                end do
+            ! -------------------------------------------------------------------
+            ! Boundary; the last 3/2+1+1=3 rows might be different
+            if (any([BCS_MAX, BCS_BOTH] == ibc_loc)) then
+                ! f(nx) contains the boundary condition
+                f(:, nx - 2, i) = u(:, nx - 3, i)*r1t(i, 0) + u(:, nx - 2, i)*r2t(i, 0) + u(:, nx - 1, i)*r3t(i, 0) + f(:, nx, i)*r4t(i, 0)
+                f(:, nx - 1, i) = u(:, nx - 2, i)*r1t(i, 1) + u(:, nx - 1, i)*r2t(i, 1) + f(:, nx, i)*r3t(i, 1)
+                if (present(bcs_t)) bcs_t(:,i) = u(:, nx - 2, i)*r3t(i,2) + u(:, nx - 1, i)*r1t(i,2) + f(:, nx, i)*r2t(i, 2) ! r3(nx) contains extended stencil
+            else
+                f(:, nx - 2, i) = u(:, nx - 3, i)*r1_i(nx - 2) + u(:, nx - 2, i)*r2_i(nx - 2) + u(:, nx - 1, i)*r3_i(nx - 2)
+                f(:, nx - 1, i) = u(:, nx - 2, i)*r1_i(nx - 1) + u(:, nx - 1, i)*r2_i(nx - 1) + u(:, nx, i)*r3_i(nx - 1)
+                f(:, nx, i) = u(:, nx - 2, i)*r3_i(nx) + u(:, nx - 1, i)*r1_i(nx) + u(:, nx, i)*r2_i(nx) ! r3(nx) contains extended stencil
+            end if
+        end do
+        ! -----------------------------------------------------------------------
+        ! Profiling
+        ! -----------------------------------------------------------------------
+        call SYSTEM_CLOCK(clock_1)
+        mat3d_time = mat3d_time + real(clock_1 - clock_0)/ real(clock_cycle) 
+        t_compute  = t_compute + real(clock_3 - clock_2) / real(clock_cycle)
+        return
+    end subroutine MatMul_3d_test
 
     ! #######################################################################
     ! #######################################################################

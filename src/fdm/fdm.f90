@@ -9,6 +9,7 @@ module FDM
     use FDM_Derivative
     use FDM_Interpolate
     use FDM_Integral
+    use Tlab_Type, only : fdm_integral_dt
     implicit none
     ! private                                   ! I need this to pass fdm_dt to parent modules
     !                                           to be fixed by decomposing fdm_dt into 3 derived types: der1, der2, interpol

@@ -13,13 +13,14 @@ module OPR_ELLIPTIC
     use TLab_Memory, only: isize_txc_dimz, imax, jmax, kmax
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop, stagger_on
     use TLab_Arrays, only: wrk1d, wrk2d, wrk3d
-    use TLab_Pointers_3D, only: p_wrk1d
+    use TLab_Pointers_3D, only: p_wrk1d, p_wrk2d
     use TLab_Pointers_C, only: c_wrk1d, c_wrk3d
     use FDM, only: fdm_dt, FDM_COM4_DIRECT, FDM_COM6_DIRECT
     use FDM_Integral
     use OPR_FOURIER
     use OPR_ODES
     use OPR_PARTIAL, only: OPR_PARTIAL_Y
+    use Tlab_Type, only : fdm_integral_dt
     use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
     implicit none
     private
@@ -377,11 +378,12 @@ contains
 
         ! -----------------------------------------------------------------------
         integer(wi) ibc_loc, bcs_p(2, 2), ndl, ndr
-        real(wp), pointer :: u(:, :) => null(), f(:, :) => null()
+        real(wp), pointer :: u(:, :, :) => null(), f(:, :, :) => null(), f_tmp(:) =>null()
 
         ! #######################################################################
         call c_f_pointer(c_loc(tmp1), c_tmp1, shape=[isize_txc_dimz/2, nz])
         call c_f_pointer(c_loc(tmp2), c_tmp2, shape=[isize_txc_dimz/2, nz])
+        call c_f_pointer(c_loc(wrk2d), p_wrk2d, shape=[4,isize_line, nz])
 
         ndl = fdm_loc%nb_diag_2(1)
         ndr = fdm_loc%nb_diag_2(2)
@@ -399,9 +401,15 @@ contains
         tmp1 = tmp1*norm
 
         ! ###################################################################
+        ! Assining pointers
+        ! ###################################################################
+        f_tmp(1:2*(ny + 2)*isize_line*nz) => tmp2
+        f(1:2*(ny + 2), 1:isize_line, 1:nz) => f_tmp
+        u(1:2*ny, 1:isize_line, 1:nz) => wrk3d(1:2*ny*isize_line*nz)
+        
+        ! ###################################################################
         ! Computing transpositions
         ! ###################################################################
-        ibc_loc = ibc 
         do k = 1, nz
 #ifdef USE_MPI
             kglobal = k + ims_offset_k
@@ -411,10 +419,19 @@ contains
 
             ! Make x direction last one and leave y direction first
             call TLab_Transpose_COMPLEX(c_tmp1(:, k), isize_line, ny + 2, isize_line, c_tmp2(:, k), ny + 2)
+            
+            do i = 1, isize_line
+                ip = 2*ny
+                u(1:2, i, k) = f(ip + 1:ip + 2, i, k)
+                u(ip - 1:ip, i, k) = f(ip + 3:ip + 4, i, k)
+            end do
         end do
+
         ! ###################################################################
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
         ! ###################################################################
+        ! BCs
+        ibc_loc = ibc
         i = 1; k = 1
 #ifdef USE_MPI
         iglobal = i + ims_offset_i/2
@@ -424,84 +441,31 @@ contains
         kglobal = k
 #endif
         if (iglobal == 1 .and. kglobal == 1 .and. ibc == BCS_NN) then
-            f(1:2*(ny + 2), 1:isize_line) => tmp2(1:2*(ny + 2)*isize_line, k)
-            u(1:2*ny, 1:isize_line) => wrk3d(1:2*ny*isize_line)
             ibc_loc = BCS_DN
-            u(1:2, 1) = 0.0_wp  
+            u(1:2, 1, 1) = 0.0_wp
         end if
 
         if (ibc /= BCS_NN) then ! Need to calculate and factorize LHS
             do k = 1, nz
-#ifdef USE_MPI
-                kglobal = k + ims_offset_k
-#else
-                kglobal = k
-#endif
-
-                ! Make x direction last one and leave y direction first
-                ! call TLab_Transpose_COMPLEX(c_tmp1(:, k), isize_line, ny + 2, isize_line, c_tmp2(:, k), ny + 2)
-
-                f(1:2*(ny + 2), 1:isize_line) => tmp2(1:2*(ny + 2)*isize_line, k)
-                u(1:2*ny, 1:isize_line) => wrk3d(1:2*ny*isize_line)
-
                 do i = 1, isize_line        
-#ifdef USE_MPI
-                    iglobal = i + ims_offset_i/2
-#else
-                    iglobal = i
-#endif
-
-                    ! BCs
-                    ip = 2*ny
-                    u(1:2, i) = f(ip + 1:ip + 2, i)
-                    u(ip - 1:ip, i) = f(ip + 3:ip + 4, i)
-
-                    ! Compatibility constraint for singular modes. 2nd order FDMs are non-zero at Nyquist
-                    ! The reference value of p at the lower boundary is set to zero
-
                     ! Solve for each (kx,kz) a system of 1 complex equation as 2 independent real equations   
                     fdm_int2_loc%bc = ibc_loc
                     call FDM_Int2_Initialize(fdm_loc%nodes(:), fdm_loc%lhs2(:, 1:ndl), fdm_loc%rhs2(:, 1:ndr), lambda(i, k), fdm_int2_loc)
-                    call FDM_Int2_Solve(2, fdm_int2_loc, fdm_int2_loc%rhs, f(:, i), u(:, i), wrk2d)
+                    call FDM_Int2_Solve(2, fdm_int2_loc, fdm_int2_loc%rhs, f(:, i, k), u(:, i, k), p_wrk2d(:, i, k))
 
                 end do
 
-                call TLab_Transpose_COMPLEX(c_wrk3d, ny, isize_line, ny, c_tmp1(:, k), isize_line)
+                call TLab_Transpose_COMPLEX(u(1:2*ny, 1:isize_line, k), ny, isize_line, ny, c_tmp1(:, k), isize_line)
 
             end do
         else 
             do k = 1, nz
-#ifdef USE_MPI
-                kglobal = k + ims_offset_k
-#else
-                kglobal = k
-#endif
-
-                ! Make x direction last one and leave y direction first
-                ! call TLab_Transpose_COMPLEX(c_tmp1(:, k), isize_line, ny + 2, isize_line, c_tmp2(:, k), ny + 2)
-
-                f(1:2*(ny + 2), 1:isize_line) => tmp2(1:2*(ny + 2)*isize_line, k)
-                u(1:2*ny, 1:isize_line) => wrk3d(1:2*ny*isize_line)
-
-                do i = 1, isize_line
-#ifdef USE_MPI
-                    iglobal = i + ims_offset_i/2
-#else
-                    iglobal = i
-#endif
-
-                    ! BCs
-                    ip = 2*ny
-                    u(1:2, i) = f(ip + 1:ip + 2, i)
-                    u(ip - 1:ip, i) = f(ip + 3:ip + 4, i)
-
+                ! do i = 1, isize_line
                     ! use precalculated LU factorization
-                    call FDM_Int2_Solve(2, fdm_int2(i, k), rhs_d, f(:, i), u(:, i), wrk2d)
+                    call FDM_Int2_Solve_test(2, isize_line, fdm_int2(:, k), rhs_d, f(:, :, k), u(:, :, k), p_wrk2d(:,:,k))
+                ! end do
 
-                end do
-
-                call TLab_Transpose_COMPLEX(c_wrk3d, ny, isize_line, ny, c_tmp1(:, k), isize_line)
-
+                call TLab_Transpose_COMPLEX(u(1:2*ny, 1:isize_line, k), ny, isize_line, ny, c_tmp1(:, k), isize_line)
             end do
         end if
 
