@@ -118,6 +118,9 @@ program VISUALS
 #endif
     call Particle_Initialize_Parameters(ifile)
 
+    call TLab_Grid_Read(gfile, x, y, z)
+    call FDM_Initialize(ifile)
+
     call NavierStokes_Initialize_Parameters(ifile)
     call Thermodynamics_Initialize_Parameters(ifile)
     call Gravity_Initialize(ifile)
@@ -338,9 +341,6 @@ program VISUALS
     end do
 
     ! ###################################################################
-    ! Initialize
-    call TLab_Grid_Read(gfile, x, y, z)
-    call FDM_Initialize(ifile)
 
     allocate (gate(isize_field))
 
