@@ -401,10 +401,11 @@ contains
         tmp1 = tmp1*norm
 
         ! ###################################################################
-        ! Assining pointers
+        ! Assigning pointers
         ! ###################################################################
-        f_tmp(1:2*(ny + 2)*isize_line*nz) => tmp2
-        f(1:2*(ny + 2), 1:isize_line, 1:nz) => f_tmp
+        ! f_tmp(1:2*(ny + 2)*isize_line*nz) => tmp2
+        ! f(1:2*(ny + 2), 1:isize_line, 1:nz) => f_tmp
+        call c_f_pointer(c_loc(tmp2), f, shape=[2*(ny+2), isize_line, nz])
         u(1:2*ny, 1:isize_line, 1:nz) => wrk3d(1:2*ny*isize_line*nz)
         
         ! ###################################################################
@@ -460,11 +461,9 @@ contains
             end do
         else 
             do k = 1, nz
-                ! do i = 1, isize_line
-                    ! use precalculated LU factorization
                     call FDM_Int2_Solve_test(2, isize_line, fdm_int2(:, k), rhs_d, f(:, :, k), u(:, :, k), p_wrk2d(:,:,k))
-                ! end do
-
+            end do
+            do k = 1, nz
                 call TLab_Transpose_COMPLEX(u(1:2*ny, 1:isize_line, k), ny, isize_line, ny, c_tmp1(:, k), isize_line)
             end do
         end if

@@ -676,7 +676,7 @@ contains
         integer(wi) nlines, ilines
         type(fdm_integral_dt), intent(in) :: fdmi(:)
         real(wp), intent(in) :: rhsi(:, :)
-        real(wp), intent(in) :: f(nlines, size(fdmi(1)%lhs, 1), ilines)
+        real(wp), intent(in) :: f(:, :)
         real(wp), intent(inout) :: result(nlines, size(fdmi(1)%lhs, 1), ilines)   ! contains bcs
         real(wp), intent(inout) :: wrk2d(nlines, 2, ilines)
 
@@ -701,7 +701,7 @@ contains
         case (3)
             ! call TRIDSS(nx - 2, nlines, ilines, fdmi(1)%lhs(2:, 1), fdmi(1)%lhs(2:, 2), fdmi(1)%lhs(2:, 3), result(:, 2:,:))
         case (5)
-            call PENTADSS_test(nx - 2, nlines, ilines, fdmi(:), result(:, 2:, :))  !%lhs(2:, 1), fdmi%lhs(2:, 2), fdmi%lhs(2:, 3), fdmi%lhs(2:, 4), fdmi%lhs(2:, 5), result(:, 2:))
+            call PENTADSS_test(nx, nlines, ilines, fdmi(:), result(:, :, :))  !%lhs(2:, 1), fdmi%lhs(2:, 2), fdmi%lhs(2:, 3), fdmi%lhs(2:, 4), fdmi%lhs(2:, 5), result(:, 2:))
         case (7)
             ! call HEPTADSS(nx - 2, nlines, ilines, fdmi(1)%lhs(2:, 1), fdmi(1)%lhs(2:, 2), fdmi(1)%lhs(2:, 3), fdmi(1)%lhs(2:, 4), fdmi(1)%lhs(2:, 5), fdmi(1)%lhs(2:, 6), fdmi(1)%lhs(2:, 7), result(:, 2:,:))
         end select

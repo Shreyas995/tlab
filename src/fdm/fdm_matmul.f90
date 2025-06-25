@@ -181,7 +181,7 @@ contains
         use TLab_Time, only: mat3d_time, t_compute
         integer(wi) nlines, ilines
         real(wp), intent(in) :: rhs(:, :)                                   ! diagonals of B
-        real(wp), intent(in) :: u(:, :, :)                                  ! vector u
+        real(wp), intent(in) :: u(:, :)                                     ! vector u
         real(wp), intent(out) :: f(:, :, :)                                 ! vector f = B u
         integer, intent(in), optional :: ibc
         type(fdm_integral_dt), intent(in) :: fdmi(:) !rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
@@ -189,6 +189,8 @@ contains
 
         ! -------------------------------------------------------------------
         integer(wi) n, nx, len, i
+        integer(wi) pa, pb, pc, pd, pe, pf
+        integer(wi) lp0, lp1, lp2, lp3, lp4, lp5, lp6, lp7
         integer ibc_loc
         ! APU offloading 
 
@@ -202,9 +204,9 @@ contains
         ! #######################################################################
         nx = size(rhs, 1)
         len = size(f,1)
-        ! print *, nd = size(rhs, 2)    ! # diagonals, should be 3
-        ! size(u,2) and size(f,2) should be nx
-        ! size(u,1) and size(f,1) and size(bcs_b) and size(bcs_t) should be the same (number of equations to solve)
+
+        lp0 = 2*nx; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3 
+        lp5 = 2*nx - 5; lp4 = 2*nx - 4; lp7 = 2*nx - 7; lp6 = 2*nx - 6 
 
         if (present(ibc)) then
             ibc_loc = ibc
@@ -216,31 +218,32 @@ contains
             ! -------------------------------------------------------------------
             ! Boundary; the first 3/2+1+1=3 rows might be different
             if (any([BCS_MIN, BCS_BOTH] == ibc_loc)) then
-                if (present(bcs_b)) bcs_b(:,i) = f(:, 1, i)*r2b(i, 1) + u(:, 2, i)*r3b(i, 1) + u(:, 3, i)*r1b(i, 1) ! r1(1) contains extended stencil
+                if (present(bcs_b)) bcs_b(:,i) = f(:, 1, i)*r2b(i, 1) + u(3:4, i)*r3b(i, 1) + u(5:6, i)*r1b(i, 1) ! r1(1) contains extended stencil
                 ! f(1) contains the boundary condition
-                f(:, 2, i) = f(:, 1, i)*r1b(i, 2) + u(:, 2, i)*r2b(i, 2) + u(:, 3, i)*r3b(i, 2)
-                f(:, 3, i) = f(:, 1, i)*r0b(i,3) + u(:, 2, i)*r1b(i, 3) + u(:, 3, i)*r2b(i, 3) + u(:, 4, i)*r3b(i, 3)
+                f(:, 2, i) = f(:, 1, i)*r1b(i, 2) + u(3:4, i)*r2b(i, 2) + u(5:6, i)*r3b(i, 2)
+                f(:, 3, i) = f(:, 1, i)*r0b(i, 3) + u(3:4, i)*r1b(i, 3) + u(5:6, i)*r2b(i, 3) + u(7:8, i)*r3b(i, 3)
             else
-                f(:, 1, i) = u(:, 1, i)*r2_i(1) + u(:, 2, i)*r3_i(1) + u(:, 3, i)*r1_i(1)   ! r1(1) contains extended stencil
-                f(:, 2, i) = u(:, 1, i)*r1_i(2) + u(:, 2, i)*r2_i(2) + u(:, 3, i)*r3_i(2)
-                f(:, 3, i) = u(:, 2, i)*r1_i(3) + u(:, 3, i)*r2_i(3) + u(:, 4, i)*r3_i(3)
+                f(:, 1, i) = u(1:2, i)*r2_i(1) + u(3:4, i)*r3_i(1) + u(5:6, i)*r1_i(1)   ! r1(1) contains extended stencil
+                f(:, 2, i) = u(1:2, i)*r1_i(2) + u(3:4, i)*r2_i(2) + u(5:6, i)*r3_i(2)
+                f(:, 3, i) = u(3:4, i)*r1_i(3) + u(5:6, i)*r2_i(3) + u(7:8, i)*r3_i(3)
             end if
             ! -------------------------------------------------------------------
             ! Interior points; accelerate
                 do n = 4, nx - 3
-                    f(:, n, i) = u(:, n - 1, i)*r1_i(n) + u(:, n, i)*r2_i(n) + u(:, n + 1, i)
+                    pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
+                    f(:, n, i) = u(pa:pb, i)*r1_i(n) + u(pc:pd, i)*r2_i(n) + u(pe:pf, i)
                 end do
             ! -------------------------------------------------------------------
             ! Boundary; the last 3/2+1+1=3 rows might be different
             if (any([BCS_MAX, BCS_BOTH] == ibc_loc)) then
                 ! f(nx) contains the boundary condition
-                f(:, nx - 2, i) = u(:, nx - 3, i)*r1t(i, 0) + u(:, nx - 2, i)*r2t(i, 0) + u(:, nx - 1, i)*r3t(i, 0) + f(:, nx, i)*r4t(i, 0)
-                f(:, nx - 1, i) = u(:, nx - 2, i)*r1t(i, 1) + u(:, nx - 1, i)*r2t(i, 1) + f(:, nx, i)*r3t(i, 1)
-                if (present(bcs_t)) bcs_t(:,i) = u(:, nx - 2, i)*r3t(i,2) + u(:, nx - 1, i)*r1t(i,2) + f(:, nx, i)*r2t(i, 2) ! r3(nx) contains extended stencil
+                f(:, nx - 2, i) = u(lp7:lp6, i)*r1t(i, 0) + u(lp5:lp4, i)*r2t(i, 0) + u(lp3:lp2, i)*r3t(i, 0) + f(:, nx, i)*r4t(i, 0)
+                f(:, nx - 1, i) = u(lp5:lp4, i)*r1t(i, 1) + u(lp3:lp2, i)*r2t(i, 1) + f(:, nx, i)*r3t(i, 1)
+                if (present(bcs_t)) bcs_t(:,i) = u(lp5:lp4, i)*r3t(i,2) + u(lp3:lp2, i)*r1t(i,2) + f(:, nx, i)*r2t(i, 2) ! r3(nx) contains extended stencil
             else
-                f(:, nx - 2, i) = u(:, nx - 3, i)*r1_i(nx - 2) + u(:, nx - 2, i)*r2_i(nx - 2) + u(:, nx - 1, i)*r3_i(nx - 2)
-                f(:, nx - 1, i) = u(:, nx - 2, i)*r1_i(nx - 1) + u(:, nx - 1, i)*r2_i(nx - 1) + u(:, nx, i)*r3_i(nx - 1)
-                f(:, nx, i) = u(:, nx - 2, i)*r3_i(nx) + u(:, nx - 1, i)*r1_i(nx) + u(:, nx, i)*r2_i(nx) ! r3(nx) contains extended stencil
+                f(:, nx - 2, i) = u(lp7:lp6, i)*r1_i(nx - 2) + u(lp5:lp4, i)*r2_i(nx - 2) + u(lp3:lp2, i)*r3_i(nx - 2)
+                f(:, nx - 1, i) = u(lp5:lp4, i)*r1_i(nx - 1) + u(lp3:lp2, i)*r2_i(nx - 1) + u(lp1:lp0, i)*r3_i(nx - 1)
+                f(:, nx, i) = u(lp5:lp4, i)*r3_i(nx) + u(lp3:lp2, i)*r1_i(nx) + u(lp1:lp0, i)*r2_i(nx) ! r3(nx) contains extended stencil
             end if
         end do
         ! -----------------------------------------------------------------------
