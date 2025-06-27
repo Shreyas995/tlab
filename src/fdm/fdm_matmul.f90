@@ -98,9 +98,6 @@ contains
         integer(wi) n, nx, len
         integer ibc_loc
         ! APU offloading 
-#ifdef USE_APU
-        integer(wi) l
-#endif
         integer clock_0, clock_1, clock_2, clock_cycle, clock_3
 
         ! -----------------------------------------------------------------------
@@ -133,28 +130,11 @@ contains
             f(:, 2) = u(:, 1)*r1_i(2) + u(:, 2)*r2_i(2) + u(:, 3)*r3_i(2)
             f(:, 3) = u(:, 2)*r1_i(3) + u(:, 3)*r2_i(3) + u(:, 4)*r3_i(3)
         end if
-#ifndef USE_APU
         ! -------------------------------------------------------------------
         ! Interior points; accelerate
         do n = 4, nx - 3
             f(:, n) = u(:, n - 1)*r1_i(n) + u(:, n)*r2_i(n) + u(:, n + 1)
         end do
-#else
-        ! -----------------------------------------------------------------------
-        ! With APU ACCELERATION 
-        ! -----------------------------------------------------------------------
-        call SYSTEM_CLOCK(clock_2) 
-        !$omp target teams distribute parallel do collapse(2) default(none) &
-        !$omp private(l,n) & 
-        !$omp shared(len,u,f,rhs,nx)
-            do n = 4, nx - 3
-                do l = 1, len
-                    f(l, n) = u(l, n - 1)*rhs(n,1) + u(l, n)*rhs(n,2) + u(l, n + 1)
-                end do
-            end do
-        !$omp end target teams distribute parallel do
-        call SYSTEM_CLOCK(clock_3) 
-#endif
         ! -------------------------------------------------------------------
         ! Boundary; the last 3/2+1+1=3 rows might be different
         if (any([BCS_MAX, BCS_BOTH] == ibc_loc)) then
@@ -248,7 +228,8 @@ contains
                         end do
 #ifdef USE_APU
                         !$omp end target teams distribute parallel do
-#endif
+#endif              
+                    end if
                 else
 #ifdef USE_APU
                     !$omp target teams distribute parallel do collapse(2) default(none) &
@@ -288,7 +269,7 @@ contains
                 ! Boundary; the last 3/2+1+1=3 rows might be different
                 if (any([BCS_MAX, BCS_BOTH] == ibc_loc)) then
                     ! f(nx) contains the boundary condition
-                    if (present(bcs_t))
+                    if (present(bcs_t)) then
 #ifdef USE_APU
                     !$omp target teams distribute parallel do collapse(2) default(none) &
                     !$omp private(k,i) & 
@@ -319,6 +300,7 @@ contains
 #ifdef USE_APU
                         !$omp end target teams distribute parallel do
 #endif
+                    end if
                 else
 #ifdef USE_APU
                     !$omp target teams distribute parallel do collapse(2) default(none) &
