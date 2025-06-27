@@ -460,9 +460,8 @@ contains
 
             end do
         else 
-            do k = 1, nz
-                    call FDM_Int2_Solve_test(2, isize_line, fdm_int2(:, k), rhs_d, f(:, :, k), u(:, :, k), p_wrk2d(:,:,k))
-            end do
+            call FDM_Int2_Solve_APU(2, isize_line, nz, fdm_int2(:, :), rhs_d, f(:, :, :), u(:, :, :), p_wrk2d(:,:,:))
+            
             do k = 1, nz
                 call TLab_Transpose_COMPLEX(u(1:2*ny, 1:isize_line, k), ny, isize_line, ny, c_tmp1(:, k), isize_line)
             end do

@@ -13,7 +13,7 @@ module FDM_MatMul
 
     ! generic cases
     public MatMul_3d            ! Calculate f = B u, assuming B is tridiagonal
-    public MatMul_3d_test
+    public MatMul_3d_APU
     public MatMul_3d_add        ! Calculate f = f + B u, assuming B is tridiagonal
     ! special cases where coefficients are constant in the interior points
     public MatMul_3d_antisym    ! Calculate f = B u, assuming B is tridiagonal, antisymmetric
@@ -58,22 +58,22 @@ module FDM_MatMul
 #define r6_i(j) rhs(j,6)
 #define r7_i(j) rhs(j,7)
 
-#define r0b(i,j) fdmi(i)%rhs_b(j,0)
-#define r1b(i,j) fdmi(i)%rhs_b(j,1)
-#define r2b(i,j) fdmi(i)%rhs_b(j,2)
-#define r3b(i,j) fdmi(i)%rhs_b(j,3)
-#define r4b(i,j) fdmi(i)%rhs_b(j,4)
-#define r5b(i,j) fdmi(i)%rhs_b(j,5)
-#define r6b(i,j) fdmi(i)%rhs_b(j,6)
-#define r7b(i,j) fdmi(i)%rhs_b(j,7)
+#define r0b(i,k,j) fdmi(i,k)%rhs_b(j,0)
+#define r1b(i,k,j) fdmi(i,k)%rhs_b(j,1)
+#define r2b(i,k,j) fdmi(i,k)%rhs_b(j,2)
+#define r3b(i,k,j) fdmi(i,k)%rhs_b(j,3)
+#define r4b(i,k,j) fdmi(i,k)%rhs_b(j,4)
+#define r5b(i,k,j) fdmi(i,k)%rhs_b(j,5)
+#define r6b(i,k,j) fdmi(i,k)%rhs_b(j,6)
+#define r7b(i,k,j) fdmi(i,k)%rhs_b(j,7)
 
-#define r1t(i,j) fdmi(i)%rhs_t(j,1)
-#define r2t(i,j) fdmi(i)%rhs_t(j,2)
-#define r3t(i,j) fdmi(i)%rhs_t(j,3)
-#define r4t(i,j) fdmi(i)%rhs_t(j,4)
-#define r5t(i,j) fdmi(i)%rhs_t(j,5)
-#define r6t(i,j) fdmi(i)%rhs_t(j,6)
-#define r7t(i,j) fdmi(i)%rhs_t(j,7)
+#define r1t(i,k,j) fdmi(i,k)%rhs_t(j,1)
+#define r2t(i,k,j) fdmi(i,k)%rhs_t(j,2)
+#define r3t(i,k,j) fdmi(i,k)%rhs_t(j,3)
+#define r4t(i,k,j) fdmi(i,k)%rhs_t(j,4)
+#define r5t(i,k,j) fdmi(i,k)%rhs_t(j,5)
+#define r6t(i,k,j) fdmi(i,k)%rhs_t(j,6)
+#define r7t(i,k,j) fdmi(i,k)%rhs_t(j,7)
 
 contains
     ! #######################################################################
@@ -177,18 +177,18 @@ contains
         return
     end subroutine MatMul_3d
 
-    subroutine MatMul_3d_test(nlines, ilines, rhs, u, f, ibc, fdmi, bcs_b, bcs_t)
+    subroutine MatMul_3d_APU(nlines, ilines, klines, rhs, u, f, ibc, fdmi, bcs_b, bcs_t)
         use TLab_Time, only: mat3d_time, t_compute
-        integer(wi) nlines, ilines
+        integer(wi) nlines, ilines, klines
         real(wp), intent(in) :: rhs(:, :)                                   ! diagonals of B
-        real(wp), intent(in) :: u(:, :)                                     ! vector u
-        real(wp), intent(out) :: f(:, :, :)                                 ! vector f = B u
+        real(wp), intent(in) :: u(:, :, :)                                     ! vector u
+        real(wp), intent(out) :: f(:, :, :, :)                                 ! vector f = B u
         integer, intent(in), optional :: ibc
-        type(fdm_integral_dt), intent(in) :: fdmi(:) !rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
-        real(wp), intent(out), optional :: bcs_b(:,:), bcs_t(:,:)
+        type(fdm_integral_dt), intent(in) :: fdmi(:, :) !rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
+        real(wp), intent(out), optional :: bcs_b(:, :, :), bcs_t(:, :, :)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx, len, i
+        integer(wi) n, nx, len, i, k
         integer(wi) pa, pb, pc, pd, pe, pf
         integer(wi) lp0, lp1, lp2, lp3, lp4, lp5, lp6, lp7
         integer ibc_loc
@@ -213,38 +213,39 @@ contains
         else
             ibc_loc = BCS_NONE
         end if
-
-        do i = 1, ilines
-            ! -------------------------------------------------------------------
-            ! Boundary; the first 3/2+1+1=3 rows might be different
-            if (any([BCS_MIN, BCS_BOTH] == ibc_loc)) then
-                if (present(bcs_b)) bcs_b(:,i) = f(:, 1, i)*r2b(i, 1) + u(3:4, i)*r3b(i, 1) + u(5:6, i)*r1b(i, 1) ! r1(1) contains extended stencil
-                ! f(1) contains the boundary condition
-                f(:, 2, i) = f(:, 1, i)*r1b(i, 2) + u(3:4, i)*r2b(i, 2) + u(5:6, i)*r3b(i, 2)
-                f(:, 3, i) = f(:, 1, i)*r0b(i, 3) + u(3:4, i)*r1b(i, 3) + u(5:6, i)*r2b(i, 3) + u(7:8, i)*r3b(i, 3)
-            else
-                f(:, 1, i) = u(1:2, i)*r2_i(1) + u(3:4, i)*r3_i(1) + u(5:6, i)*r1_i(1)   ! r1(1) contains extended stencil
-                f(:, 2, i) = u(1:2, i)*r1_i(2) + u(3:4, i)*r2_i(2) + u(5:6, i)*r3_i(2)
-                f(:, 3, i) = u(3:4, i)*r1_i(3) + u(5:6, i)*r2_i(3) + u(7:8, i)*r3_i(3)
-            end if
-            ! -------------------------------------------------------------------
-            ! Interior points; accelerate
-                do n = 4, nx - 3
-                    pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
-                    f(:, n, i) = u(pa:pb, i)*r1_i(n) + u(pc:pd, i)*r2_i(n) + u(pe:pf, i)
-                end do
-            ! -------------------------------------------------------------------
-            ! Boundary; the last 3/2+1+1=3 rows might be different
-            if (any([BCS_MAX, BCS_BOTH] == ibc_loc)) then
-                ! f(nx) contains the boundary condition
-                f(:, nx - 2, i) = u(lp7:lp6, i)*r1t(i, 0) + u(lp5:lp4, i)*r2t(i, 0) + u(lp3:lp2, i)*r3t(i, 0) + f(:, nx, i)*r4t(i, 0)
-                f(:, nx - 1, i) = u(lp5:lp4, i)*r1t(i, 1) + u(lp3:lp2, i)*r2t(i, 1) + f(:, nx, i)*r3t(i, 1)
-                if (present(bcs_t)) bcs_t(:,i) = u(lp5:lp4, i)*r3t(i,2) + u(lp3:lp2, i)*r1t(i,2) + f(:, nx, i)*r2t(i, 2) ! r3(nx) contains extended stencil
-            else
-                f(:, nx - 2, i) = u(lp7:lp6, i)*r1_i(nx - 2) + u(lp5:lp4, i)*r2_i(nx - 2) + u(lp3:lp2, i)*r3_i(nx - 2)
-                f(:, nx - 1, i) = u(lp5:lp4, i)*r1_i(nx - 1) + u(lp3:lp2, i)*r2_i(nx - 1) + u(lp1:lp0, i)*r3_i(nx - 1)
-                f(:, nx, i) = u(lp5:lp4, i)*r3_i(nx) + u(lp3:lp2, i)*r1_i(nx) + u(lp1:lp0, i)*r2_i(nx) ! r3(nx) contains extended stencil
-            end if
+        do k = 1, klines
+            do i = 1, ilines
+                ! -------------------------------------------------------------------
+                ! Boundary; the first 3/2+1+1=3 rows might be different
+                if (any([BCS_MIN, BCS_BOTH] == ibc_loc)) then
+                    if (present(bcs_b)) bcs_b(:, i, k) = f(:, 1, i, k)*r2b(i, k, 1) + u(3:4, i, k)*r3b(i, k, 1) + u(5:6, i, k)*r1b(i, k, 1) ! r1(1) contains extended stencil
+                    ! f(1) contains the boundary condition
+                    f(:, 2, i, k) = f(:, 1, i, k)*r1b(i, k, 2) + u(3:4, i, k)*r2b(i, k, 2) + u(5:6, i, k)*r3b(i, k, 2)
+                    f(:, 3, i, k) = f(:, 1, i, k)*r0b(i, k, 3) + u(3:4, i, k)*r1b(i, k, 3) + u(5:6, i, k)*r2b(i, k, 3) + u(7:8, i, k)*r3b(i, k, 3)
+                else
+                    f(:, 1, i, k) = u(1:2, i, k)*r2_i(1) + u(3:4, i, k)*r3_i(1) + u(5:6, i, k)*r1_i(1)   ! r1(1) contains extended stencil
+                    f(:, 2, i, k) = u(1:2, i, k)*r1_i(2) + u(3:4, i, k)*r2_i(2) + u(5:6, i, k)*r3_i(2)
+                    f(:, 3, i, k) = u(3:4, i, k)*r1_i(3) + u(5:6, i, k)*r2_i(3) + u(7:8, i, k)*r3_i(3)
+                end if
+                ! -------------------------------------------------------------------
+                ! Interior points; accelerate
+                    do n = 4, nx - 3
+                        pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
+                        f(:, n, i, k) = u(pa:pb, i, k)*r1_i(n) + u(pc:pd, i, k)*r2_i(n) + u(pe:pf, i, k)
+                    end do
+                ! -------------------------------------------------------------------
+                ! Boundary; the last 3/2+1+1=3 rows might be different
+                if (any([BCS_MAX, BCS_BOTH] == ibc_loc)) then
+                    ! f(nx) contains the boundary condition
+                    f(:, nx - 2, i, k) = u(lp7:lp6, i, k)*r1t(i, k, 0) + u(lp5:lp4, i, k)*r2t(i, k, 0) + u(lp3:lp2, i, k)*r3t(i, k, 0) + f(:, nx, i, k)*r4t(i, k, 0)
+                    f(:, nx - 1, i, k) = u(lp5:lp4, i, k)*r1t(i, k, 1) + u(lp3:lp2, i, k)*r2t(i, k, 1) + f(:, nx, i, k)*r3t(i, k, 1)
+                    if (present(bcs_t)) bcs_t(:, i, k) = u(lp5:lp4, i, k)*r3t(i, k, 2) + u(lp3:lp2, k, i)*r1t(i, k, 2) + f(:, nx, i, k)*r2t(i, k, 2) ! r3(nx) contains extended stencil
+                else
+                    f(:, nx - 2, i, k) = u(lp7:lp6, i, k)*r1_i(nx - 2) + u(lp5:lp4, i, k)*r2_i(nx - 2) + u(lp3:lp2, i, k)*r3_i(nx - 2)
+                    f(:, nx - 1, i, k) = u(lp5:lp4, i, k)*r1_i(nx - 1) + u(lp3:lp2, i, k)*r2_i(nx - 1) + u(lp1:lp0, i, k)*r3_i(nx - 1)
+                    f(:, nx, i, k) = u(lp5:lp4, i, k)*r3_i(nx) + u(lp3:lp2, i, k)*r1_i(nx) + u(lp1:lp0, i, k)*r2_i(nx) ! r3(nx) contains extended stencil
+                end if
+            end do
         end do
         ! -----------------------------------------------------------------------
         ! Profiling
@@ -253,7 +254,7 @@ contains
         mat3d_time = mat3d_time + real(clock_1 - clock_0)/ real(clock_cycle) 
         t_compute  = t_compute + real(clock_3 - clock_2) / real(clock_cycle)
         return
-    end subroutine MatMul_3d_test
+    end subroutine MatMul_3d_APU
 
     ! #######################################################################
     ! #######################################################################

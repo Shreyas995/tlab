@@ -12,7 +12,7 @@ module FDM_Integral
     use FDM_MatMul
     use FDM_PROCS
     use Tlab_Type, only : fdm_integral_dt
-    use LinearPtdss, only: PENTADSS_test
+    use LinearPtdss, only: PENTADSS_APU
     implicit none
     private
 
@@ -38,9 +38,10 @@ module FDM_Integral
     public FDM_Int2_Initialize                      ! Prepare to solve (u')' - \lamba^2 u = f
     public FDM_Int2_CreateSystem
     public FDM_Int2_Solve
-    public FDM_Int2_Solve_test
+    public FDM_Int2_Solve_APU
 
 contains
+
     !########################################################################
     !#
     !#     u'_i + \lamba u_i = f_i  N-1 eqns
@@ -672,27 +673,27 @@ contains
         return
     end subroutine FDM_Int2_Solve
 
-    subroutine FDM_Int2_Solve_test(nlines, ilines, fdmi, rhsi, f, result, wrk2d)
-        integer(wi) nlines, ilines
-        type(fdm_integral_dt), intent(in) :: fdmi(:)
+    subroutine FDM_Int2_Solve_APU(nlines, ilines, klines, fdmi, rhsi, f, result, wrk2d)
+        integer(wi) nlines, ilines, klines
+        type(fdm_integral_dt), intent(in) :: fdmi(:,:)
         real(wp), intent(in) :: rhsi(:, :)
-        real(wp), intent(in) :: f(:, :)
-        real(wp), intent(inout) :: result(nlines, size(fdmi(1)%lhs, 1), ilines)   ! contains bcs
-        real(wp), intent(inout) :: wrk2d(nlines, 2, ilines)
+        real(wp), intent(in) :: f(:, :, :)
+        real(wp), intent(inout) :: result(nlines, size(fdmi(1,1)%lhs, 1), ilines, klines)   ! contains bcs
+        real(wp), intent(inout) :: wrk2d(nlines, 2, ilines, klines)
 
         ! -------------------------------------------------------------------
-        integer(wi) :: nx, ndl, ndr, i
+        integer(wi) :: nx, ndl, ndr, i, k
 
         ! ###################################################################
-        nx = size(fdmi(1)%lhs, 1)
-        ndl = size(fdmi(1)%lhs, 2)
+        nx = size(fdmi(1,1)%lhs, 1)
+        ndl = size(fdmi(1,1)%lhs, 2)
         ndr = size(rhsi, 2)
 
         select case (ndr)
         case (3)
-            call MatMul_3d_test(nlines, ilines, rhsi(:, 1:3), f, result, BCS_BOTH, fdmi, bcs_b=wrk2d(:, 1, :), bcs_t=wrk2d(:, 2,:))
+            call MatMul_3d_APU(nlines, ilines, klines, rhsi(:, 1:3), f, result, BCS_BOTH, fdmi, bcs_b=wrk2d(:, 1, :, :), bcs_t=wrk2d(:, 2, :, :))
         case (5)
-            ! call MatMul_5d(rhsi(:, 1:5), f, result, &
+            ! call MatMul_5d_APU(rhsi(:, 1:5), f, result, &
             !                BCS_BOTH, rhs_b=fdmi%rhs_b(1:4, 0:5), rhs_t=fdmi%rhs_t(0:3, 1:6), bcs_b=wrk2d(:, 1), bcs_t=wrk2d(:, 2))
         end select
 
@@ -701,24 +702,26 @@ contains
         case (3)
             ! call TRIDSS(nx - 2, nlines, ilines, fdmi(1)%lhs(2:, 1), fdmi(1)%lhs(2:, 2), fdmi(1)%lhs(2:, 3), result(:, 2:,:))
         case (5)
-            call PENTADSS_test(nx, nlines, ilines, fdmi(:), result(:, :, :))  !%lhs(2:, 1), fdmi%lhs(2:, 2), fdmi%lhs(2:, 3), fdmi%lhs(2:, 4), fdmi%lhs(2:, 5), result(:, 2:))
+            call PENTADSS_APU(nx, nlines, ilines, klines, fdmi, result(:, :, :, :))  !%lhs(2:, 1), fdmi%lhs(2:, 2), fdmi%lhs(2:, 3), fdmi%lhs(2:, 4), fdmi%lhs(2:, 5), result(:, 2:))
         case (7)
             ! call HEPTADSS(nx - 2, nlines, ilines, fdmi(1)%lhs(2:, 1), fdmi(1)%lhs(2:, 2), fdmi(1)%lhs(2:, 3), fdmi(1)%lhs(2:, 4), fdmi(1)%lhs(2:, 5), fdmi(1)%lhs(2:, 6), fdmi(1)%lhs(2:, 7), result(:, 2:,:))
         end select
-        
-        do i = 1, ilines
-            !   Corrections to the BCS_DD to account for Neumann
-            if (any([BCS_ND, BCS_NN] == fdmi(i)%bc)) then
-                result(:, 1, i) = wrk2d(:, 1, i) &
-                            + fdmi(i)%lhs(1, 1)*result(:, 2, i) + fdmi(i)%lhs(1, 2)*result(:, 3, i) + fdmi(i)%lhs(1, 3)*result(:, 4, i)
-            end if
+        do k = 1, klines
+            do i = 1, ilines
+                !   Corrections to the BCS_DD to account for Neumann
+                if (any([BCS_ND, BCS_NN] == fdmi(i,k)%bc)) then
+                    result(:, 1, i, k) = wrk2d(:, 1, i, k) &
+                                + fdmi(i,k)%lhs(1, 1)*result(:, 2, i, k) + fdmi(i,k)%lhs(1, 2)*result(:, 3, i, k) + fdmi(i,k)%lhs(1, 3)*result(:, 4, i, k)
+                end if
 
-            if (any([BCS_DN, BCS_NN] == fdmi(i)%bc)) then
-                result(:, nx, i) = wrk2d(:, 2, i) &
-                                + fdmi(i)%lhs(nx, ndl)*result(:, nx - 1, i) + fdmi(i)%lhs(nx, ndl - 1)*result(:, nx - 2, i) + fdmi(i)%lhs(nx, ndl - 2)*result(:, nx - 3, i)
-            end if
+                if (any([BCS_DN, BCS_NN] == fdmi(i,k)%bc)) then
+                    result(:, nx, i, k) = wrk2d(:, 2, i, k) &
+                                    + fdmi(i, k)%lhs(nx, ndl)*result(:, nx - 1, i, k) + fdmi(i, k)%lhs(nx, ndl - 1)*result(:, nx - 2, i, k) &
+                                    + fdmi(i, k)%lhs(nx, ndl - 2)*result(:, nx - 3, i, k)
+                end if
+            end do
         end do
         return
-    end subroutine FDM_Int2_Solve_test
+    end subroutine FDM_Int2_Solve_APU
 
 end module FDM_Integral
