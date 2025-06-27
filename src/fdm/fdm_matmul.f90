@@ -199,7 +199,7 @@ contains
         ! -----------------------------------------------------------------------
         ! Profiling
         ! -----------------------------------------------------------------------
-        call SYSTEM_CLOCK(clock_0,clock_cycle) 
+        call SYSTEM_CLOCK(clock_0,clock_cycle)  ! delete after testing
 
         ! #######################################################################
         nx = size(rhs, 1)
@@ -213,40 +213,129 @@ contains
         else
             ibc_loc = BCS_NONE
         end if
-        do k = 1, klines
-            do i = 1, ilines
+
                 ! -------------------------------------------------------------------
                 ! Boundary; the first 3/2+1+1=3 rows might be different
                 if (any([BCS_MIN, BCS_BOTH] == ibc_loc)) then
-                    if (present(bcs_b)) bcs_b(:, i, k) = f(:, 1, i, k)*r2b(i, k, 1) + u(3:4, i, k)*r3b(i, k, 1) + u(5:6, i, k)*r1b(i, k, 1) ! r1(1) contains extended stencil
-                    ! f(1) contains the boundary condition
-                    f(:, 2, i, k) = f(:, 1, i, k)*r1b(i, k, 2) + u(3:4, i, k)*r2b(i, k, 2) + u(5:6, i, k)*r3b(i, k, 2)
-                    f(:, 3, i, k) = f(:, 1, i, k)*r0b(i, k, 3) + u(3:4, i, k)*r1b(i, k, 3) + u(5:6, i, k)*r2b(i, k, 3) + u(7:8, i, k)*r3b(i, k, 3)
+                    if (present(bcs_b)) then
+#ifdef USE_APU
+                        !$omp target teams distribute parallel do collapse(2) default(none) &
+                        !$omp private(k,i) & 
+                        !$omp shared(bcs_b,u,f,r1b,r2b,r3b,ilines,klines)
+#endif
+                        do k = 1, klines
+                            do i = 1, ilines
+                                bcs_b(:, i, k) = f(:, 1, i, k)*r2b(i, k, 1) + u(3:4, i, k)*r3b(i, k, 1) + u(5:6, i, k)*r1b(i, k, 1) ! r1(1) contains extended stencil
+                                ! f(1) contains the boundary condition
+                                f(:, 2, i, k) = f(:, 1, i, k)*r1b(i, k, 2) + u(3:4, i, k)*r2b(i, k, 2) + u(5:6, i, k)*r3b(i, k, 2)
+                                f(:, 3, i, k) = f(:, 1, i, k)*r0b(i, k, 3) + u(3:4, i, k)*r1b(i, k, 3) + u(5:6, i, k)*r2b(i, k, 3) + u(7:8, i, k)*r3b(i, k, 3)
+                            end do
+                        end do
+#ifdef USE_APU
+                        !$omp end target teams distribute parallel do
+#endif
+                    else
+#ifdef USE_APU
+                        !$omp target teams distribute parallel do collapse(2) default(none) &
+                        !$omp private(k,i) & 
+                        !$omp shared(u,f,r1b,r2b,r3b,ilines,klines)
+#endif
+                        do k = 1, klines
+                            do i = 1, ilines
+                                f(:, 2, i, k) = f(:, 1, i, k)*r1b(i, k, 2) + u(3:4, i, k)*r2b(i, k, 2) + u(5:6, i, k)*r3b(i, k, 2)
+                                f(:, 3, i, k) = f(:, 1, i, k)*r0b(i, k, 3) + u(3:4, i, k)*r1b(i, k, 3) + u(5:6, i, k)*r2b(i, k, 3) + u(7:8, i, k)*r3b(i, k, 3)
+                            end do
+                        end do
+#ifdef USE_APU
+                        !$omp end target teams distribute parallel do
+#endif
                 else
-                    f(:, 1, i, k) = u(1:2, i, k)*r2_i(1) + u(3:4, i, k)*r3_i(1) + u(5:6, i, k)*r1_i(1)   ! r1(1) contains extended stencil
-                    f(:, 2, i, k) = u(1:2, i, k)*r1_i(2) + u(3:4, i, k)*r2_i(2) + u(5:6, i, k)*r3_i(2)
-                    f(:, 3, i, k) = u(3:4, i, k)*r1_i(3) + u(5:6, i, k)*r2_i(3) + u(7:8, i, k)*r3_i(3)
+#ifdef USE_APU
+                    !$omp target teams distribute parallel do collapse(2) default(none) &
+                    !$omp private(k,i) & 
+                    !$omp shared(u,f,r1_i,r2_i,r3_i,ilines,klines)
+#endif
+                    do k = 1, klines
+                        do i = 1, ilines
+                            f(:, 1, i, k) = u(1:2, i, k)*r2_i(1) + u(3:4, i, k)*r3_i(1) + u(5:6, i, k)*r1_i(1)   ! r1(1) contains extended stencil
+                            f(:, 2, i, k) = u(1:2, i, k)*r1_i(2) + u(3:4, i, k)*r2_i(2) + u(5:6, i, k)*r3_i(2)
+                            f(:, 3, i, k) = u(3:4, i, k)*r1_i(3) + u(5:6, i, k)*r2_i(3) + u(7:8, i, k)*r3_i(3)
+                        end do
+                    end do
+#ifdef USE_APU
+                    !$omp end target teams distribute parallel do
+#endif
                 end if
                 ! -------------------------------------------------------------------
                 ! Interior points; accelerate
-                    do n = 4, nx - 3
-                        pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
-                        f(:, n, i, k) = u(pa:pb, i, k)*r1_i(n) + u(pc:pd, i, k)*r2_i(n) + u(pe:pf, i, k)
+#ifdef USE_APU
+                !$omp target teams distribute parallel do collapse(2) default(none) &
+                !$omp private(k,i,n,pa,pb,pc,pd,pe,pf) & 
+                !$omp shared(u,f,r1_i,r2_i,ilines,klines,nx)
+#endif
+                do k = 1, klines
+                    do i = 1, ilines
+                        do n = 4, nx - 3
+                            pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
+                            f(:, n, i, k) = u(pa:pb, i, k)*r1_i(n) + u(pc:pd, i, k)*r2_i(n) + u(pe:pf, i, k)
+                        end do
                     end do
+                end do
+#ifdef USE_APU
+                !$omp end target teams distribute parallel do
+#endif
                 ! -------------------------------------------------------------------
                 ! Boundary; the last 3/2+1+1=3 rows might be different
                 if (any([BCS_MAX, BCS_BOTH] == ibc_loc)) then
                     ! f(nx) contains the boundary condition
-                    f(:, nx - 2, i, k) = u(lp7:lp6, i, k)*r1t(i, k, 0) + u(lp5:lp4, i, k)*r2t(i, k, 0) + u(lp3:lp2, i, k)*r3t(i, k, 0) + f(:, nx, i, k)*r4t(i, k, 0)
-                    f(:, nx - 1, i, k) = u(lp5:lp4, i, k)*r1t(i, k, 1) + u(lp3:lp2, i, k)*r2t(i, k, 1) + f(:, nx, i, k)*r3t(i, k, 1)
-                    if (present(bcs_t)) bcs_t(:, i, k) = u(lp5:lp4, i, k)*r3t(i, k, 2) + u(lp3:lp2, k, i)*r1t(i, k, 2) + f(:, nx, i, k)*r2t(i, k, 2) ! r3(nx) contains extended stencil
+                    if (present(bcs_t))
+#ifdef USE_APU
+                    !$omp target teams distribute parallel do collapse(2) default(none) &
+                    !$omp private(k,i) & 
+                    !$omp shared(bcs_t,u,f,r1t,r2t,r3t,ilines,klines,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7)
+#endif
+                        do k = 1, klines
+                            do i = 1, ilines
+                                f(:, nx - 2, i, k) = u(lp7:lp6, i, k)*r1t(i, k, 0) + u(lp5:lp4, i, k)*r2t(i, k, 0) + u(lp3:lp2, i, k)*r3t(i, k, 0) + f(:, nx, i, k)*r4t(i, k, 0)
+                                f(:, nx - 1, i, k) = u(lp5:lp4, i, k)*r1t(i, k, 1) + u(lp3:lp2, i, k)*r2t(i, k, 1) + f(:, nx, i, k)*r3t(i, k, 1)
+                                bcs_t(:, i, k) = u(lp5:lp4, i, k)*r3t(i, k, 2) + u(lp3:lp2, k, i)*r1t(i, k, 2) + f(:, nx, i, k)*r2t(i, k, 2) ! r3(nx) contains extended stencil
+                            end do
+                        end do
+#ifdef USE_APU
+                        !$omp end target teams distribute parallel do
+#endif
+                    else
+#ifdef USE_APU
+                        !$omp target teams distribute parallel do collapse(2) default(none) &
+                        !$omp private(k,i) & 
+                        !$omp shared(u,f,r1t,r2t,r3t,ilines,klines,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7)
+#endif
+                        do k = 1, klines
+                            do i = 1, ilines
+                                f(:, nx - 2, i, k) = u(lp7:lp6, i, k)*r1t(i, k, 0) + u(lp5:lp4, i, k)*r2t(i, k, 0) + u(lp3:lp2, i, k)*r3t(i, k, 0) + f(:, nx, i, k)*r4t(i, k, 0)
+                                f(:, nx - 1, i, k) = u(lp5:lp4, i, k)*r1t(i, k, 1) + u(lp3:lp2, i, k)*r2t(i, k, 1) + f(:, nx, i, k)*r3t(i, k, 1)
+                            end do
+                        end do
+#ifdef USE_APU
+                        !$omp end target teams distribute parallel do
+#endif
                 else
-                    f(:, nx - 2, i, k) = u(lp7:lp6, i, k)*r1_i(nx - 2) + u(lp5:lp4, i, k)*r2_i(nx - 2) + u(lp3:lp2, i, k)*r3_i(nx - 2)
-                    f(:, nx - 1, i, k) = u(lp5:lp4, i, k)*r1_i(nx - 1) + u(lp3:lp2, i, k)*r2_i(nx - 1) + u(lp1:lp0, i, k)*r3_i(nx - 1)
-                    f(:, nx, i, k) = u(lp5:lp4, i, k)*r3_i(nx) + u(lp3:lp2, i, k)*r1_i(nx) + u(lp1:lp0, i, k)*r2_i(nx) ! r3(nx) contains extended stencil
+#ifdef USE_APU
+                    !$omp target teams distribute parallel do collapse(2) default(none) &
+                    !$omp private(k,i) & 
+                    !$omp shared(u,f,r1_i,r2_i,r3_i,ilines,klines,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,nx)
+#endif
+                    do k = 1, klines
+                        do i = 1, ilines
+                            f(:, nx - 2, i, k) = u(lp7:lp6, i, k)*r1_i(nx - 2) + u(lp5:lp4, i, k)*r2_i(nx - 2) + u(lp3:lp2, i, k)*r3_i(nx - 2)
+                            f(:, nx - 1, i, k) = u(lp5:lp4, i, k)*r1_i(nx - 1) + u(lp3:lp2, i, k)*r2_i(nx - 1) + u(lp1:lp0, i, k)*r3_i(nx - 1)
+                            f(:, nx, i, k) = u(lp5:lp4, i, k)*r3_i(nx) + u(lp3:lp2, i, k)*r1_i(nx) + u(lp1:lp0, i, k)*r2_i(nx) ! r3(nx) contains extended stencil
+                        end do
+                    end do
+#ifdef USE_APU
+                    !$omp end target teams distribute parallel do
+#endif
                 end if
-            end do
-        end do
         ! -----------------------------------------------------------------------
         ! Profiling
         ! -----------------------------------------------------------------------
