@@ -215,9 +215,8 @@ contains
 #endif
                     else
 #ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2) default(none) &
-                        !$omp private(k,i) & 
-                        !$omp shared(u,f,r1b,r2b,r3b,ilines,klines)
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i)
 #endif
                         do k = 1, klines
                             do i = 1, ilines
@@ -231,9 +230,8 @@ contains
                     end if
                 else
 #ifdef USE_APU
-                    !$omp target teams distribute parallel do collapse(2) default(none) &
-                    !$omp private(k,i) & 
-                    !$omp shared(u,f,r1_i,r2_i,r3_i,ilines,klines)
+                    !$omp target teams distribute parallel do collapse(2) default(shared) &
+                    !$omp private(k,i)
 #endif
                     do k = 1, klines
                         do i = 1, ilines
@@ -249,9 +247,8 @@ contains
                 ! -------------------------------------------------------------------
                 ! Interior points; accelerate
 #ifdef USE_APU
-                !$omp target teams distribute parallel do collapse(2) default(none) &
-                !$omp private(k,i,n,pa,pb,pc,pd,pe,pf) & 
-                !$omp shared(u,f,r1_i,r2_i,ilines,klines,nx)
+                !$omp target teams distribute parallel do collapse(2) default(shared) &
+                !$omp private(k,i,n,pa,pb,pc,pd,pe,pf)
 #endif
                 do k = 1, klines
                     do i = 1, ilines
@@ -270,9 +267,8 @@ contains
                     ! f(nx) contains the boundary condition
                     if (present(bcs_t)) then
 #ifdef USE_APU
-                    !$omp target teams distribute parallel do collapse(2) default(none) &
-                    !$omp private(k,i) & 
-                    !$omp shared(bcs_t,u,f,r1t,r2t,r3t,ilines,klines,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7)
+                    !$omp target teams distribute parallel do collapse(2) default(shared) &
+                    !$omp private(k,i)
 #endif
                         do k = 1, klines
                             do i = 1, ilines
@@ -286,9 +282,8 @@ contains
 #endif
                     else
 #ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2) default(none) &
-                        !$omp private(k,i) & 
-                        !$omp shared(u,f,r1t,r2t,r3t,ilines,klines,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7)
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i)
 #endif
                         do k = 1, klines
                             do i = 1, ilines
@@ -302,9 +297,8 @@ contains
                     end if
                 else
 #ifdef USE_APU
-                    !$omp target teams distribute parallel do collapse(2) default(none) &
-                    !$omp private(k,i) & 
-                    !$omp shared(u,f,r1_i,r2_i,r3_i,ilines,klines,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,nx)
+                    !$omp target teams distribute parallel do collapse(2) default(shared) &
+                    !$omp private(k,i)
 #endif
                     do k = 1, klines
                         do i = 1, ilines
