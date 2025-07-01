@@ -199,9 +199,8 @@ contains
                 if (any([BCS_MIN, BCS_BOTH] == ibc_loc)) then
                     if (present(bcs_b)) then
 #ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2) default(none) &
-                        !$omp private(k,i) & 
-                        !$omp shared(bcs_b,u,f,r1b,r2b,r3b,ilines,klines)
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i)
 #endif
                         do k = 1, klines
                             do i = 1, ilines
