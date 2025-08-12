@@ -173,10 +173,7 @@ subroutine TLab_Transpose_COMPLEX(a, nra, nca, ma, b, mb)
     integer(wi) last_k, last_j
 
 ! -------------------------------------------------------------------
-!$omp parallel default(none) &
-!$omp private(k,j,jj,kk,srt,end,siz,last_k,last_j) &
-!$omp shared(a,b,nca,nra)
-
+#ifndef USE_APU
     call TLab_OMP_PARTITION(nca, srt, end, siz)
 
     kk = 1; jj = 1
@@ -205,9 +202,15 @@ subroutine TLab_Transpose_COMPLEX(a, nra, nca, ma, b, mb)
             b(k, j) = a(j, k)
         end do
     end do
-
-!$omp end parallel
-
+#else
+    !$omp target teams distribute parallel do collapse(2) default(shared) private(k,j)
+    do j = 1, nra
+        do k = 1, nca
+            b(k, j, iz) = a(j, k, iz)
+        end do
+    end do
+    !$omp end target teams distribute parallel do
+#endif
     return
 end subroutine TLab_Transpose_COMPLEX
 
