@@ -11,6 +11,8 @@
 !# routine trans below is faster than TRANSPOSE routine from f90
 !#
 !########################################################################
+
+
 subroutine TLab_Transpose(a, nra, nca, ma, b, mb)
     use TLab_Constants, only: wp, wi
     use TLab_OpenMP
@@ -40,7 +42,7 @@ subroutine TLab_Transpose(a, nra, nca, ma, b, mb)
 #ifdef USE_MKL
     call MKL_DOMATCOPY('c', 't', nra, nca, 1.0_wp, a, ma, b, mb)
 #else
-    !use own implementation
+!use own implementation
 !$omp parallel default(none) &
 !$omp private(k,j,jj,kk,srt,end,siz,last_k,last_j) &
 !$omp shared(a,b,nca,nra)

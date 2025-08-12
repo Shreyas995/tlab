@@ -11,6 +11,7 @@ program VINTEGRAL
     use FDM, only: fdm_dt, FDM_CreatePlan
     use FDM_Derivative, only: FDM_COM4_JACOBIAN, FDM_COM6_JACOBIAN, FDM_COM6_JACOBIAN_PENTA, FDM_COM4_DIRECT, FDM_COM6_DIRECT
     use FDM_Integral
+    use Tlab_Type
     use OPR_Partial
     use OPR_ODES
 

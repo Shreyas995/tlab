@@ -55,6 +55,8 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     real(wp), dimension(:, :, :), pointer :: p_bcs
 
+    real(wp) rhs_gbl_sum_tmp1, rhs_gbl_sum_tmp2, rhs_gbl_sum_tmp3, rhs_gbl_sum_tmp4, rhs_gbl_sum_tmp5
+
 #ifdef USE_ESSL
     integer ilen
 #endif
