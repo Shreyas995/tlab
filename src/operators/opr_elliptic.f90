@@ -11,7 +11,9 @@ module OPR_Elliptic
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop, stagger_on
     use TLab_Arrays, only: wrk1d, wrk2d, wrk3d
     use TLab_Pointers_C, only: c_wrk3d
+    use TLab_Pointers_3D, only: p_wrk2d
     use TLab_Grid, only: y
+
 #ifdef USE_MPI
     use TLabMPI_VARS, only: ims_offset_i, ims_offset_k, ims_pro_i
 #endif
@@ -21,6 +23,7 @@ module OPR_Elliptic
     use OPR_ODES
     use OPR_Partial, only: OPR_Partial_Y, OPR_P1
     use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
+    use Tlab_Type, only: fdm_integral_dt
     implicit none
     private
 
@@ -379,11 +382,12 @@ contains
 
         ! -----------------------------------------------------------------------
         integer(wi), parameter :: bcs_p(2, 2) = 0                       ! For partial_y at the end
-
+        real(wp) :: opr_poisson_sum_tmp1, opr_poisson_sum_tmp2, opr_poisson_sum_p
         ! #######################################################################
         call c_f_pointer(c_loc(tmp1), c_tmp1, shape=[isize_txc_field])
         call c_f_pointer(c_loc(tmp2), c_tmp2, shape=[isize_txc_field])
         p_wrk3d(1:2*ny, 1:nz, 1:nx/2 + 1) => wrk3d(1:isize_txc_field)
+        call c_f_pointer(c_loc(wrk2d), p_wrk2d, shape=[4,isize_line, nz])
 
         ! #######################################################################
         ! Fourier transform of forcing term; output of this section in array tmp1
@@ -414,25 +418,35 @@ contains
             do k = 1, nz
                 u(1:2, k, i) = f(1:2, k, i)                         ! bottom boundary conditions
                 u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
-
-                select case (ibc)
-                case (BCS_NN)           ! use precalculated LU factorization
-                    ! Compatibility constraint for singular modes. The reference value of p at bottom is set to zero
-                    if (any(i_sing == i) .and. any(k_sing == k)) u(1:2, k, i) = 0.0_wp
-
-                    call FDM_Int2_Solve(2, fdm_int2(k, i), rhs_d, f(:, k, i), u(:, k, i), wrk2d)
-
-                case default            ! Need to calculate and factorize LHS
-                    call FDM_Int2_Initialize(fdm_loc%nodes(:), fdm_loc%der2, lambda(k, i), ibc, fdm_int2_loc)
-                    call FDM_Int2_Solve(2, fdm_int2_loc, fdm_int2_loc%rhs, f(:, k, i), u(:, k, i), wrk2d)
-
-                end select
-
             end do
         end do
 
-        call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
+        select case (ibc)
+        case (BCS_NN)           ! use precalculated LU factorization
+            ! Compatibility constraint for singular modes. The reference value of p at bottom is set to zero
+            ! if (any(i_sing == i) .and. any(k_sing == k)) u(1:2, k, i) = 0.0_wp
+            ! call FDM_Int2_Solve(2, fdm_int2(k, i), rhs_d, f(:, k, i), u(:, k, i), wrk2d)
+            u(1:2, i_sing(1),k_sing(1)) = 0.0_wp; u(1:2, i_sing(1),k_sing(2)) = 0.0_wp
+            u(1:2, i_sing(2),k_sing(1)) = 0.0_wp; u(1:2, i_sing(2),k_sing(2)) = 0.0_wp
+            call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2(1:nz, 1:i_max), rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p_wrk2d(:,:,:))
+        case default            ! Need to calculate and factorize LHS
+            do i = 1, i_max
+                do k = 1, nz
+                    call FDM_Int2_Initialize(fdm_loc%nodes(:), fdm_loc%der2, lambda(k, i), ibc, fdm_int2_loc)
+                    call FDM_Int2_Solve(2, fdm_int2_loc, fdm_int2_loc%rhs, f(:, k, i), u(:, k, i), wrk2d)
+                end do
+            end do
+            ! call FDM_Int2_Solve_APU(2, isize_line, nz, fdm_int2(:, :), rhs_d, f(:, :, :), u(:, :, :), p_wrk2d(:,:,:))
+        end select
 
+        ! call write_u_to_file(u(:,:,:), ny, 1, 1)
+        opr_poisson_sum_tmp1 = sum(c_tmp1)
+        opr_poisson_sum_tmp2 = sum(c_tmp2)
+        opr_poisson_sum_p = sum(p_wrk3d)
+        ! PRINT *, 'OPR_Poisson_FourierXZ_Direct: sum(c_tmp1) = ', opr_poisson_sum_tmp1
+        ! PRINT *, 'OPR_Poisson_FourierXZ_Direct: sum(c_tmp2) = ', opr_poisson_sum_tmp2
+        ! PRINT *, 'OPR_Poisson_FourierXZ_Direct: sum(p_wrk3d) = ', opr_poisson_sum_p
+        call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
         ! ###################################################################
@@ -446,7 +460,12 @@ contains
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
         end if
-
+        opr_poisson_sum_tmp1 = sum(c_tmp1)
+        opr_poisson_sum_tmp2 = sum(c_tmp2)
+        opr_poisson_sum_p = sum(p_wrk3d)
+        ! PRINT *, 'OPR_Poisson_FourierXZ_Direct: sum(c_tmp1) = ', opr_poisson_sum_tmp1
+        ! PRINT *, 'OPR_Poisson_FourierXZ_Direct: sum(c_tmp2) = ', opr_poisson_sum_tmp2
+        ! PRINT *, 'OPR_Poisson_FourierXZ_Direct: sum(p_wrk3d) = ', opr_poisson_sum_p
         nullify (c_tmp1, c_tmp2, p_wrk3d)
 #undef f
 #undef u
@@ -626,5 +645,33 @@ contains
 
         return
     end subroutine OPR_Helmholtz_FourierXZ_Direct
+
+    subroutine write_u_to_file(u, ny, nz, i_max)
+        implicit none
+        integer, intent(in) :: ny, nz, i_max
+        real(8), intent(in) :: u(2*ny, nz, i_max)
+        integer :: i, j, k
+        integer :: unit
+
+        character(len=*), parameter :: filename = 'p'
+        unit = 99  ! Use any unused unit number
+
+        open(unit, file=filename, status='replace', action='write', form='formatted')
+
+        do i = 1, i_max
+            write(unit, *) 'i =', i
+            do k = 1, nz
+                write(unit, *) 'k =', k
+                do j = 1, 2*ny
+                    write(unit, *) 'j =', j
+                    write(unit, '(F20.12)', advance='no') u(j, k, i)
+                end do
+                write(unit, *)  ! Newline after each k
+            end do
+            write(unit, *) '----------------------------'
+        end do
+
+        close(unit)
+    end subroutine write_u_to_file
 
 end module OPR_Elliptic
