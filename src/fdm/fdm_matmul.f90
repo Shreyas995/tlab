@@ -357,11 +357,11 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, len, l
 
         ! -------------------------------------------------------------------
         nx = size(rhs, 1)
-
+        len = size(rhs, 2)
         ! -------------------------------------------------------------------
         ! Boundary
         if (ibc == BCS_PERIODIC) then
@@ -381,9 +381,19 @@ contains
 
         ! -------------------------------------------------------------------
         ! Interior points; accelerate
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)        
+        do l = 1, len
+            do n = 3, nx - 2
+                f(:, n) = u(:, n + 1) - u(:, n - 1)
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+#else
         do n = 3, nx - 2
             f(:, n) = u(:, n + 1) - u(:, n - 1)
         end do
+#endif
 
         ! -------------------------------------------------------------------
         ! Boundary
@@ -416,11 +426,11 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, l, len
 
         ! -------------------------------------------------------------------
         nx = size(rhs, 1)
-
+        len = size(rhs, 2)
         ! -------------------------------------------------------------------
         ! Boundary
         if (ibc == BCS_PERIODIC) then
@@ -435,10 +445,19 @@ contains
 
         ! -------------------------------------------------------------------
         ! Interior points; accelerate
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)
+        do l = 1, len
+            do n = 2, nx - 1
+                f(:, n) = u(:, n + 1) + u(:, n - 1) + u(:, n)*r2_i(n)
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+#else
         do n = 2, nx - 1
             f(:, n) = u(:, n + 1) + u(:, n - 1) + u(:, n)*r2_i(n)
         end do
-
+#endif
         ! -------------------------------------------------------------------
         ! Boundary
         if (ibc == BCS_PERIODIC) then
@@ -607,11 +626,11 @@ contains
         real(wp), intent(out) :: f(:, :)                                    ! vector f = B u
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, l, len
 
         ! #######################################################################
         nx = size(rhs, 1)
-
+        len = size(rhs, 2)
         ! -------------------------------------------------------------------
         ! Boundary
         f(:, 1) = f(:, 1) + u(:, 1)*r3_i(1) + u(:, 2)*r4_i(1) + u(:, 3)*r5_i(1) + u(:, 4)*r1_i(1)   ! r1(1) contains extended stencil
@@ -619,10 +638,19 @@ contains
 
         ! -------------------------------------------------------------------
         ! Interior points; accelerate
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)
+        do l = 1, len
+            do n = 3, nx - 2
+                f(l, n) = f(l, n) + u(l, n - 2)*r1_i(n) + u(l, n - 1)*r2_i(n) + u(l, n)*r3_i(n) + u(l, n + 1) + u(l, n + 2)*r5_i(n)
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+#else
         do n = 3, nx - 2
             f(:, n) = f(:, n) + u(:, n - 2)*r1_i(n) + u(:, n - 1)*r2_i(n) + u(:, n)*r3_i(n) + u(:, n + 1)*r4_i(n) + u(:, n + 2)*r5_i(n)
         end do
-
+#endif
         ! -------------------------------------------------------------------
         ! Boundary
         f(:, nx - 1) = f(:, nx - 1) + u(:, nx - 3)*r1_i(nx - 1) + u(:, nx - 2)*r2_i(nx - 1) + u(:, nx - 1)*r3_i(nx - 1) + u(:, nx)*r4_i(nx - 1)
@@ -644,11 +672,13 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, l, len
         real(wp) r5_loc     ! 2. upper-diagonal
 
         ! #######################################################################
         nx = size(rhs, 1)
+        len = size(f, 2)
+
         r5_loc = r5_i(4)      ! The first 3 equations, last 3 equations, can be normalized differently
 
         ! -------------------------------------------------------------------
@@ -672,10 +702,19 @@ contains
         end if
 
         ! Interior points
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)
+        do l = 1, len
+            do n = 4, nx - 3
+                f(l, n) = u(l, n + 1) - u(l, n - 1) + r5_loc*(u(l, n + 2) - u(l, n - 2))
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+#else
         do n = 4, nx - 3
             f(:, n) = u(:, n + 1) - u(:, n - 1) + r5_loc*(u(:, n + 2) - u(:, n - 2))
         end do
-
+#endif
         ! Boundary
         if (ibc == BCS_PERIODIC) then
             f(:, nx - 2) = u(:, nx - 1) - u(:, nx - 3) + r5_loc*(u(:, nx) - u(:, nx - 4))
@@ -708,12 +747,14 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, l, len
+        ! #######################################################################
         real(wp) r3_loc     ! center diagonal
         real(wp) r5_loc     ! 2. upper-diagonal
 
         ! #######################################################################
         nx = size(rhs, 1)
+        len = size(f, 2)
         r5_loc = r5_i(3)      ! The first 2 equations, last 2 equations, are normalized differently
         r3_loc = r3_i(3)
 
@@ -736,10 +777,21 @@ contains
         end if
 
         ! Interior points
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)
+        do l = 1, len
+            do n = 3, nx - 2
+                f(l, n) = r3_loc*u(l, n) + u(l, n + 1) + u(l, n - 1) &
+                        + r5_loc*(u(l, n + 2) + u(l, n - 2))
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+#else
         do n = 3, nx - 2
             f(:, n) = r3_loc*u(:, n) + u(:, n + 1) + u(:, n - 1) &
                       + r5_loc*(u(:, n + 2) + u(:, n - 2))
         end do
+#endif
 
         ! Boundary
         if (ibc == BCS_PERIODIC) then
@@ -776,11 +828,13 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, l , len
         real(wp) r6_loc, r7_loc     ! 2. and 3. upper-diagonal
 
         ! #######################################################################
         nx = size(rhs, 1)
+        len = size(f, 2)
+        !-------------------------------------------------------------------
         r6_loc = r6_i(5)      ! The first 4 equations, last 4 equations, can be normalized differently
         r7_loc = r7_i(5)
 
@@ -808,9 +862,19 @@ contains
         end if
 
         ! Interior points
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)
+        do l = 1, len
+            do n = 5, nx - 4
+                f(l, n) = u(l, n + 1) - u(l, n - 1) + r6_loc*(u(l, n + 2) - u(l, n - 2)) + r7_loc*(u(l, n + 3) - u(l, n - 3))
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+#else
         do n = 5, nx - 4
             f(:, n) = u(:, n + 1) - u(:, n - 1) + r6_loc*(u(:, n + 2) - u(:, n - 2)) + r7_loc*(u(:, n + 3) - u(:, n - 3))
         end do
+#endif
 
         ! Boundary
         if (ibc == BCS_PERIODIC) then
@@ -847,13 +911,15 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx , l, len
         real(wp) r4_loc     ! center diagonal
         real(wp) r6_loc     ! 2. upper-diagonal
         real(wp) r7_loc     ! 3. upper-diagonal
 
         ! #######################################################################
         nx = size(rhs, 1)
+        len = size(f, 2)
+        !-------------------------------------------------------------------
         r7_loc = r7_i(4)
         r6_loc = r6_i(4)      ! The first 3 equations, last 3 equations, are normalized differently
         r4_loc = r4_i(4)
@@ -884,11 +950,23 @@ contains
         end if
 
         ! Interior points
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)
+        do l = 1, len
+            do n = 4, nx - 3
+                f(l, n) = r4_loc*u(l, n) + u(l, n + 1) + u(l, n - 1) &
+                        + r6_loc*(u(l, n + 2) + u(l, n - 2)) &
+                        + r7_loc*(u(l, n + 3) + u(l, n - 3))
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+#else
         do n = 4, nx - 3
             f(:, n) = r4_loc*u(:, n) + u(:, n + 1) + u(:, n - 1) &
-                      + r6_loc*(u(:, n + 2) + u(:, n - 2)) &
-                      + r7_loc*(u(:, n + 3) + u(:, n - 3))
+                    + r6_loc*(u(:, n + 2) + u(:, n - 2)) &
+                    + r7_loc*(u(:, n + 3) + u(:, n - 3))
         end do
+#endif
 
         ! Boundary
         if (ibc == BCS_PERIODIC) then
