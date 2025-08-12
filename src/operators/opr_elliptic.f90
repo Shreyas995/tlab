@@ -414,18 +414,23 @@ contains
 #define u(j,k,i) p_wrk3d(j,k,i)
 
         ! Solve for each (kx,kz) a system of 1 complex equation as 2 independent real equations
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(2) \
+        !$omp map(to: f(1:*,1:*,1:*)) map(from: u(1:*,1:*,1:*))
+#endif
         do i = 1, i_max
             do k = 1, nz
                 u(1:2, k, i) = f(1:2, k, i)                         ! bottom boundary conditions
                 u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
             end do
         end do
+#ifdef USE_APU
+        !$omp end target teams distribute parallel do
+#endif
 
         select case (ibc)
         case (BCS_NN)           ! use precalculated LU factorization
             ! Compatibility constraint for singular modes. The reference value of p at bottom is set to zero
-            ! if (any(i_sing == i) .and. any(k_sing == k)) u(1:2, k, i) = 0.0_wp
-            ! call FDM_Int2_Solve(2, fdm_int2(k, i), rhs_d, f(:, k, i), u(:, k, i), wrk2d)
             u(1:2, i_sing(1),k_sing(1)) = 0.0_wp; u(1:2, i_sing(1),k_sing(2)) = 0.0_wp
             u(1:2, i_sing(2),k_sing(1)) = 0.0_wp; u(1:2, i_sing(2),k_sing(2)) = 0.0_wp
             call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2(1:nz, 1:i_max), rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p_wrk2d(:,:,:))
@@ -436,17 +441,10 @@ contains
                     call FDM_Int2_Solve(2, fdm_int2_loc, fdm_int2_loc%rhs, f(:, k, i), u(:, k, i), wrk2d)
                 end do
             end do
-            ! call FDM_Int2_Solve_APU(2, isize_line, nz, fdm_int2(:, :), rhs_d, f(:, :, :), u(:, :, :), p_wrk2d(:,:,:))
         end select
 
-        ! call write_u_to_file(u(:,:,:), ny, 1, 1)
-        opr_poisson_sum_tmp1 = sum(c_tmp1)
-        opr_poisson_sum_tmp2 = sum(c_tmp2)
-        opr_poisson_sum_p = sum(p_wrk3d)
-        ! PRINT *, 'OPR_Poisson_FourierXZ_Direct: sum(c_tmp1) = ', opr_poisson_sum_tmp1
-        ! PRINT *, 'OPR_Poisson_FourierXZ_Direct: sum(c_tmp2) = ', opr_poisson_sum_tmp2
-        ! PRINT *, 'OPR_Poisson_FourierXZ_Direct: sum(p_wrk3d) = ', opr_poisson_sum_p
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
+
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
         ! ###################################################################
@@ -460,12 +458,7 @@ contains
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
         end if
-        opr_poisson_sum_tmp1 = sum(c_tmp1)
-        opr_poisson_sum_tmp2 = sum(c_tmp2)
-        opr_poisson_sum_p = sum(p_wrk3d)
-        ! PRINT *, 'OPR_Poisson_FourierXZ_Direct: sum(c_tmp1) = ', opr_poisson_sum_tmp1
-        ! PRINT *, 'OPR_Poisson_FourierXZ_Direct: sum(c_tmp2) = ', opr_poisson_sum_tmp2
-        ! PRINT *, 'OPR_Poisson_FourierXZ_Direct: sum(p_wrk3d) = ', opr_poisson_sum_p
+
         nullify (c_tmp1, c_tmp2, p_wrk3d)
 #undef f
 #undef u
