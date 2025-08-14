@@ -16,17 +16,20 @@
 subroutine TLab_Transpose(a, nra, nca, ma, b, mb)
     use TLab_Constants, only: wp, wi
     use TLab_OpenMP
+    use Tlab_VARS, only : trans_time 
     implicit none
 
     integer(wi), intent(in) :: nra      ! Number of rows in a
     integer(wi), intent(in) :: nca      ! Number of columns in b
     integer(wi), intent(in) :: ma       ! Leading dimension on the input matrix a
     integer(wi), intent(in) :: mb       ! Leading dimension on the output matrix b
-    real(wp), intent(in)    :: a(ma, *) ! Input array
-    real(wp), intent(out)   :: b(mb, *) ! Transposed array
+    real(wp), intent(in)    :: a(ma, mb) ! Input array
+    real(wp), intent(out)   :: b(mb, ma) ! Transposed array
 
 ! -------------------------------------------------------------------
     integer(wi) jb, kb
+    integer clock_0, clock_1, clock_cycle
+
 #ifdef HLRS_HAWK
     parameter(jb=16, kb=8)
 #else
@@ -38,14 +41,38 @@ subroutine TLab_Transpose(a, nra, nca, ma, b, mb)
     integer(wi) k, j, jj, kk
     integer(wi) last_k, last_j
 
+    CALL SYSTEM_CLOCK(clock_0,clock_cycle) 
+
 ! -------------------------------------------------------------------
-#ifdef USE_MKL
+#if defined(USE_MKL)
     call MKL_DOMATCOPY('c', 't', nra, nca, 1.0_wp, a, ma, b, mb)
-#else
-!use own implementation
-!$omp parallel default(none) &
-!$omp private(k,j,jj,kk,srt,end,siz,last_k,last_j) &
-!$omp shared(a,b,nca,nra)
+#elif defined(USE_APU)
+    if (  nca < nra .AND. nca < 2e4 ) THEN    ! This 'if' is a workaround for an int-overflow  bug in 
+                                              ! OMP implementation of cray in cpe17
+       !$omp target teams distribute parallel do collapse(2) default(none) &
+       !$omp private(k,j) &
+       !$omp shared(a,b,nca,nra)
+       do k = 1, nca
+          do j = 1, nra 
+             b(k, j) = a(j,k)
+          end do
+       end do
+       !$omp end target teams distribute parallel do
+    else
+       !$omp target teams distribute parallel do default(none) &
+       !$omp private(k,j) &
+       !$omp shared(a,b,nca,nra)
+       do k = 1, nca
+          do j = 1, nra 
+             b(k, j) = a(j,k)
+          end do
+       end do
+       !$omp end target teams distribute parallel do
+    endif
+#else 
+!!$omp parallel default(none) &
+!!$omp private(k,j,jj,kk,srt,end,siz,last_k,last_j) &
+!!$omp shared(a,b,nca,nra)
 
     call TLab_OMP_PARTITION(nca, srt, end, siz)
 
@@ -76,10 +103,11 @@ subroutine TLab_Transpose(a, nra, nca, ma, b, mb)
         end do
     end do
 
-!$omp end parallel
-
+!!$omp end parallel
 #endif
-
+    CALL SYSTEM_CLOCK(clock_1)
+    trans_time = trans_time + real(clock_1 - clock_0)/ clock_cycle 
+    
     return
 end subroutine TLab_Transpose
 
