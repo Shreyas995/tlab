@@ -28,7 +28,7 @@ endif()
 
 # compiler for parallel build and hybrid flags	  
 if ( ${BUILD_TYPE} STREQUAL "PARALLEL" OR ${BUILD_TYPE} STREQUAL "NONBLOCKING" )
-   set(ENV{FC} /shared/apps/rhel8/opt/rocm-afar-5891/bin/amdflang-new ) 
+
 
    add_definitions(-DUSE_MPI -DUSE_MPI_IO -DUSE_ALLTOALL)
 
@@ -43,7 +43,7 @@ else( ${BUILD_TYPE} STREQUAL "SERIAL" )
   set(CMAKE_Fortran_COMPILER ${FC} )
 endif()     
 
-set(FFTW_PATH "/shared/midgard/home/cedrick_eci/")
+set(FFTW_PATH "/shared/midgard/home/jkostele_nld/")
 set(FFTW_LIB  "-L${FFTW_PATH}/lib -lfftw3")
 # set(NCDF_LIB   "-lnetcdff") 
 set(FFTW_INCLUDE_DIR "${FFTW_PATH}/include/")
