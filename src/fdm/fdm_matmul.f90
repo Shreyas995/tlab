@@ -317,7 +317,9 @@ contains
 #endif
         ! -------------------------------------------------------------------
         nx = size(rhs, 1)
+#ifdef USE_APU
         len = size(rhs, 2)
+#endif
         ! Boundary
         n = 1
         f(:, n) = f(:, n) + u(:, n)*r2_i(n) + u(:, n + 1)*r3_i(n) + u(:, n + 2)*r1_i(n)   ! r1(1) contains extended stencil
@@ -357,13 +359,15 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx,
+        integer(wi) n, nx
 #ifdef USE_APU
         integer(wi) l, len
 #endif
         ! -------------------------------------------------------------------
         nx = size(rhs, 1)
+#ifdef USE_APU
         len = size(rhs, 2)
+#endif
         ! -------------------------------------------------------------------
         ! Boundary
         if (ibc == BCS_PERIODIC) then
@@ -434,7 +438,9 @@ contains
 #endif
         ! -------------------------------------------------------------------
         nx = size(rhs, 1)
+#ifdef USE_APU
         len = size(rhs, 2)
+#endif
         ! -------------------------------------------------------------------
         ! Boundary
         if (ibc == BCS_PERIODIC) then
@@ -661,7 +667,9 @@ contains
 #endif
         ! #######################################################################
         nx = size(rhs, 1)
+#ifdef USE_APU
         len = size(rhs, 2)
+#endif
         ! -------------------------------------------------------------------
         ! Boundary
         f(:, 1) = f(:, 1) + u(:, 1)*r3_i(1) + u(:, 2)*r4_i(1) + u(:, 3)*r5_i(1) + u(:, 4)*r1_i(1)   ! r1(1) contains extended stencil
@@ -710,8 +718,9 @@ contains
 #endif
         ! #######################################################################
         nx = size(rhs, 1)
+#ifdef USE_APU
         len = size(f, 2)
-
+#endif
         r5_loc = r5_i(4)      ! The first 3 equations, last 3 equations, can be normalized differently
 
         ! -------------------------------------------------------------------
@@ -790,7 +799,9 @@ contains
 
         ! #######################################################################
         nx = size(rhs, 1)
+#ifdef USE_APU
         len = size(f, 2)
+#endif
         r5_loc = r5_i(3)      ! The first 2 equations, last 2 equations, are normalized differently
         r3_loc = r3_i(3)
 
@@ -871,7 +882,9 @@ contains
 #endif
         ! #######################################################################
         nx = size(rhs, 1)
+#ifdef USE_APU
         len = size(f, 2)
+#endif
         !-------------------------------------------------------------------
         r6_loc = r6_i(5)      ! The first 4 equations, last 4 equations, can be normalized differently
         r7_loc = r7_i(5)
@@ -959,7 +972,9 @@ contains
 
         ! #######################################################################
         nx = size(rhs, 1)
+#ifdef USE_APU
         len = size(f, 2)
+#endif
         !-------------------------------------------------------------------
         r7_loc = r7_i(4)
         r6_loc = r6_i(4)      ! The first 3 equations, last 3 equations, are normalized differently

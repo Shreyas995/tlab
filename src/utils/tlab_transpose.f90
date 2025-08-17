@@ -12,7 +12,6 @@
 !#
 !########################################################################
 
-
 subroutine TLab_Transpose(a, nra, nca, ma, b, mb)
     use TLab_Constants, only: wp, wi
     use TLab_OpenMP
