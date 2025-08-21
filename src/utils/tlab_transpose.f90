@@ -15,7 +15,7 @@
 subroutine TLab_Transpose(a, nra, nca, ma, b, mb)
     use TLab_Constants, only: wp, wi
     use TLab_OpenMP
-    use Tlab_VARS, only : trans_time 
+    use TLab_Time, only : trans_time 
     implicit none
 
     integer(wi), intent(in) :: nra      ! Number of rows in a
