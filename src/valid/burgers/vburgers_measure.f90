@@ -86,7 +86,7 @@ program VBURGERS
    call TLab_Initialize_Parameters(ifile) 
 #ifdef USE_MPI
    call TLabMPI_Initialize(ifile)
-   call TLabMPI_Transpose_Initialize(ifile)
+   call TLabMPI_Trp_Initialize(ifile)
 #endif
    call NavierStokes_Initialize_Parameters(ifile) 
 
