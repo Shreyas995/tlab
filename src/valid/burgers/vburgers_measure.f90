@@ -1,43 +1,42 @@
 #include "dns_const.h"
+
 #define C_FILE_LOC "VBURGERS_MEASURE"
 
-   program VBURGERS
+program VBURGERS
 
-   use TLab_Constants, only: wp, wi, big_wp, gfile, ifile
-   use TLab_Constants, only: BCS_NN, wfile
-   use TLab_Time, only: itime
-   use TLab_Time, only: mat5dantisym_time,mat5dsym_time,mat3dadd_time,mat3d_time
-   use TLab_Time, only: trans_time, tridss_time, tridpss_time, t_map_in, t_compute, t_map_out
-   use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop, TLab_Start, stagger_on
-   use TLab_Memory, only: TLab_Initialize_Memory
-   use TLab_Memory, only: imax, jmax, kmax, inb_txc
-   use TLab_Arrays
-   use TLab_Pointers_3D, only: tmp1
-   use TLab_Memory, only: TLab_Initialize_Memory
+    use TLab_Constants, only: wp, wi, big_wp, gfile, ifile, wfile
+    use TLab_Time
+    use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop, TLab_Start, stagger_on
+    use TLab_Memory
+    use TLab_Arrays
+    use TLab_Pointers_3D, only: tmp1
+    use TLab_Constants, only: BCS_NN
 #ifdef USE_MPI
-   use MPI
-   use TLabMPI_PROCS, only: TLabMPI_Initialize
-   use TLabMPI_Transpose, only: TLabMPI_Transpose_Initialize
-   use TLabMPI_VARS
+    use mpi_f08
+    use TLabMPI_PROCS, only: TLabMPI_Initialize
+    use TLabMPI_Transpose, only: TLabMPI_Trp_Initialize
+    use TLabMPI_VARS
 #endif
-   use FDM, only: g, FDM_Initialize
-    use FDM_Integral, only: fdm_Int0
+    use FDM, only: g, FDM_Initialize
     use NavierStokes, only: NavierStokes_Initialize_Parameters, visc
     use TLab_Grid
     use IO_Fields
-    use OPR_PARTIAL
+    use OPR_Partial
     use OPR_Burgers
     use OPR_FILTERS
-    use OPR_ELLIPTIC
-    use OPR_FOURIER
+    use OPR_Elliptic
+    use OPR_Fourier
     use TLab_Background, only: TLab_Initialize_Background
 
-   implicit none
+
+    implicit none
   
    !$omp requires unified_shared_memory
-  
-#ifndef USE_MPI
-   integer(wi), parameter :: ims_pro = 0
+   
+#ifdef USE_MPI
+    real(wp) error2, dummy2
+#else
+    integer(wi), parameter :: ims_pro = 0
 #endif
 
    real(wp), dimension(:, :, :), pointer :: a, b, c, d, e
@@ -104,14 +103,13 @@
 
    visc = 1.0_wp/big_wp    ! inviscid
 
-   call TLab_Grid_Read(gfile, x, y, z, [g(1)%size, g(2)%size, g(3)%size])
+   call TLab_Grid_Read(gfile, x, y, z)
+   call FDM_Initialize(ifile)
 
-   call FDM_Initialize(x, g(1))
-   call FDM_Initialize(y, g(2), fdm_Int0)
-   call FDM_Initialize(z, g(3))
+   call TLab_Initialize_Background(ifile)
 
-   call TLab_Initialize_Background(ifile) 
    call OPR_Burgers_Initialize(ifile)
+
    call OPR_Elliptic_Initialize(ifile)
 
    ! Staggering of the pressure grid not implemented here
@@ -181,7 +179,7 @@
    if (ims_pro == 0) write (*, *) '------------------- '
 
    e = a
-   call OPR_Poisson(imax, jmax, kmax, g, ibc, e, b, d, bcs_hb, bcs_ht, c)
+   call OPR_Poisson(imax, jmax, kmax, ibc, e, b, d, bcs_hb, bcs_ht, c)
    call output_sum(c, 'OPR_ELLIP') ! dpdy
    call output_sum(e, 'OPR_ELLIP') ! p
 
@@ -257,7 +255,7 @@
          
          ! call Pressure Poisson solver
          CALL SYSTEM_CLOCK(clock_add0)
-         call OPR_Poisson(imax, jmax, kmax, g, ibc, e, b, d, bcs_hb, bcs_ht, c)
+         call OPR_Poisson(imax, jmax, kmax, ibc, e, b, d, bcs_hb, bcs_ht, c)
          CALL SYSTEM_CLOCK(clock_add1)
          pps_time = pps_time + real(clock_add1 - clock_add0) / clock_cycle 
       
