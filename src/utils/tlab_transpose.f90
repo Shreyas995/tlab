@@ -183,8 +183,8 @@ subroutine TLab_Transpose_COMPLEX(a, nra, nca, ma, b, mb)
     integer(wi), intent(in) :: nca      ! Number of columns in b
     integer(wi), intent(in) :: ma       ! Leading dimension on the input matrix a
     integer(wi), intent(in) :: mb       ! Leading dimension on the output matrix b
-    complex(wp), intent(in)    :: a(ma, *) ! Input array
-    complex(wp), intent(out)   :: b(mb, *) ! Transposed array
+    complex(wp), intent(in)    :: a(ma, mb) ! Input array
+    complex(wp), intent(out)   :: b(mb, ma) ! Transposed array
 
 ! -------------------------------------------------------------------
     integer(wi) jb, kb
@@ -240,8 +240,8 @@ subroutine TLab_Transpose_COMPLEX_APU(a, nra, nca, ma, b, mb)
     integer(wi), intent(in) :: nca      ! Number of columns in b
     integer(wi), intent(in) :: ma       ! Leading dimension on the input matrix a
     integer(wi), intent(in) :: mb       ! Leading dimension on the output matrix b
-    complex(wp), intent(in)    :: a(ma, *) ! Input array
-    complex(wp), intent(out)   :: b(mb, *) ! Transposed array
+    complex(wp), intent(in)    :: a(ma, mb) ! Input array
+    complex(wp), intent(out)   :: b(mb, ma) ! Transposed array
 
 ! -------------------------------------------------------------------
     integer(wi) jb, kb
