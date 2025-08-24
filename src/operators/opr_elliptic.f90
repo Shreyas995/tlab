@@ -409,9 +409,9 @@ contains
         ! ###################################################################
         ! Make x direction last one and leave y direction first
 #ifdef USE_APU
-        call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
+        call TLab_Transpose_COMPLEX_APU(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
 #else
-        call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
+        call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
 #endif
 
 #define f(j,k,i) tmp2(j,k,i)
