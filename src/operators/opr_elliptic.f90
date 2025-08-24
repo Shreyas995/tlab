@@ -408,7 +408,11 @@ contains
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
         ! ###################################################################
         ! Make x direction last one and leave y direction first
-        call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
+#ifdef USE_APU
+        call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
+#else
+        call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
+#endif
 
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
@@ -442,9 +446,11 @@ contains
                 end do
             end do
         end select
-
+#ifdef USE_APU
+        call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
+#else
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
-
+#endif
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
         ! ###################################################################
