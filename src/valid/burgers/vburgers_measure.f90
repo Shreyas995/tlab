@@ -81,8 +81,12 @@ program VBURGERS
 
 
    ! ###################################################################
+   PRINT *,'EXECUTING ',nrun, ' Tlab start...'
+   ! ###################################################################
    call TLab_Start()
-
+   ! ###################################################################
+   PRINT *,'EXECUTING ',nrun, ' initializing parameters...'
+   ! ###################################################################
    call TLab_Initialize_Parameters(ifile) 
 #ifdef USE_MPI
    call TLabMPI_Initialize(ifile)
@@ -91,6 +95,9 @@ program VBURGERS
    call NavierStokes_Initialize_Parameters(ifile) 
 
    inb_txc = 6
+   ! ###################################################################
+   PRINT *,'EXECUTING ',nrun, ' initializing memory...'
+   ! ###################################################################
 
    call TLab_Initialize_Memory(__FILE__)
 
