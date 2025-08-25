@@ -1059,7 +1059,7 @@ contains
             if (any([BCS_DN, BCS_NN] == ibc)) f(:, nx) = 0.0_wp
 
         end if
-
+        Print *, 'Finished:', 'MatMul_7d_sym'
         return
     end subroutine MatMul_7d_sym
 
