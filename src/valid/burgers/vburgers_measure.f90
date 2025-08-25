@@ -100,6 +100,8 @@ program VBURGERS
    ! ###################################################################
 
    call TLab_Initialize_Memory(__FILE__)
+   ! ###################################################################
+   PRINT *,'EXECUTING ',nrun, ' initializing fields...'
 
    allocate (bcs_ht(imax, kmax), bcs_hb(imax, kmax))
    a(1:imax, 1:jmax, 1:kmax) => txc(1:imax*jmax*kmax, 2)
@@ -107,6 +109,11 @@ program VBURGERS
    c(1:imax, 1:jmax, 1:kmax) => txc(1:imax*jmax*kmax, 4)
    d(1:imax, 1:jmax, 1:kmax) => txc(1:imax*jmax*kmax, 5)
    e(1:imax, 1:jmax, 1:kmax) => txc(1:imax*jmax*kmax, 6)
+
+   Print *, 'Grid size is ', imax, jmax, kmax, ' Total points ', imax*jmax*kmax
+   ! ###################################################################
+   PRINT *,'EXECUTING ',nrun, ' Reading grid and initializing operators...'
+   ! ###################################################################
 
    visc = 1.0_wp/big_wp    ! inviscid
 
