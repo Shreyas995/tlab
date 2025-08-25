@@ -118,11 +118,28 @@ program VBURGERS
    visc = 1.0_wp/big_wp    ! inviscid
 
    call TLab_Grid_Read(gfile, x, y, z)
+
+   ! ###################################################################
+   PRINT *,'EXECUTING ',nrun, ' Initializing FDM...'
+   ! ###################################################################
+
    call FDM_Initialize(ifile)
+
+   ! ###################################################################
+   PRINT *,'EXECUTING ',nrun, ' Initializing Background...'
+   ! ###################################################################
 
    call TLab_Initialize_Background(ifile)
 
+   ! ###################################################################
+   PRINT *,'EXECUTING ',nrun, ' OPR_Burgers_Initialize...'
+   ! ###################################################################
+
    call OPR_Burgers_Initialize(ifile)
+
+   ! ###################################################################
+   PRINT *,'EXECUTING ',nrun, ' OPR_Elliptic_Initialize...'
+   ! ###################################################################
 
    call OPR_Elliptic_Initialize(ifile)
 
