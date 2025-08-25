@@ -201,6 +201,10 @@ program VBURGERS
    t_compute = 0.0_wp
    t_map_out = 0.0_wp
 
+   ! ###################################################################
+   PRINT *,'EXECUTING ',nrun, ' Initialization complete. Starting runs...'
+   ! ###################################################################
+
    DO irun=1,nrun
 
 
