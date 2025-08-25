@@ -419,13 +419,14 @@ contains
 
         ! Solve for each (kx,kz) a system of 1 complex equation as 2 independent real equations
 #ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(2) \
-        !$omp map(to: f(1:*,1:*,1:*)) map(from: u(1:*,1:*,1:*))
+        !$omp target teams distribute parallel do collapse(2)            &
+        !$omp& map(to: f(1:2,1:nz,1:i_max), f(2*ny-1:2*ny,1:nz,1:i_max)) &
+        !$omp& map(from: u(1:2,1:nz,1:i_max), u(2*ny-1:2*ny,1:nz,1:i_max))
 #endif
         do i = 1, i_max
             do k = 1, nz
-                u(1:2, k, i) = f(1:2, k, i)                         ! bottom boundary conditions
-                u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
+                u(1:2, k, i) = f(1:2, k, i)                         ! bottom boundary
+                u(2*ny-1:2*ny, k, i) = f(2*ny-1:2*ny, k, i)         ! top boundary
             end do
         end do
 #ifdef USE_APU
