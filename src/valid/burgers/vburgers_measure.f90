@@ -146,6 +146,9 @@ program VBURGERS
    ! Define forcing term
    ! ###################################################################
    ! call IO_READ_FIELDS('field.inp', IO_SCAL, imax, jmax, kmax, 1, 0, a)
+   ! ##################################################################
+   PRINT *,'EXECUTING ',nrun, ' Reading initial field...'
+   ! ##################################################################
    call IO_Read_Fields('field.inp', imax, jmax, kmax, itime, 1, 0, a, params)
 
    visc = 1.0_wp/big_wp
