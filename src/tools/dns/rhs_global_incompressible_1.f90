@@ -105,37 +105,37 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, v, tmp7, tmp9, tmp5) ! tmp5 contains v transposed
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
 
-!$omp parallel default( shared ) &
-!$omp private( ij, srt,end,siz )
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
+! !$omp parallel default( shared ) &
+! !$omp private( ij, srt,end,siz )
     do ij = srt, end
         hq(ij, 1) = hq(ij, 1) + tmp1(ij) + tmp7(ij) + tmp8(ij)
     end do
-!$omp end parallel
+! !$omp end parallel
 
     ! Oy momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
 
-!$omp parallel default( shared ) &
-!$omp private( ij, srt,end,siz )
-    call TLab_OMP_PARTITION(isize_field, srt, end, siz)
+! !$omp parallel default( shared ) &
+! !$omp private( ij, srt,end,siz )
+    ! call TLab_OMP_PARTITION(isize_field, srt, end, siz)
     do ij = srt, end
         hq(ij, 2) = hq(ij, 2) + tmp2(ij) + tmp7(ij) + tmp8(ij)
     end do
-!$omp end parallel
+! !$omp end parallel
 
     ! Oz momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, v, tmp8, tmp9, tmp5) ! tmp5 contains v transposed
 
-!$omp parallel default( shared ) &
-!$omp private( ij, srt,end,siz )
-    call TLab_OMP_PARTITION(isize_field, srt, end, siz)
+! !$omp parallel default( shared ) &
+! !$omp private( ij, srt,end,siz )
+    ! call TLab_OMP_PARTITION(isize_field, srt, end, siz)
     do ij = srt, end
         hq(ij, 3) = hq(ij, 3) + tmp3(ij) + tmp7(ij) + tmp8(ij)
     end do
-!$omp end parallel
+! !$omp end parallel
 
     ! IBM
     if (imode_ibm == 1) then
@@ -153,13 +153,13 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call OPR_Burgers_Y(OPR_B_U_IN, is, imax, jmax, kmax, bcs, s(1, is), v, tmp2, tmp9, tmp5) ! tmp5 contains v transposed
         call OPR_Burgers_Z(OPR_B_U_IN, is, imax, jmax, kmax, bcs, s(1, is), w, tmp3, tmp9, tmp6) ! tmp6 contains w transposed
 
-!$omp parallel default( shared ) &
-!$omp private( ij, srt,end,siz )
-        call TLab_OMP_PARTITION(isize_field, srt, end, siz)
+! !$omp parallel default( shared ) &
+! !$omp private( ij, srt,end,siz )
+        ! call TLab_OMP_PARTITION(isize_field, srt, end, siz)
         do ij = srt, end
             hs(ij, is) = hs(ij, is) + tmp1(ij) + tmp2(ij) + tmp3(ij)
         end do
-!$omp end parallel
+! !$omp end parallel
 
     end do
 
@@ -178,13 +178,13 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     ! #######################################################################
     if (remove_divergence) then ! remove residual divergence
 
-#ifdef USE_ESSL
-!$omp parallel default( shared )&
-!$omp private( ilen, dummy, srt,end,siz )
-#else
-!$omp parallel default( shared )&
-!$omp private( ij,   dummy, srt,end,siz )
-#endif
+! #ifdef USE_ESSL
+! !$omp parallel default( shared )&
+! !$omp private( ilen, dummy, srt,end,siz )
+! #else
+! !$omp parallel default( shared )&
+! !$omp private( ij,   dummy, srt,end,siz )
+! #endif
 
         call TLab_OMP_PARTITION(isize_field, srt, end, siz)
         dummy = 1.0_wp/dte
@@ -196,14 +196,16 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call DZAXPY(ilen, dummy, w(srt), 1, hq(srt, 3), 1, tmp4(srt), 1)
 
 #else
+! !$omp parallel default( shared )&
+! !$omp private( ij,   dummy, srt,end,siz )
         do ij = srt, end
             tmp2(ij) = hq(ij, 2) + v(ij)*dummy
             tmp3(ij) = hq(ij, 1) + u(ij)*dummy
             tmp4(ij) = hq(ij, 3) + w(ij)*dummy
         end do
-
+! !$omp end parallel
 #endif
-!$omp end parallel
+
 
         if (imode_ibm == 1) then
             call IBM_BCS_FIELD(tmp2)
@@ -254,12 +256,12 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     end if
 
     ! -----------------------------------------------------------------------
-!$omp parallel default( shared ) private( ij,srt,end,siz )
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
+! !$omp parallel default( shared ) private( ij,srt,end,siz )
     do ij = srt, end
         tmp1(ij) = tmp1(ij) + tmp2(ij) + tmp3(ij) ! forcing term in tmp1
     end do
-!$omp end parallel
+! !$omp end parallel
 
     ! -----------------------------------------------------------------------
     ! Neumman BCs in d/dy(p) s.t. v=0 (no-penetration)
@@ -331,13 +333,13 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call Thermo_Anelastic_WEIGHT_SUBTRACT(imax, jmax, kmax, ribackground, tmp4, hq(:, 3))
 
     else
-#ifdef USE_ESSL
-!$omp parallel default( shared ) &
-!$omp private( ilen, srt,end,siz,dummy )
-#else
-!$omp parallel default( shared ) &
-!$omp private( ij,   srt,end,siz,dummy )
-#endif
+! #ifdef USE_ESSL
+! ! !$omp parallel default( shared ) &
+! ! !$omp private( ilen, srt,end,siz,dummy )
+! #else
+! ! !$omp parallel default( shared ) &
+! ! !$omp private( ij,   srt,end,siz,dummy )
+! #endif
         call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
 #ifdef USE_ESSL
@@ -347,13 +349,15 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call DAXPY(ilen, dummy, tmp3(srt), 1, hq(srt, 2), 1)
         call DAXPY(ilen, dummy, tmp4(srt), 1, hq(srt, 3), 1)
 #else
+    ! !$omp parallel default( shared ) &
+    ! !$omp private( ij,   srt,end,siz,dummy )
         do ij = srt, end
             hq(ij, 1) = hq(ij, 1) - tmp2(ij)
             hq(ij, 2) = hq(ij, 2) - tmp3(ij)
             hq(ij, 3) = hq(ij, 3) - tmp4(ij)
         end do
+    ! !$omp end parallel
 #endif
-!$omp end parallel
     end if
 
     ! #######################################################################
