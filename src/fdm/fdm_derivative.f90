@@ -433,7 +433,6 @@ contains
         ! -------------------------------------------------------------------
         ! Calculate RHS in system of equations A u' = B u
         call g%matmul(g%rhs, u, result, ibc)
-
         if (g%need_1der) then           ! add Jacobian correction A_2 dx2 du
             ip = g%nb_diag(2)           ! so far, only tridiagonal systems
             call MatMul_3d_add(g%rhs(:, ip + 1:ip + 3), du, result)
@@ -454,7 +453,7 @@ contains
                             result)
             end select
         end if
-
+        PRINT *, 'FDM_Der2_Solve done'
         return
     end subroutine FDM_Der2_Solve
 

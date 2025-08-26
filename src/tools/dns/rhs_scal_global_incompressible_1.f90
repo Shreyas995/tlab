@@ -67,14 +67,14 @@ subroutine RHS_SCAL_GLOBAL_INCOMPRESSIBLE_1(is)
     call OPR_Partial_Y(OPR_P2_P1, imax, jmax, kmax, bcs, g(2), s(:,is), tmp5, tmp2)
     call OPR_Partial_X(OPR_P2_P1, imax, jmax, kmax, bcs, g(1), s(:,is), tmp4, tmp1)
 
-!$omp parallel default( shared ) private( ij )
-!$omp do
+! !$omp parallel default( shared ) private( ij )
+! !$omp do
     do ij = 1, isize_field
         hs(ij,is) = hs(ij,is) + diff*(tmp6(ij) + tmp5(ij) + tmp4(ij)) &
                     - (w(ij)*tmp3(ij) + v(ij)*tmp2(ij) + u(ij)*tmp1(ij))
     end do
-!$omp end do
-!$omp end parallel
+! !$omp end do
+! !$omp end parallel
 
 ! #######################################################################
 ! Boundary conditions
