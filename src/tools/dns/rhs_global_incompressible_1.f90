@@ -334,11 +334,11 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     else
 ! #ifdef USE_ESSL
-! ! !$omp parallel default( shared ) &
-! ! !$omp private( ilen, srt,end,siz,dummy )
+! ! $omp parallel default( shared ) &
+! ! $omp private( ilen, srt,end,siz,dummy )
 ! #else
-! ! !$omp parallel default( shared ) &
-! ! !$omp private( ij,   srt,end,siz,dummy )
+! ! $omp parallel default( shared ) &
+! ! $omp private( ij,   srt,end,siz,dummy )
 ! #endif
         call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
