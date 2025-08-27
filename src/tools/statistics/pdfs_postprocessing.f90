@@ -3,7 +3,7 @@
 
 #define C_FILE_LOC "PDFS"
 
-program PDFS
+program PDFS_POSTPROCESSING
 
     use TLab_Constants, only: wp, wi, small_wp, ifile, efile, lfile, gfile, tag_flow, tag_scal
     use TLab_Pointers, only: pointers_dt
@@ -822,4 +822,4 @@ program PDFS
     end do
 
     call TLab_Stop(0)
-end program PDFS
+end program PDFS_POSTPROCESSING

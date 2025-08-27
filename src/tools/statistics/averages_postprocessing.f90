@@ -4,7 +4,7 @@
 
 #define C_FILE_LOC "AVERAGES"
 
-program AVERAGES_PROCESSING
+program AVERAGES_POSTPROCESSING
 
     use TLab_Pointers, only: pointers_dt, u, v, w, p
     use TLab_Constants, only: wp, wi, small_wp, MAX_AVG_TEMPORAL
@@ -1021,4 +1021,4 @@ program AVERAGES_PROCESSING
     end do
 
     call TLab_Stop(0)
-end program AVERAGES_PROCESSING
+end program AVERAGES_POSTPROCESSING
