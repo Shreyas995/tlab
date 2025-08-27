@@ -134,8 +134,8 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_NBC(u, v, w, s, &
 ! #######################################################################
     call NB3DFFT_NBC_PREPARE(24, .false.)
 
-!$omp parallel num_threads(2)  &
-!$omp default(shared)
+! !$omp parallel num_threads(2)  &
+! !$omp default(shared)
     if (omp_get_thread_num() == 0) then
         call NB3DFFT_NBC_SCHEDL_START(nbcsetup_)
     else if (omp_get_thread_num() == 1) then
@@ -563,7 +563,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_NBC(u, v, w, s, &
     else
         PRTERR1("there MUST NOT be more threads than 2 on first level")
     end if
-!$omp end parallel
+! !$omp end parallel
     t_run = t_run + MPI_WTime()
     !               rhs-stuff    testing    packing     init
     t_wait = t_run - t_ser - t_test - t_comp - t_init

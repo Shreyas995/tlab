@@ -60,13 +60,13 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
     call OPR_Partial_Y(OPR_P2_P1, imax, jmax, kmax, bcs, g(2), u, tmp5, tmp2)
     call OPR_Burgers_X(OPR_B_SELF, 0, imax, jmax, kmax, bcs, u, u, tmp4, tmp1)
 
-!$omp parallel default( shared ) private( ij, srt,end,siz )
+! !$omp parallel default( shared ) private( ij, srt,end,siz )
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
     do ij = srt, end
         hq(:, 1) = hq(:, 1) + tmp4(ij) + visc*(tmp6(ij) + tmp5(ij)) &
                    - (w(ij)*tmp3(ij) + v(ij)*tmp2(ij))
     end do
-!$omp end parallel
+! !$omp end parallel
 
 ! #######################################################################
 ! Diffusion and convection terms in Oz momentum eqn
@@ -76,13 +76,13 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
         call OPR_Partial_Y(OPR_P2_P1, imax, jmax, kmax, bcs, g(2), w, tmp5, tmp2)
         call OPR_Partial_X(OPR_P2_P1, imax, jmax, kmax, bcs, g(1), w, tmp4, tmp1)
 
-!$omp parallel default( shared ) private( ij, srt,end,siz )
+! !$omp parallel default( shared ) private( ij, srt,end,siz )
         call TLab_OMP_PARTITION(isize_field, srt, end, siz)
         do ij = srt, end
             hq(:, 3) = hq(:, 3) + tmp6(ij) + visc*(tmp5(ij) + tmp4(ij)) &
                        - (v(ij)*tmp2(ij) + u(ij)*tmp1(ij))
         end do
-!$omp end parallel
+! !$omp end parallel
 
     end if
 
@@ -94,18 +94,18 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
     call OPR_Partial_X(OPR_P2_P1, imax, jmax, kmax, bcs, g(1), v, tmp4, tmp1)
 
 #ifdef USE_ESSL
-!$omp parallel default( shared ) &
-!$omp private( ilen, srt,end,siz)
+! !$omp parallel default( shared ) &
+! !$omp private( ilen, srt,end,siz)
 #else
-!$omp parallel default( shared ) &
-!$omp private( ij,   srt,end,siz)
+! !$omp parallel default( shared ) &
+! !$omp private( ij,   srt,end,siz)
 #endif
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
     do ij = srt, end
         hq(:, 2) = hq(:, 2) + tmp5(ij) + visc*(tmp6(ij) + tmp4(ij)) &
                    - (w(ij)*tmp3(ij) + u(ij)*tmp1(ij))
     end do
-!$omp end parallel
+! !$omp end parallel
 
 ! #######################################################################
 ! Impose buffer zone as relaxation terms
@@ -120,11 +120,11 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
     if (remove_divergence) then ! remove residual divergence
 
 #ifdef USE_ESSL
-!$omp parallel default( shared )&
-!$omp private( ilen, dummy, srt,end,siz )
+! !$omp parallel default( shared )&
+! !$omp private( ilen, dummy, srt,end,siz )
 #else
-!$omp parallel default( shared )&
-!$omp private( ij,   dummy, srt,end,siz )
+! !$omp parallel default( shared )&
+! !$omp private( ij,   dummy, srt,end,siz )
 #endif
 
         call TLab_OMP_PARTITION(isize_field, srt, end, siz)
@@ -144,7 +144,7 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
         end do
 
 #endif
-!$omp end parallel
+! !$omp end parallel
 
         call OPR_Partial_Y(OPR_P1, imax, jmax, kmax, bcs, g(2), tmp2, tmp1)
         call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp3, tmp2)
@@ -158,12 +158,12 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
     end if
 
 ! -----------------------------------------------------------------------
-!$omp parallel default( shared ) private( ij,srt,end,siz )
+! !$omp parallel default( shared ) private( ij,srt,end,siz )
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
     do ij = srt, end
         tmp1(ij) = tmp1(ij) + tmp2(ij) + tmp3(ij) ! forcing term in tmp1
     end do
-!$omp end parallel
+! !$omp end parallel
 
 ! -----------------------------------------------------------------------
 ! Neumman BCs in d/dy(p) s.t. v=0 (no-penetration)
@@ -185,11 +185,11 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
 ! Add pressure gradient
 ! -----------------------------------------------------------------------
 #ifdef USE_ESSL
-!$omp parallel default( shared ) &
-!$omp private( ilen, srt,end,siz,dummy )
+! !$omp parallel default( shared ) &
+! !$omp private( ilen, srt,end,siz,dummy )
 #else
-!$omp parallel default( shared ) &
-!$omp private( ij,   srt,end,siz,dummy )
+! !$omp parallel default( shared ) &
+! !$omp private( ij,   srt,end,siz,dummy )
 #endif
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
@@ -207,7 +207,7 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
     end do
 #endif
 
-!$omp end parallel
+! !$omp end parallel
 
 ! #######################################################################
 ! Boundary conditions
