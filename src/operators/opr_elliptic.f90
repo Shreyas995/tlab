@@ -125,7 +125,8 @@ contains
         call FDM_CreatePlan(y, fdm_loc)
 
         isize_line = imax/2 + 1
-        print *, 'Allocating memory for lambda(', kmax, ',', isize_line, ')'
+        print *, 'Allocating memory for lambda'
+        print *, '(', kmax, ',', isize_line, ')'
         allocate (lambda(kmax, isize_line))
         norm = 1.0_wp/real(g(1)%size*g(3)%size, wp)
 
@@ -156,7 +157,8 @@ contains
             ndl = fdm_loc%der2%nb_diag(1)
             ndr = fdm_loc%der2%nb_diag(2)
             nd = ndl
-            print *, 'Allocating memory for fdm_int2(', kmax, ',', isize_line, ')'
+            print *, 'Allocating memory for fdm_int2('
+            print *, kmax, ',', isize_line, ')'
             allocate (fdm_int2(kmax, isize_line))
             print *, 'Allocating memory for rhs_d(', g(2)%size, ',', nd, ')'
             call TLab_Allocate_Real(__FILE__, rhs_d, [g(2)%size, nd], 'rhs_d')
