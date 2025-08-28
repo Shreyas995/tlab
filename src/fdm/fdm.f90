@@ -130,12 +130,12 @@ contains
         call FDM_CreatePlan(x, g(1))
         call FDM_CreatePlan(y, g(2))
         call FDM_CreatePlan(z, g(3))
-
+        PRINT *, 'FDM derivative plans created.'
         ! ###################################################################
         ! Initializing fdm plans for first-order integrals (cases lambda = 0.0_wp)
         call FDM_Int1_Initialize(y%nodes(:), g(2)%der1, 0.0_wp, BCS_MIN, fdm_Int0(BCS_MIN))
         call FDM_Int1_Initialize(y%nodes(:), g(2)%der1, 0.0_wp, BCS_MAX, fdm_Int0(BCS_MAX))
-
+        PRINT *, 'FDM int1_Initialize done.'
         return
     end subroutine FDM_Initialize
 
