@@ -235,7 +235,7 @@ contains
         g%jac(:, 2) = g%jac(:, 1)
         PRINT *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 2'
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, g%periodic, g%uniform)
-
+        PRINT *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 2 done'
         if (g%der2%periodic) g%der2%mwn(:) = g%der2%mwn(:)/(g%jac(1, 1)**2)      ! normalized by dx
         PRINT *, 'normalized by dx'
         ! ###################################################################
