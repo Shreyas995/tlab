@@ -359,6 +359,7 @@ contains
         if (allocated(g%lhs)) deallocate (g%lhs)
         if (allocated(g%rhs)) deallocate (g%rhs)
         if (allocated(g%mwn)) deallocate (g%mwn)
+        print *, 'FDM_Der2_CreateSystem:','Allocating g%lhs, g%rhs, g%mwn'
         allocate (g%lhs(nx, ndl_max))
         allocate (g%rhs(nx, ndr_max + ndl_max))     ! ndl_max is space for du correction in nonuniform case
         allocate (g%mwn(nx))
