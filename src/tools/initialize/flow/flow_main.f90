@@ -68,7 +68,7 @@ program INIFLOW
     if (IniK%relative) IniK%ymean = y%nodes(1) + y%scale*IniK%ymean_rel
 
     call OPR_Burgers_Initialize(ifile)
-
+    print *, 'OPR_Elliptic_Initialize will be called'
     if (flag_u /= 0) then ! Initialize Poisson Solver
         call OPR_Elliptic_Initialize(ifile)
 
