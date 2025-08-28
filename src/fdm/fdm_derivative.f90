@@ -358,7 +358,7 @@ contains
         print *, 'FDM_Der2_CreateSystem:','Allocating and deallocating g%lhs, g%rhs, g%mwn'
         if (allocated(g%lhs)) deallocate (g%lhs)
         PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%lhs'
-        if (allocated(g%rhs)) deallocate (g%rhs)
+        ! if (allocated(g%rhs)) deallocate (g%rhs)
         PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
         if (allocated(g%mwn)) deallocate (g%mwn)
         print *, 'FDM_Der2_CreateSystem:','Allocating g%lhs, g%rhs, g%mwn'
