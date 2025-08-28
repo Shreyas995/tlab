@@ -286,6 +286,7 @@ contains
         logical, intent(in) :: periodic, uniform
 
         ! ###################################################################
+        PRINT *, 'FDM_Der2_Initialize creating system'
         call FDM_Der2_CreateSystem(x, dx, g, periodic, uniform)
         PRINT *, 'FDM_Der2_CreateSystem'
         ! -------------------------------------------------------------------
