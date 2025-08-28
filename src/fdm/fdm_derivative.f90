@@ -287,15 +287,20 @@ contains
 
         ! ###################################################################
         call FDM_Der2_CreateSystem(x, dx, g, periodic, uniform)
-
+        PRINT *, 'FDM_Der2_CreateSystem'
         ! -------------------------------------------------------------------
         ! LU decomposition
+        PRINT *, 'FDM_Der2_Initialize: deallocating g%lu if allocaeted'
+        PRINT *, 'FDM_Der2_Initialize: allocating g%lu:', (allocated(g%lu))
         if (allocated(g%lu)) deallocate (g%lu)
         if (g%periodic) then
+            PRINT *, 'FDM_Der2_Initialize: periodic allocating g%lu', g%size, g%nb_diag(1)
             allocate (g%lu(g%size, g%nb_diag(1) + 2))
         else
+            PRINT *, 'FDM_Der2_Initialize: non-periodic allocating g%lu', g%size, g%nb_diag(1)
             allocate (g%lu(g%size, g%nb_diag(1)*1))          ! Only 1 bcs
         end if
+        PRINT *, 'FDM_Der2_Initialize: allocated g%lu completed'
         g%lu(:, :) = 0.0_wp
 
         g%lu(:, 1:g%nb_diag(1)) = g%lhs(:, 1:g%nb_diag(1))
