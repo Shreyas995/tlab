@@ -128,8 +128,11 @@ contains
         !########################################################################
         ! Initializing fdm plan for derivatives
         call FDM_CreatePlan(x, g(1))
+        PRINT *, 'FDM derivative plans created for X.'
         call FDM_CreatePlan(y, g(2))
+        PRINT *, 'FDM derivative plans created for Y.'
         call FDM_CreatePlan(z, g(3))
+        PRINT *, 'FDM derivative plans created for Z.'
         PRINT *, 'FDM derivative plans created.'
         ! ###################################################################
         ! Initializing fdm plans for first-order integrals (cases lambda = 0.0_wp)
@@ -166,7 +169,7 @@ contains
         else
             g%scale = 1.0_wp  ! to avoid conditionals and NaN in some of the calculations below
         end if
-
+        PRINT *, 'FDM_CreatePlan for ', 'Periodicity check'
         if (present(locScale)) then
 ! print *, abs((scale_loc - g%scale)/scale_loc)
             if (abs((locScale - g%scale)/g%scale) > roundoff_wp) then
@@ -199,12 +202,13 @@ contains
 
         ! Calculating derivative dxds into g%jac(:, 1)
         g%der1%periodic = .false.
+        PRINT *, 'FDM_CreatePlan for ', '1st order derivative'
         call FDM_Der1_Solve(1, BCS_NONE, g%der1, g%der1%lu, x%nodes, g%jac(:, 1), g%jac(:, 2)) !g%jac(:, 2) is used as aux array...
 
         ! -------------------------------------------------------------------
         ! Actual grid; possibly nonuniform
         g%nodes(:) = x%nodes(1:nx)
-
+        PRINT *, 'FDM_CreatePlan for ', 'FFDM_Der1_Initialize'
         call FDM_Der1_Initialize(g%nodes, g%jac(:, 1), g%der1, periodic=g%periodic, bcs_cases=[BCS_DD, BCS_ND, BCS_DN, BCS_NN])
 
         if (g%periodic) g%der1%mwn(:) = g%der1%mwn(:)/g%jac(1, 1)           ! normalized by dx
@@ -217,18 +221,19 @@ contains
         g%nodes(:) = [(real(i - 1, wp), i=1, g%size)]
         g%jac(:, 2) = 1.0_wp
         g%jac(:, 3) = 0.0_wp
-
+        PRINT *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 1'
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, periodic=.false., uniform=.true.)
 
         ! Calculating derivative d2xds2 into g%jac(:, 3)
         g%der2%periodic = .false.
+        PRINT *, 'FDM_CreatePlan for ', 'FDM_Der2_Solve'
         call FDM_Der2_Solve(1, g%der2, g%der2%lu, x%nodes, g%jac(:, 3), g%jac(:, 2), g%jac(:, 2)) !g%jac(:, 2) is used as aux array...
 
         ! -------------------------------------------------------------------
         ! Actual grid; possibly nonuniform
         g%nodes(:) = x%nodes(1:nx)
         g%jac(:, 2) = g%jac(:, 1)
-
+        PRINT *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 2'
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, g%periodic, g%uniform)
 
         if (g%der2%periodic) g%der2%mwn(:) = g%der2%mwn(:)/(g%jac(1, 1)**2)      ! normalized by dx
