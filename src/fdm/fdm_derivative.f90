@@ -354,7 +354,8 @@ contains
         ! ###################################################################
         g%size = size(x)                ! # grid points
         nx = g%size                     ! for code readability
-
+        PRINT *, 'FDM_Der2_CreateSystem:','g%size, nx = ', g%size, nx
+        print *, 'FDM_Der2_CreateSystem:','Allocating and deallocating g%lhs, g%rhs, g%mwn'
         if (allocated(g%lhs)) deallocate (g%lhs)
         if (allocated(g%rhs)) deallocate (g%rhs)
         if (allocated(g%mwn)) deallocate (g%mwn)
@@ -365,7 +366,7 @@ contains
         g%rhs(:, :) = 0.0_wp
 
         g%periodic = periodic
-
+        PRINT *, 'FDM_Der2_CreateSystem:','Case select for g%mode_fdm = ', g%mode_fdm
         ! -------------------------------------------------------------------
         select case (g%mode_fdm)
         case (FDM_COM4_JACOBIAN)
