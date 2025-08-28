@@ -41,7 +41,7 @@ contains
         real(wp), intent(in) :: bcs(nlines, 2)
         real(wp), intent(out) :: u(nlines, size(fdmi(1)%lhs, 1)) ! solution
         real(wp), intent(out) :: v(nlines, size(fdmi(1)%lhs, 1)) ! derivative of solution
-        real(wp), intent(inout) :: wrk1d(size(fdmi(1)%lhs), 3)
+        real(wp), intent(inout) :: wrk1d(size(fdmi(1)%lhs,1), 3)
         real(wp), intent(inout) :: wrk2d(nlines, 3)
 
         ! -----------------------------------------------------------------------
@@ -105,7 +105,7 @@ contains
         real(wp), intent(in) :: bcs(nlines, 2)
         real(wp), intent(out) :: u(nlines, size(fdmi(1)%lhs, 1)) ! solution
         real(wp), intent(out) :: v(nlines, size(fdmi(1)%lhs, 1)) ! derivative of solution
-        real(wp), intent(inout) :: wrk1d(size(fdmi(1)%lhs), 3)
+        real(wp), intent(inout) :: wrk1d(size(fdmi(1)%lhs,1), 3)
         real(wp), intent(inout) :: wrk2d(nlines, 3)
 
         ! -----------------------------------------------------------------------
@@ -169,7 +169,7 @@ contains
         real(wp), intent(inout) :: bcs(nlines, 2)
         real(wp), intent(out) :: u(nlines, size(fdmi(1)%lhs, 1)) ! solution
         real(wp), intent(out) :: v(nlines, size(fdmi(1)%lhs, 1)) ! derivative of solution
-        real(wp), intent(inout) :: wrk1d(size(fdmi(1)%lhs), 3)
+        real(wp), intent(inout) :: wrk1d(size(fdmi(1)%lhs,1), 3)
         real(wp), intent(inout) :: wrk2d(nlines, 3)
 
         ! #######################################################################
