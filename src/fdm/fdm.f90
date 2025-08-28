@@ -237,15 +237,15 @@ contains
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, g%periodic, g%uniform)
 
         if (g%der2%periodic) g%der2%mwn(:) = g%der2%mwn(:)/(g%jac(1, 1)**2)      ! normalized by dx
-
+        PRINT *, 'normalized by dx'
         ! ###################################################################
         ! interpolation for staggered cases
         ! ###################################################################
         if (stagger_on) then
             if (g%periodic) then
-
+                PRINT *, 'FDM_CreatePlan for ', 'Staggered grid along periodic directions.'
                 call FDM_Interpol_Initialize(x%nodes(:), g%jac(:, 1), g%intl, g%der1%mwn(:))
-
+                PRINT *, 'FDM_CreatePlan for ', 'FDM_Interpol_Initialize'
                 ! else
                 !     call TLab_Write_ASCII(efile, 'Staggered grid only along periodic directions.')
                 !     call TLab_Stop(DNS_ERROR_UNDEVELOP)
