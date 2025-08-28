@@ -123,7 +123,8 @@ contains
         x%periodic = g(1)%periodic
         y%periodic = g(2)%periodic
         z%periodic = g(3)%periodic
-        
+        PRINT *, 'Grid uniformity (x,y,z): ', g(1)%uniform, g(2)%uniform, g(3)%uniform
+        PRINT *, 'Grid periodicity (x,y,z): ', g(1)%periodic, g(2)%periodic, g(3)%periodic  
         !########################################################################
         ! Initializing fdm plan for derivatives
         call FDM_CreatePlan(x, g(1))
