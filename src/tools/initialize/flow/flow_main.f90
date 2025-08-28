@@ -47,7 +47,7 @@ program INIFLOW
     call TLabMPI_Initialize(ifile)
     call TLabMPI_Trp_Initialize(ifile)
 #endif
-
+    PRINT *, 'Reading grid from '
     call TLab_Grid_Read(gfile, x, y, z)
     call FDM_Initialize(ifile)
 
@@ -68,7 +68,7 @@ program INIFLOW
     if (IniK%relative) IniK%ymean = y%nodes(1) + y%scale*IniK%ymean_rel
 
     call OPR_Burgers_Initialize(ifile)
-    print *, 'OPR_Elliptic_Initialize will be called'
+
     if (flag_u /= 0) then ! Initialize Poisson Solver
         call OPR_Elliptic_Initialize(ifile)
 
