@@ -363,18 +363,18 @@ contains
         PRINT *, 'FDM_Der2_CreateSystem:','g%size, nx = ', g%size, nx
         print *, 'FDM_Der2_CreateSystem:','Allocating and deallocating g%lhs, g%rhs, g%mwn'
         if (allocated(g%lhs)) then
-            deallocate (g%lhs)
             PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%lhs'
+            deallocate (g%lhs)
         end if
         
         if (allocated(g%rhs)) then 
-            deallocate (g%rhs)
             PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
+            deallocate (g%rhs)
         end if
 
         if (allocated(g%mwn)) then 
-            deallocate (g%mwn)
             print *, 'FDM_Der2_CreateSystem:','Allocating g%lhs, g%rhs, g%mwn'
+            deallocate (g%mwn)
         end if
         allocate (g%lhs(nx, ndl_max))
         allocate (g%rhs(nx, ndr_max + ndl_max))     ! ndl_max is space for du correction in nonuniform case
