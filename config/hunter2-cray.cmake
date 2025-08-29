@@ -43,7 +43,7 @@ if(ACCELERATE STREQUAL "TRUE")
 endif()
 
 # Debug flags (no optimization)
-set(USER_Fortran_FLAGS_DEBUG "-O0 -g -Rb -Rchk -Rmem -h bounds")
+set(USER_Fortran_FLAGS_DEBUG "-O0 -g -Rbnds -Rpointer -Rmem -h bounds")
 
 # Release optimization flags
 set(USER_Fortran_FLAGS_RELEASE "-hipa2 -hfp2 -hunroll2 -hfusion2 -hscalar1 -m4")
