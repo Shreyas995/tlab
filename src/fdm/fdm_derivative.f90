@@ -158,9 +158,15 @@ contains
         g%size = size(x)                ! # grid points
         nx = g%size                     ! for code readability
 
-        if (allocated(g%lhs)) deallocate (g%lhs)
-        if (allocated(g%rhs)) deallocate (g%rhs)
-        if (allocated(g%mwn)) deallocate (g%mwn)
+        if (allocated(g%lhs)) then
+            deallocate (g%lhs)
+        end if
+        if (allocated(g%rhs)) then
+            deallocate (g%rhs)
+        end if
+        if (allocated(g%mwn)) then 
+            deallocate (g%mwn)
+        end if
         allocate (g%lhs(nx, ndl_max))
         allocate (g%rhs(nx, ndr_max))
         allocate (g%mwn(nx))
@@ -356,12 +362,20 @@ contains
         nx = g%size                     ! for code readability
         PRINT *, 'FDM_Der2_CreateSystem:','g%size, nx = ', g%size, nx
         print *, 'FDM_Der2_CreateSystem:','Allocating and deallocating g%lhs, g%rhs, g%mwn'
-        if (allocated(g%lhs)) deallocate (g%lhs)
-        PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%lhs'
-        ! if (allocated(g%rhs)) deallocate (g%rhs)
-        PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
-        if (allocated(g%mwn)) deallocate (g%mwn)
-        print *, 'FDM_Der2_CreateSystem:','Allocating g%lhs, g%rhs, g%mwn'
+        if (allocated(g%lhs)) then
+            deallocate (g%lhs)
+            PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%lhs'
+        end if
+        
+        if (allocated(g%rhs)) then 
+            deallocate (g%rhs)
+            PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
+        end if
+
+        if (allocated(g%mwn)) then 
+            deallocate (g%mwn)
+            print *, 'FDM_Der2_CreateSystem:','Allocating g%lhs, g%rhs, g%mwn'
+        end if
         allocate (g%lhs(nx, ndl_max))
         allocate (g%rhs(nx, ndr_max + ndl_max))     ! ndl_max is space for du correction in nonuniform case
         allocate (g%mwn(nx))
