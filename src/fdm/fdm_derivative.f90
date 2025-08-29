@@ -167,8 +167,11 @@ contains
         if (allocated(g%mwn)) then 
             deallocate (g%mwn)
         end if
+        print *, 'FDM_Der2_CreateSystem: g%rhs','size', nx, ndl_max
         allocate (g%lhs(nx, ndl_max))
+        print *, 'FDM_Der2_CreateSystem: g%rhs','size', nx, ndr_max
         allocate (g%rhs(nx, ndr_max))
+        print *, 'FDM_Der2_CreateSystem: g%mwn','size', nx
         allocate (g%mwn(nx))
         g%lhs(:, :) = 0.0_wp
         g%rhs(:, :) = 0.0_wp
@@ -376,8 +379,11 @@ contains
             print *, 'FDM_Der2_CreateSystem:','Allocating g%lhs, g%rhs, g%mwn'
             deallocate (g%mwn)
         end if
+        print *, 'FDM_Der2_CreateSystem: g%rhs','size nx, ndl_max', nx, ndl_max
         allocate (g%lhs(nx, ndl_max))
+        print *, 'FDM_Der2_CreateSystem: g%rhs','size nx, ndr_max, ndl_max', nx, ndr_max, ndl_max
         allocate (g%rhs(nx, ndr_max + ndl_max))     ! ndl_max is space for du correction in nonuniform case
+        print *, 'FDM_Der2_CreateSystem: g%mwn','size', nx
         allocate (g%mwn(nx))
         g%lhs(:, :) = 0.0_wp
         g%rhs(:, :) = 0.0_wp
