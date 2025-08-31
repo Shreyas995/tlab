@@ -27,7 +27,7 @@ elseif( ${ACCELERATE} STREQUAL "TRUE" )
 endif() 
 
 if ( ${DEBUG} STREQUAL "TRUE" )
-set(USER_DEBUG_FLAG   "-O0 -g -debug -ffpe-trap=all -Rb -Rchk -Rmem -h bounds")
+   set(USER_DEBUG_FLAG   "-O0 -g -debug -ffpe-trap=all -Rb -Rchk -Rmem -h bounds")
    message(WARNING "Compiling in DEBUG mode!")
 endif()
  
@@ -43,7 +43,7 @@ if ( ${BUILD_TYPE} STREQUAL "PARALLEL" )
    endif()
 
 # compiler for serial build
-elseif( ${BUILD_TYPE} STREQUAL "SERIAL" )
+else( ${BUILD_TYPE} STREQUAL "SERIAL" )
   set(ENV{FC} ftn )
 endif()     
 
