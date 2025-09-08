@@ -363,7 +363,8 @@ contains
         ! ###################################################################
         g%size = size(x)                ! # grid points
         nx = g%size                     ! for code readability
-        PRINT *, 'FDM_Der2_CreateSystem:','g%size, nx = ', g%size, nx
+        PRINT *, 'FDM_Der2_CreateSystem:','g%size = ', g%size
+        PRINT *, 'FDM_Der2_CreateSystem:','nx= ', nx
         print *, 'FDM_Der2_CreateSystem:','Allocating and deallocating g%lhs, g%rhs, g%mwn'
         if (allocated(g%lhs)) then
             PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%lhs'
