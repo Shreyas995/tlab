@@ -167,11 +167,11 @@ contains
         if (allocated(g%mwn)) then 
             deallocate (g%mwn)
         end if
-        print *, 'FDM_Der2_CreateSystem: g%rhs','size', nx, ndl_max
+        print *, 'FDM_Der1_CreateSystem: g%rhs','size', nx, ndl_max
         allocate (g%lhs(nx, ndl_max))
-        print *, 'FDM_Der2_CreateSystem: g%rhs','size', nx, ndr_max
+        print *, 'FDM_Der1_CreateSystem: g%rhs','size', nx, ndr_max
         allocate (g%rhs(nx, ndr_max))
-        print *, 'FDM_Der2_CreateSystem: g%mwn','size', nx
+        print *, 'FDM_Der1_CreateSystem: g%mwn','size', nx
         allocate (g%mwn(nx))
         g%lhs(:, :) = 0.0_wp
         g%rhs(:, :) = 0.0_wp
