@@ -365,11 +365,17 @@ contains
         ! ###################################################################
         g%size = size(x)                ! # grid points
         nx = g%size                     ! for code readability
+        print *, 'mode_fdm'
         print *, g%mode_fdm
+        print *, 'size'
         PRINT *, g%size
+        PRINT *, 'periodic'
         PRINT *, g%periodic
+        PRINT *, 'need_1der'
         PRINT *, g%need_1der
+        PRINT *, 'nb_diag'
         PRINT *, g%nb_diag
+        print *, 'lhs'
         PRINT *, shape(g%lhs)
         PRINT *, g%lhs
         PRINT *, shape(g%rhs)
@@ -378,6 +384,7 @@ contains
         PRINT *, g%mwn
         PRINT *, g%lu
         PRINT *, SHAPE(g%lu)
+
         PRINT *, 'FDM_Der2_CreateSystem:','g%size = ', g%size
         PRINT *, 'FDM_Der2_CreateSystem:','nx= ', nx
         print *, 'FDM_Der2_CreateSystem:','Allocating and deallocating g%lhs, g%rhs, g%mwn'
@@ -435,7 +442,7 @@ contains
             g%need_1der = .false.
 
         end select
-
+        print *, 'end select'
         ! -------------------------------------------------------------------
         ! modified wavenumbers
         if (periodic) then
