@@ -296,6 +296,7 @@ contains
 
         ! ###################################################################
         PRINT *, 'FDM_Der2_Initialize creating system'
+        print *, gdt%rhs
         call FDM_Der2_CreateSystem(x, dx, gdt, periodic, uniform)
         PRINT *, 'FDM_Der2_CreateSystem'
         ! -------------------------------------------------------------------
