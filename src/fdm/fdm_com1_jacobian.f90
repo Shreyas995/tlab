@@ -235,7 +235,7 @@ contains
             rhs(n, :) = 0.0_wp
             icmax = min(idr, 4)                                     ! max of 4 point stencil
             rhs(n, idr:idr + icmax - 1) = coef_bc1(3:3 + icmax - 1) ! rhs center and off-diagonals
-            ! rhs(n, 1) = coef_bc1(3 + icmax)                         ! extended rhs stencil
+            rhs(n, 1) = 0.0_wp !coef_bc1(3 + icmax)                 ! extended rhs stencil
 
             n = nx                                                  ! symmetry property to define values at end
             lhs(n, :) = lhs(1, size(lhs, 2):1:-1)
