@@ -372,10 +372,11 @@ contains
         end if
         
         if (allocated(g%rhs)) then 
-            PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
+            PRINT *, 'FDM_Der2_CreateSystem:','Deallocating g%rhs'
             deallocate (g%rhs)
+            PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
         end if
-
+        
         if (allocated(g%mwn)) then 
             print *, 'FDM_Der2_CreateSystem:','Allocating g%lhs, g%rhs, g%mwn'
             deallocate (g%mwn)
