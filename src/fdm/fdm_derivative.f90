@@ -288,59 +288,59 @@ contains
 
     ! ###################################################################
     ! ###################################################################
-    subroutine FDM_Der2_Initialize(x, dx, g, periodic, uniform)
+    subroutine FDM_Der2_Initialize(x, dx, gdt, periodic, uniform)
         real(wp), intent(in) :: x(:)                    ! node positions
         real(wp), intent(inout) :: dx(:, :)             ! Jacobians
-        type(fdm_derivative_dt), intent(inout) :: g     ! fdm plan for 2. order derivative
+        type(fdm_derivative_dt), intent(inout) :: gdt     ! fdm plan for 2. order derivative
         logical, intent(in) :: periodic, uniform
 
         ! ###################################################################
         PRINT *, 'FDM_Der2_Initialize creating system'
-        call FDM_Der2_CreateSystem(x, dx, g, periodic, uniform)
+        call FDM_Der2_CreateSystem(x, dx, gdt, periodic, uniform)
         PRINT *, 'FDM_Der2_CreateSystem'
         ! -------------------------------------------------------------------
         ! LU decomposition
-        PRINT *, 'FDM_Der2_Initialize: deallocating g%lu if allocaeted'
-        PRINT *, 'FDM_Der2_Initialize: allocating g%lu:', (allocated(g%lu))
-        if (allocated(g%lu)) deallocate (g%lu)
-        if (g%periodic) then
-            PRINT *, 'FDM_Der2_Initialize: periodic allocating g%lu', g%size, g%nb_diag(1)
-            allocate (g%lu(g%size, g%nb_diag(1) + 2))
+        PRINT *, 'FDM_Der2_Initialize: deallocating gdt%lu if allocaeted'
+        PRINT *, 'FDM_Der2_Initialize: allocating gdt%lu:', (allocated(gdt%lu))
+        if (allocated(gdt%lu)) deallocate (gdt%lu)
+        if (gdt%periodic) then
+            PRINT *, 'FDM_Der2_Initialize: periodic allocating gdt%lu', gdt%size, gdt%nb_diag(1)
+            allocate (gdt%lu(gdt%size, gdt%nb_diag(1) + 2))
         else
-            PRINT *, 'FDM_Der2_Initialize: non-periodic allocating g%lu', g%size, g%nb_diag(1)
-            allocate (g%lu(g%size, g%nb_diag(1)*1))          ! Only 1 bcs
+            PRINT *, 'FDM_Der2_Initialize: non-periodic allocating gdt%lu', gdt%size, gdt%nb_diag(1)
+            allocate (gdt%lu(gdt%size, gdt%nb_diag(1)*1))          ! Only 1 bcs
         end if
-        PRINT *, 'FDM_Der2_Initialize: allocated g%lu completed'
-        g%lu(:, :) = 0.0_wp
+        PRINT *, 'FDM_Der2_Initialize: allocated gdt%lu completed'
+        gdt%lu(:, :) = 0.0_wp
 
-        g%lu(:, 1:g%nb_diag(1)) = g%lhs(:, 1:g%nb_diag(1))
-        if (g%periodic) then
-            select case (g%nb_diag(1))
+        gdt%lu(:, 1:gdt%nb_diag(1)) = gdt%lhs(:, 1:gdt%nb_diag(1))
+        if (gdt%periodic) then
+            select case (gdt%nb_diag(1))
             case (3)
-                call TRIDPFS(g%size, g%lu(1, 1), g%lu(1, 2), g%lu(1, 3), g%lu(1, 4), g%lu(1, 5))
+                call TRIDPFS(gdt%size, gdt%lu(1, 1), gdt%lu(1, 2), gdt%lu(1, 3), gdt%lu(1, 4), gdt%lu(1, 5))
             end select
 
         else
-            select case (g%nb_diag(1))
+            select case (gdt%nb_diag(1))
             case (3)
-                call TRIDFS(g%size, g%lu(:, 1), g%lu(:, 2), g%lu(:, 3))
+                call TRIDFS(gdt%size, gdt%lu(:, 1), gdt%lu(:, 2), gdt%lu(:, 3))
             end select
 
         end if
 
         ! -------------------------------------------------------------------
         ! Procedure pointers to matrix multiplication to calculate the right-hand side
-        if (any([FDM_COM4_DIRECT, FDM_COM6_DIRECT] == g%mode_fdm)) then
-            select case (g%nb_diag(2))
+        if (any([FDM_COM4_DIRECT, FDM_COM6_DIRECT] == gdt%mode_fdm)) then
+            select case (gdt%nb_diag(2))
             case (5)
-                g%matmul => MatMul_5d
+                gdt%matmul => MatMul_5d
             end select
         else
-            select case (g%nb_diag(2))
+            select case (gdt%nb_diag(2))
             case (5)
-                g%matmul => MatMul_5d_sym
+                gdt%matmul => MatMul_5d_sym
             case (7)
-                g%matmul => MatMul_7d_sym
+                gdt%matmul => MatMul_7d_sym
             end select
         end if
 
@@ -373,7 +373,7 @@ contains
         
         if (allocated(g%rhs)) then 
             PRINT *, 'FDM_Der2_CreateSystem:','Deallocating g%rhs'
-            ! deallocate (g%rhs)
+            deallocate (g%rhs)
             PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
         end if
         
