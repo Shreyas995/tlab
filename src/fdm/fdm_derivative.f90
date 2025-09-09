@@ -377,6 +377,9 @@ contains
             PRINT *, 'FDM_Der2_CreateSystem:','Deallocating g%rhs'
             print *, shape(g%rhs)
             print *, g%rhs
+            g%rhs(:,:) = -1.0_wp
+            print *, shape(g%rhs)
+            print *, g%rhs
             deallocate (g%rhs) ! error here
             PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
         end if
