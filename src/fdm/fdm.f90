@@ -222,8 +222,8 @@ contains
         g%jac(:, 2) = 1.0_wp
         g%jac(:, 3) = 0.0_wp
         PRINT *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 1'
-        print *, g%rhs
-        print *, shape(g%rhs)
+        print *, g%der2%rhs
+        print *, shape(g%der2%rhs)
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, periodic=.false., uniform=.true.)
 
         ! Calculating derivative d2xds2 into g%jac(:, 3)
@@ -236,8 +236,8 @@ contains
         g%nodes(:) = x%nodes(1:nx)
         g%jac(:, 2) = g%jac(:, 1)
         PRINT *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 2'
-        print *, g%rhs
-        print *, shape(g%rhs)
+        print *, g%der2%rhs
+        print *, shape(g%der2%rhs)
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, g%periodic, g%uniform)
         PRINT *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 2 done'
         if (g%der2%periodic) g%der2%mwn(:) = g%der2%mwn(:)/(g%jac(1, 1)**2)      ! normalized by dx
