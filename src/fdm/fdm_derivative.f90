@@ -375,7 +375,8 @@ contains
         
         if (allocated(g%rhs)) then 
             PRINT *, 'FDM_Der2_CreateSystem:','Deallocating g%rhs'
-            ! PRINT *, g%rhs
+            print *, shape(g%rhs)
+            print *, g%rhs
             deallocate (g%rhs) ! error here
             PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
         end if
