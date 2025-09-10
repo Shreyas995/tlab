@@ -393,16 +393,16 @@ contains
             deallocate (g%lhs)
         end if
         
-        ! if (allocated(g%rhs)) then 
-        !     PRINT *, 'FDM_Der2_CreateSystem:','Deallocating g%rhs'
-        !     print *, shape(g%rhs)
-        !     print *, g%rhs
-        !     g%rhs(:,:) = -1.0_wp
-        !     print *, shape(g%rhs)
-        !     print *, g%rhs
-        !     deallocate (g%rhs) ! error here
-        !     PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
-        ! end if
+        if (allocated(g%rhs)) then 
+            PRINT *, 'FDM_Der2_CreateSystem:','Deallocating g%rhs'
+            print *, shape(g%rhs)
+            print *, g%rhs
+            g%rhs(:,:) = -1.0_wp
+            print *, shape(g%rhs)
+            print *, g%rhs
+            deallocate (g%rhs) ! error here
+            PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
+        end if
         
         if (allocated(g%mwn)) then 
             print *, 'FDM_Der2_CreateSystem:','Allocating g%lhs, g%rhs, g%mwn'
