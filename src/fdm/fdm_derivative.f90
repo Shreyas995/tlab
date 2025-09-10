@@ -296,9 +296,6 @@ contains
 
         ! ###################################################################
         PRINT *, 'FDM_Der2_Initialize creating system'
-        if (ALLOCATED(gdt%rhs)) deallocate (gdt%rhs)
-        allocate (gdt%rhs(gdt%size, 12))
-        print *, "Allocated gdt%rhs"
         call FDM_Der2_CreateSystem(x, dx, gdt, periodic, uniform)
         PRINT *, 'FDM_Der2_CreateSystem'
         ! -------------------------------------------------------------------
