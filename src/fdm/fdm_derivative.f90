@@ -352,10 +352,10 @@ contains
 
     ! ###################################################################
     ! ###################################################################
-    subroutine FDM_Der2_CreateSystem(x, dx, g, periodic, uniform)
+    subroutine FDM_Der2_CreateSystem(x, dx, gder2, periodic, uniform)
         real(wp), intent(in) :: x(:)                    ! node positions
         real(wp), intent(inout) :: dx(:, :)             ! Jacobians
-        type(fdm_derivative_dt), intent(inout) :: g     ! fdm plan for 2. order derivative
+        type(fdm_derivative_dt), intent(inout) :: gder2     ! fdm plan for 2. order derivative
         logical, intent(in) :: periodic, uniform
 
         ! -------------------------------------------------------------------
@@ -364,83 +364,83 @@ contains
         integer, parameter :: ndl_max = 5, ndr_max = 7
 
         ! ###################################################################
-        g%size = size(x)                ! # grid points
-        nx = g%size                     ! for code readability
+        gder2%size = size(x)                ! # grid points
+        nx = gder2%size                     ! for code readability
         print *, 'mode_fdm'
-        print *, g%mode_fdm
+        print *, gder2%mode_fdm
         print *, 'size'
-        PRINT *, g%size
+        PRINT *, gder2%size
         PRINT *, 'periodic'
-        PRINT *, g%periodic
+        PRINT *, gder2%periodic
         PRINT *, 'need_1der'
-        PRINT *, g%need_1der
+        PRINT *, gder2%need_1der
         PRINT *, 'nb_diag'
-        PRINT *, g%nb_diag
+        PRINT *, gder2%nb_diag
         print *, 'lhs'
-        PRINT *, shape(g%lhs)
-        PRINT *, g%lhs
-        PRINT *, shape(g%rhs)
-        PRINT *, g%rhs
-        PRINT *, shape(g%mwn)
-        PRINT *, g%mwn
-        PRINT *, g%lu
-        PRINT *, SHAPE(g%lu)
+        PRINT *, shape(gder2%lhs)
+        PRINT *, gder2%lhs
+        PRINT *, shape(gder2%rhs)
+        PRINT *, gder2%rhs
+        PRINT *, shape(gder2%mwn)
+        PRINT *, gder2%mwn
+        PRINT *, gder2%lu
+        PRINT *, SHAPE(gder2%lu)
 
-        PRINT *, 'FDM_Der2_CreateSystem:','g%size = ', g%size
+        PRINT *, 'FDM_Der2_CreateSystem:','gder2%size = ', gder2%size
         PRINT *, 'FDM_Der2_CreateSystem:','nx= ', nx
-        print *, 'FDM_Der2_CreateSystem:','Allocating and deallocating g%lhs, g%rhs, g%mwn'
-        if (allocated(g%lhs)) then
-            PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%lhs'
-            deallocate (g%lhs)
+        print *, 'FDM_Der2_CreateSystem:','Allocating and deallocating gder2%lhs, gder2%rhs, gder2%mwn'
+        if (allocated(gder2%lhs)) then
+            PRINT *, 'FDM_Der2_CreateSystem:','Deallocated gder2%lhs'
+            deallocate (gder2%lhs)
         end if
         
-        if (allocated(g%rhs)) then 
-            PRINT *, 'FDM_Der2_CreateSystem:','Deallocating g%rhs'
-            print *, shape(g%rhs)
-            print *, g%rhs
-            g%rhs(:,:) = -1.0_wp
-            print *, shape(g%rhs)
-            print *, g%rhs
-            deallocate (g%rhs) ! error here
-            PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
+        if (allocated(gder2%rhs)) then 
+            PRINT *, 'FDM_Der2_CreateSystem:','Deallocating gder2%rhs'
+            print *, shape(gder2%rhs)
+            print *, gder2%rhs
+            gder2%rhs(:,:) = -1.0_wp
+            print *, shape(gder2%rhs)
+            print *, gder2%rhs
+            deallocate (gder2%rhs) ! error here
+            PRINT *, 'FDM_Der2_CreateSystem:','Deallocated gder2%rhs'
         end if
 
-        if (allocated(g%mwn)) then 
-            print *, 'FDM_Der2_CreateSystem:','Allocating g%lhs, g%rhs, g%mwn'
-            deallocate (g%mwn)
+        if (allocated(gder2%mwn)) then 
+            print *, 'FDM_Der2_CreateSystem:','Allocating gder2%lhs, gder2%rhs, gder2%mwn'
+            deallocate (gder2%mwn)
         end if
-        print *, 'FDM_Der2_CreateSystem: g%rhs','size nx, ndl_max', nx, ndl_max
-        allocate (g%lhs(nx, ndl_max))
-        print *, 'FDM_Der2_CreateSystem: g%rhs','size nx, ndr_max, ndl_max', nx, ndr_max, ndl_max
-        ! allocate (g%rhs(nx, ndr_max + ndl_max))     ! ndl_max is space for du correction in nonuniform case
-        print *, 'FDM_Der2_CreateSystem: g%mwn','size', nx
-        allocate (g%mwn(nx))
-        g%lhs(:, :) = 0.0_wp
-        g%rhs(:, :) = 0.0_wp
+        print *, 'FDM_Der2_CreateSystem: gder2%rhs','size nx, ndl_max', nx, ndl_max
+        allocate (gder2%lhs(nx, ndl_max))
+        print *, 'FDM_Der2_CreateSystem: gder2%rhs','size nx, ndr_max, ndl_max', nx, ndr_max, ndl_max
+        ! allocate (gder2%rhs(nx, ndr_max + ndl_max))     ! ndl_max is space for du correction in nonuniform case
+        print *, 'FDM_Der2_CreateSystem: gder2%mwn','size', nx
+        allocate (gder2%mwn(nx))
+        gder2%lhs(:, :) = 0.0_wp
+        gder2%rhs(:, :) = 0.0_wp
 
-        g%periodic = periodic
-        PRINT *, 'FDM_Der2_CreateSystem:','Case select for g%mode_fdm = ', g%mode_fdm
+        gder2%periodic = periodic
+        PRINT *, 'FDM_Der2_CreateSystem:','Case select for gder2%mode_fdm = ', gder2%mode_fdm
         ! -------------------------------------------------------------------
-        select case (g%mode_fdm)
+        select case (gder2%mode_fdm)
         case (FDM_COM4_JACOBIAN)
-            call FDM_C2N4_Jacobian(g%size, dx, g%lhs, g%rhs, g%nb_diag, coef, periodic)
-            if (.not. uniform) g%need_1der = .true.
+            call FDM_C2N4_Jacobian(gder2%size, dx, gder2%lhs, gder2%rhs, gder2%nb_diag, coef, periodic)
+            if (.not. uniform) gder2%need_1der = .true.
 
         case (FDM_COM6_JACOBIAN, FDM_COM6_JACOBIAN_PENTA)
-            call FDM_C2N6_Jacobian(g%size, dx, g%lhs, g%rhs, g%nb_diag, coef, periodic)
-            if (.not. uniform) g%need_1der = .true.
+            call FDM_C2N6_Jacobian(gder2%size, dx, gder2%lhs, gder2%rhs, gder2%nb_diag, coef, periodic)
+            if (.not. uniform) gder2%need_1der = .true.
 
         case (FDM_COM6_JACOBIAN_HYPER)
-            call FDM_C2N6_Hyper_Jacobian(g%size, dx, g%lhs, g%rhs, g%nb_diag, coef, periodic)
-            if (.not. uniform) g%need_1der = .true.
+            call FDM_C2N6_Hyper_Jacobian(gder2%size, dx, gder2%lhs, gder2%rhs, gder2%nb_diag, coef, periodic)
+            if (.not. uniform) gder2%need_1der = .true.
 
         case (FDM_COM4_DIRECT)
-            call FDM_C2N4_Direct(g%size, x, g%lhs, g%rhs, g%nb_diag)
-            g%need_1der = .false.
+            call FDM_C2N4_Direct(gder2%size, x, gder2%lhs, gder2%rhs, gder2%nb_diag)
+            gder2%need_1der = .false.
 
         case (FDM_COM6_DIRECT)
-            call FDM_C2N6_Direct(g%size, x, g%lhs, g%rhs, g%nb_diag)
-            g%need_1der = .false.
+            call FDM_C2N6_Direct(gder2%size, x, gder2%lhs, gder2%rhs, gder2%nb_diag)
+            gder2%need_1der = .false.
 
         end select
         print *, 'end select'
@@ -448,7 +448,7 @@ contains
         ! modified wavenumbers
         if (periodic) then
 
-#define wn(i) g%mwn(i)
+#define wn(i) gder2%mwn(i)
 
             do i = 1, nx        ! wavenumbers, the independent variable to construct the modified ones
                 if (i <= nx/2 + 1) then
@@ -458,7 +458,7 @@ contains
                 end if
             end do
 
-            g%mwn(:) = 2.0_wp*(coef(3)*(1.0_wp - cos(wn(:))) + coef(4)*(1.0_wp - cos(2.0_wp*wn(:))) + coef(5)*(1.0_wp - cos(3.0_wp*wn(:)))) &
+            gder2%mwn(:) = 2.0_wp*(coef(3)*(1.0_wp - cos(wn(:))) + coef(4)*(1.0_wp - cos(2.0_wp*wn(:))) + coef(5)*(1.0_wp - cos(3.0_wp*wn(:)))) &
                        /(1.0_wp + 2.0_wp*coef(1)*cos(wn(:)) + 2.0_wp*coef(2)*cos(2.0_wp*wn(:)))
 
 #undef wn
