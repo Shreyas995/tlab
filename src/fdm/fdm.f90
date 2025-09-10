@@ -229,8 +229,8 @@ contains
         PRINT *, 'deacllocated g%der2%rhs'
 
         allocate (g%der2%rhs(g%der2%size, 12))
-
-        print *, "Allocated g%der2%rhs"
+        g%der2%rhs(:,:) = -1.0_wp 
+        print *, "Allocated g%der2%rhs" 
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, periodic=.false., uniform=.true.)
 
         ! Calculating derivative d2xds2 into g%jac(:, 3)
