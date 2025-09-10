@@ -224,9 +224,9 @@ contains
         PRINT *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 1'
         print *, g%der2%rhs
         print *, shape(g%der2%rhs)
-        if (ALLOCATED(gdt%rhs)) deallocate (g%der2%rhs)
+        if (ALLOCATED(g%der2%rhs)) deallocate (g%der2%rhs)
         PRINT *, 'deacllocated g%der2%rhs'
-        allocate (gdt%rhs(gdt%der2%size, 12))
+        allocate (g%der2%rhs(g%der2%size, 12))
         print *, "Allocated g%der2%rhs"
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, periodic=.false., uniform=.true.)
 
