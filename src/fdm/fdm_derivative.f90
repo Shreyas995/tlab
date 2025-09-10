@@ -412,7 +412,7 @@ contains
         print *, 'FDM_Der2_CreateSystem: gder2%rhs','size nx, ndl_max', nx, ndl_max
         allocate (gder2%lhs(nx, ndl_max))
         print *, 'FDM_Der2_CreateSystem: gder2%rhs','size nx, ndr_max, ndl_max', nx, ndr_max, ndl_max
-        ! allocate (gder2%rhs(nx, ndr_max + ndl_max))     ! ndl_max is space for du correction in nonuniform case
+        allocate (gder2%rhs(nx, ndr_max + ndl_max))     ! ndl_max is space for du correction in nonuniform case
         print *, 'FDM_Der2_CreateSystem: gder2%mwn','size', nx
         allocate (gder2%mwn(nx))
         gder2%lhs(:, :) = 0.0_wp
