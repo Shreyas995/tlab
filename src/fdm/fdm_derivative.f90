@@ -296,8 +296,9 @@ contains
 
         ! ###################################################################
         PRINT *, 'FDM_Der2_Initialize creating system'
-        ! print *, gdt%rhs
-        ! print *, shape(gdt%rhs)
+        if (ALLOCATED(gdt%rhs)) deallocate (gdt%rhs)
+        allocate (gdt%rhs(gdt%size, 12))
+        print *, "Allocated gdt%rhs"
         call FDM_Der2_CreateSystem(x, dx, gdt, periodic, uniform)
         PRINT *, 'FDM_Der2_CreateSystem'
         ! -------------------------------------------------------------------
@@ -403,7 +404,7 @@ contains
             deallocate (g%rhs) ! error here
             PRINT *, 'FDM_Der2_CreateSystem:','Deallocated g%rhs'
         end if
-        
+
         if (allocated(g%mwn)) then 
             print *, 'FDM_Der2_CreateSystem:','Allocating g%lhs, g%rhs, g%mwn'
             deallocate (g%mwn)
