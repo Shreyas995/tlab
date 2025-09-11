@@ -267,11 +267,11 @@ contains
             rhs_d1(:, idl + ic) = -lhs(:, idl + ic)*cshift(dx(:, 2), +ic)
         end do
 
-        ! lhs(:, idl) = lhs(:, idl)*dx(:, 1)*dx(:, 1)     ! center diagonal
-        ! do ic = 1, idl - 1                              ! off-diagonals
-        !     lhs(:, idl - ic) = lhs(:, idl - ic)*cshift(dx(:, 1), -ic)*cshift(dx(:, 1), -ic)
-        !     lhs(:, idl + ic) = lhs(:, idl + ic)*cshift(dx(:, 1), +ic)*cshift(dx(:, 1), +ic)
-        ! end do
+        lhs(:, idl) = lhs(:, idl)*dx(:, 1)*dx(:, 1)     ! center diagonal
+        do ic = 1, idl - 1                              ! off-diagonals
+            lhs(:, idl - ic) = lhs(:, idl - ic)*cshift(dx(:, 1), -ic)*cshift(dx(:, 1), -ic)
+            lhs(:, idl + ic) = lhs(:, idl + ic)*cshift(dx(:, 1), +ic)*cshift(dx(:, 1), +ic)
+        end do
 
         ! ! normalize such the coefficent in 1. off-diagonal of rhs is 1
         ! lhs(:, :) = lhs(:, :)/coef_int(3)
