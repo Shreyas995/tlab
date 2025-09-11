@@ -442,7 +442,7 @@ contains
             if (.not. uniform) gder2%need_1der = .true.
 
         case (FDM_COM6_JACOBIAN_HYPER)
-            ! call FDM_C2N6_Hyper_Jacobian(gder2%size, dx, gder2%lhs, gder2%rhs, gder2%nb_diag, coef, periodic)
+            call FDM_C2N6_Hyper_Jacobian(gder2%size, dx, gder2%lhs, gder2%rhs, gder2%nb_diag, coef, periodic)
             if (.not. uniform) gder2%need_1der = .true.
 
         case (FDM_COM4_DIRECT)

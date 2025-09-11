@@ -243,9 +243,7 @@ contains
         ! Calculating derivative d2xds2 into g%jac(:, 3)
         g%der2%periodic = .false.
         print *, 'FDM_CreatePlan for ', 'FDM_Der2_Solve'
-        ! The error occurs betwwen the two FDM_Der2_Initialize above and FDM_Der2_Solve below.
-        ! It is very likely that the error is in FDM_DEr2_Solve
-        ! call FDM_Der2_Solve(1, g%der2, g%der2%lu, x%nodes, g%jac(:, 3), g%jac(:, 2), g%jac(:, 2)) !g%jac(:, 2) is used as aux array...
+        call FDM_Der2_Solve(1, g%der2, g%der2%lu, x%nodes, g%jac(:, 3), g%jac(:, 2), g%jac(:, 2)) !g%jac(:, 2) is used as aux array...
         
         ! -------------------------------------------------------------------
         ! Actual grid; possibly nonuniform
