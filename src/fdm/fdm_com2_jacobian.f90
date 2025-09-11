@@ -209,24 +209,24 @@ contains
             rhs(:, idr + ic) = coef_int(ic + 2)
         end do
 
-        ! ! boundaries
-        ! if (present(coef_bc1)) then
-        !     n = 1
-        !     lhs(n, :) = 0.0_wp
-        !     lhs(n, idl) = 1.0_wp                                        ! lhs center diagonal
-        !     if (idl > 1) then
-        !         icmax = min(idl - 1, 2)                                 ! max of 3 point stencil, the first one set to 1
-        !         lhs(n, idl + 1:idl + icmax) = coef_bc1(1:icmax)         ! lhs off-diagonals
-        !     end if
-        !     rhs(n, :) = 0.0_wp
-        !     icmax = min(idr, 4)                                         ! max of 4 point stencil
-        !     rhs(n, idr:idr + icmax - 1) = coef_bc1(3:3 + icmax - 1)     ! rhs center and off-diagonals
-        !     ! rhs(n, 1) = coef_bc1(3 + icmax)                             ! extended rhs stencil
+        ! boundaries
+        if (present(coef_bc1)) then
+            n = 1
+            lhs(n, :) = 0.0_wp
+            lhs(n, idl) = 1.0_wp                                        ! lhs center diagonal
+            if (idl > 1) then
+                icmax = min(idl - 1, 2)                                 ! max of 3 point stencil, the first one set to 1
+                lhs(n, idl + 1:idl + icmax) = coef_bc1(1:icmax)         ! lhs off-diagonals
+            end if
+            rhs(n, :) = 0.0_wp
+            icmax = min(idr, 4)                                         ! max of 4 point stencil
+            rhs(n, idr:idr + icmax - 1) = coef_bc1(3:3 + icmax - 1)     ! rhs center and off-diagonals
+            ! rhs(n, 1) = coef_bc1(3 + icmax)                             ! extended rhs stencil
 
-        !     n = nx                                                      ! symmetry property to define values at end
-        !     lhs(n, :) = lhs(1, size(lhs, 2):1:-1)
-        !     rhs(n, :) = rhs(1, size(rhs, 2):1:-1)
-        ! end if
+            n = nx                                                      ! symmetry property to define values at end
+            lhs(n, :) = lhs(1, size(lhs, 2):1:-1)
+            rhs(n, :) = rhs(1, size(rhs, 2):1:-1)
+        end if
 
         ! if (present(coef_bc2)) then
         !     n = 2
