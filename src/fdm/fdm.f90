@@ -237,7 +237,7 @@ contains
         print*, 'Changing the value of g%der2%rhs'
         g%der2%rhs(:,:) = -1.0_wp 
         print *, "Allocated g%der2%rhs"
-
+        print *, "FDM_Der2_Initialize 1: in FDM_CreatePlan"
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, periodic=.false., uniform=.true.)
 
         ! Calculating derivative d2xds2 into g%jac(:, 3)
@@ -251,6 +251,7 @@ contains
         g%jac(:, 2) = g%jac(:, 1)
         print *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 2'
         print *, shape(g%der2%rhs)
+        print *, "FDM_Der2_Initialize 2: in FDM_CreatePlan"
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, g%periodic, g%uniform)
         print *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 2 done'
         if (g%der2%periodic) g%der2%mwn(:) = g%der2%mwn(:)/(g%jac(1, 1)**2)      ! normalized by dx
