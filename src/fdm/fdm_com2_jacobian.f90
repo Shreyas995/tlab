@@ -273,10 +273,10 @@ contains
             lhs(:, idl + ic) = lhs(:, idl + ic)*cshift(dx(:, 1), +ic)*cshift(dx(:, 1), +ic)
         end do
 
-        ! ! normalize such the coefficent in 1. off-diagonal of rhs is 1
-        ! lhs(:, :) = lhs(:, :)/coef_int(3)
-        ! rhs(:, :) = rhs(:, :)/coef_int(3)
-        ! rhs_d1(:, :) = rhs_d1(:, :)/coef_int(3)
+        ! normalize such the coefficent in 1. off-diagonal of rhs is 1
+        lhs(:, :) = lhs(:, :)/coef_int(3)
+        rhs(:, :) = rhs(:, :)/coef_int(3)
+        rhs_d1(:, :) = rhs_d1(:, :)/coef_int(3)
 
         return
     end subroutine Create_System_2der
