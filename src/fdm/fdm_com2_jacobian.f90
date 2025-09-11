@@ -260,12 +260,12 @@ contains
             rhs(n, :) = rhs(3, size(rhs, 2):1:-1)
         end if
 
-        ! ! multiply by the Jacobians
-        ! rhs_d1(:, idl) = -lhs(:, idl)*dx(:, 2)          ! center diagonal
-        ! do ic = 1, idl - 1                              ! off-diagonals
-        !     rhs_d1(:, idl - ic) = -lhs(:, idl - ic)*cshift(dx(:, 2), -ic)
-        !     rhs_d1(:, idl + ic) = -lhs(:, idl + ic)*cshift(dx(:, 2), +ic)
-        ! end do
+        ! multiply by the Jacobians
+        rhs_d1(:, idl) = -lhs(:, idl)*dx(:, 2)          ! center diagonal
+        do ic = 1, idl - 1                              ! off-diagonals
+            rhs_d1(:, idl - ic) = -lhs(:, idl - ic)*cshift(dx(:, 2), -ic)
+            rhs_d1(:, idl + ic) = -lhs(:, idl + ic)*cshift(dx(:, 2), +ic)
+        end do
 
         ! lhs(:, idl) = lhs(:, idl)*dx(:, 1)*dx(:, 1)     ! center diagonal
         ! do ic = 1, idl - 1                              ! off-diagonals
