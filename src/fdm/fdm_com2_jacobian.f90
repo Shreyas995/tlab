@@ -275,7 +275,7 @@ contains
 
         ! normalize such the coefficent in 1. off-diagonal of rhs is 1
         lhs(:, :) = lhs(:, :)/coef_int(3)
-        ! rhs(:, :) = rhs(:, :)/coef_int(3)
+        rhs(:, :) = rhs(:, :)/coef_int(3)
         ! rhs_d1(:, :) = rhs_d1(:, :)/coef_int(3)
 
         return
