@@ -243,8 +243,10 @@ contains
         ! Calculating derivative d2xds2 into g%jac(:, 3)
         g%der2%periodic = .false.
         print *, 'FDM_CreatePlan for ', 'FDM_Der2_Solve'
-        call FDM_Der2_Solve(1, g%der2, g%der2%lu, x%nodes, g%jac(:, 3), g%jac(:, 2), g%jac(:, 2)) !g%jac(:, 2) is used as aux array...
-
+        ! The error occurs betwwen the two FDM_Der2_Initialize above and FDM_Der2_Solve below.
+        ! It is very likely that the error is in FDM_DEr2_Solve
+        ! call FDM_Der2_Solve(1, g%der2, g%der2%lu, x%nodes, g%jac(:, 3), g%jac(:, 2), g%jac(:, 2)) !g%jac(:, 2) is used as aux array...
+        
         ! -------------------------------------------------------------------
         ! Actual grid; possibly nonuniform
         g%nodes(:) = x%nodes(1:nx)
@@ -252,6 +254,8 @@ contains
         print *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 2'
         print *, shape(g%der2%rhs)
         print *, "FDM_Der2_Initialize 2: in FDM_CreatePlan"
+        ! -------------------------------------------------------------------
+
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, g%periodic, g%uniform)
         print *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 2 done'
         if (g%der2%periodic) g%der2%mwn(:) = g%der2%mwn(:)/(g%jac(1, 1)**2)      ! normalized by dx
@@ -260,6 +264,7 @@ contains
         ! ###################################################################
         ! interpolation for staggered cases
         ! ###################################################################
+        STOP
         if (stagger_on) then
             if (g%periodic) then
                 print *, 'FDM_CreatePlan for ', 'Staggered grid along periodic directions.'
