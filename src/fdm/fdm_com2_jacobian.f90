@@ -228,21 +228,21 @@ contains
             rhs(n, :) = rhs(1, size(rhs, 2):1:-1)
         end if
 
-        ! if (present(coef_bc2)) then
-        !     n = 2
-        !     if (size(lhs, 2) == 3) then
-        !         lhs(n, :) = [coef_bc2(1), 1.0_wp, coef_bc2(2)]
-        !     else
-        !         lhs(n, :) = [1.0_wp]
-        !     end if
-        !     rhs(n, :) = 0.0_wp
-        !     icmax = min(idr + 1, 4)                                      ! max of 4 point stencil
-        !     rhs(n, idr - 1:idr + icmax - 2) = coef_bc2(3:3 + icmax - 1)  ! rhs center and off-diagonals
+        if (present(coef_bc2)) then
+            n = 2
+            if (size(lhs, 2) == 3) then
+                lhs(n, :) = [coef_bc2(1), 1.0_wp, coef_bc2(2)]
+            else
+                lhs(n, :) = [1.0_wp]
+            end if
+            rhs(n, :) = 0.0_wp
+            icmax = min(idr + 1, 4)                                      ! max of 4 point stencil
+            rhs(n, idr - 1:idr + icmax - 2) = coef_bc2(3:3 + icmax - 1)  ! rhs center and off-diagonals
 
-        !     n = nx - 1                                                   ! symmetry property to define values at end
-        !     lhs(n, :) = lhs(2, size(lhs, 2):1:-1)
-        !     rhs(n, :) = rhs(2, size(rhs, 2):1:-1)
-        ! end if
+            n = nx - 1                                                   ! symmetry property to define values at end
+            lhs(n, :) = lhs(2, size(lhs, 2):1:-1)
+            rhs(n, :) = rhs(2, size(rhs, 2):1:-1)
+        end if
 
         ! if (present(coef_bc3)) then
         !     n = 3
