@@ -179,8 +179,8 @@ contains
     subroutine Create_System_2der(dx, lhs, rhs, rhs_d1, coef_int, coef_bc1, coef_bc2, coef_bc3)
         real(wp), intent(in) :: dx(:, :)        ! 1. and 2. order Jacobians
         real(wp), intent(out) :: lhs(:, :)      ! LHS diagonals
-        real(wp), intent(out) :: rhs(:, :)      ! RHS diagonals
-        real(wp), intent(out) :: rhs_d1(:, :)   ! RHS diagonals that multiply 1. derivative
+        real(wp), intent(inout) :: rhs(:, :)      ! RHS diagonals
+        real(wp), intent(inout) :: rhs_d1(:, :)   ! RHS diagonals that multiply 1. derivative
         real(wp), intent(in) :: coef_int(5)             ! a_1, a_2b_1, b_2, b_3
         real(wp), intent(in), optional :: coef_bc1(6)   ! a_1, a_2, b_1, b_2, b_3, b_4
         real(wp), intent(in), optional :: coef_bc2(6)   ! a_1, a_2, b_1, b_2, b_3, b_4
