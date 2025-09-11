@@ -168,7 +168,7 @@ contains
             coef_bc3(1:2) = [2.0_wp/11.0_wp, 2.0_wp/11.0_wp]                ! a_1, a_2
             coef_bc3(3:8) = [3.0_wp/44.0_wp, 12.0_wp/11.0_wp, -51.0_wp/22.0_wp, 12.0_wp/11.0_wp, 3.0_wp/44.0_wp, 0.0_wp]       ! b_1, b_2, b_3, b_4, b_5, b_6
 
-            call Create_System_2der(dx, lhs, rhs(:, 1:7), rhs(:, 8:10), coef, coef_bc1, coef_bc2, coef_bc3) ! new comment
+            call Create_System_2der(dx, lhs, rhs(:, 1:7), rhs(:, 8:10), coef, coef_bc1, coef_bc2, coef_bc3) ! error here
 
         end if
 
@@ -209,74 +209,74 @@ contains
             rhs(:, idr + ic) = coef_int(ic + 2)
         end do
 
-        ! boundaries
-        if (present(coef_bc1)) then
-            n = 1
-            lhs(n, :) = 0.0_wp
-            lhs(n, idl) = 1.0_wp                                        ! lhs center diagonal
-            if (idl > 1) then
-                icmax = min(idl - 1, 2)                                 ! max of 3 point stencil, the first one set to 1
-                lhs(n, idl + 1:idl + icmax) = coef_bc1(1:icmax)         ! lhs off-diagonals
-            end if
-            rhs(n, :) = 0.0_wp
-            icmax = min(idr, 4)                                         ! max of 4 point stencil
-            rhs(n, idr:idr + icmax - 1) = coef_bc1(3:3 + icmax - 1)     ! rhs center and off-diagonals
-            ! rhs(n, 1) = coef_bc1(3 + icmax)                             ! extended rhs stencil
+        ! ! boundaries
+        ! if (present(coef_bc1)) then
+        !     n = 1
+        !     lhs(n, :) = 0.0_wp
+        !     lhs(n, idl) = 1.0_wp                                        ! lhs center diagonal
+        !     if (idl > 1) then
+        !         icmax = min(idl - 1, 2)                                 ! max of 3 point stencil, the first one set to 1
+        !         lhs(n, idl + 1:idl + icmax) = coef_bc1(1:icmax)         ! lhs off-diagonals
+        !     end if
+        !     rhs(n, :) = 0.0_wp
+        !     icmax = min(idr, 4)                                         ! max of 4 point stencil
+        !     rhs(n, idr:idr + icmax - 1) = coef_bc1(3:3 + icmax - 1)     ! rhs center and off-diagonals
+        !     ! rhs(n, 1) = coef_bc1(3 + icmax)                             ! extended rhs stencil
 
-            n = nx                                                      ! symmetry property to define values at end
-            lhs(n, :) = lhs(1, size(lhs, 2):1:-1)
-            rhs(n, :) = rhs(1, size(rhs, 2):1:-1)
-        end if
+        !     n = nx                                                      ! symmetry property to define values at end
+        !     lhs(n, :) = lhs(1, size(lhs, 2):1:-1)
+        !     rhs(n, :) = rhs(1, size(rhs, 2):1:-1)
+        ! end if
 
-        if (present(coef_bc2)) then
-            n = 2
-            if (size(lhs, 2) == 3) then
-                lhs(n, :) = [coef_bc2(1), 1.0_wp, coef_bc2(2)]
-            else
-                lhs(n, :) = [1.0_wp]
-            end if
-            rhs(n, :) = 0.0_wp
-            icmax = min(idr + 1, 4)                                      ! max of 4 point stencil
-            rhs(n, idr - 1:idr + icmax - 2) = coef_bc2(3:3 + icmax - 1)  ! rhs center and off-diagonals
+        ! if (present(coef_bc2)) then
+        !     n = 2
+        !     if (size(lhs, 2) == 3) then
+        !         lhs(n, :) = [coef_bc2(1), 1.0_wp, coef_bc2(2)]
+        !     else
+        !         lhs(n, :) = [1.0_wp]
+        !     end if
+        !     rhs(n, :) = 0.0_wp
+        !     icmax = min(idr + 1, 4)                                      ! max of 4 point stencil
+        !     rhs(n, idr - 1:idr + icmax - 2) = coef_bc2(3:3 + icmax - 1)  ! rhs center and off-diagonals
 
-            n = nx - 1                                                   ! symmetry property to define values at end
-            lhs(n, :) = lhs(2, size(lhs, 2):1:-1)
-            rhs(n, :) = rhs(2, size(rhs, 2):1:-1)
-        end if
+        !     n = nx - 1                                                   ! symmetry property to define values at end
+        !     lhs(n, :) = lhs(2, size(lhs, 2):1:-1)
+        !     rhs(n, :) = rhs(2, size(rhs, 2):1:-1)
+        ! end if
 
-        if (present(coef_bc3)) then
-            n = 3
-            if (size(lhs, 2) == 3) then
-                lhs(n, :) = [coef_bc3(1), 1.0_wp, coef_bc3(2)]
-            else
-                lhs(n, :) = [1.0_wp]
-            end if
-            rhs(n, :) = 0.0_wp
-            icmax = min(idr + 2, 6)                                      ! max of 6 point stencil
-            rhs(n, idr - 2:idr + icmax - 3) = coef_bc3(3:3 + icmax - 1)  ! rhs center and off-diagonals
+        ! if (present(coef_bc3)) then
+        !     n = 3
+        !     if (size(lhs, 2) == 3) then
+        !         lhs(n, :) = [coef_bc3(1), 1.0_wp, coef_bc3(2)]
+        !     else
+        !         lhs(n, :) = [1.0_wp]
+        !     end if
+        !     rhs(n, :) = 0.0_wp
+        !     icmax = min(idr + 2, 6)                                      ! max of 6 point stencil
+        !     rhs(n, idr - 2:idr + icmax - 3) = coef_bc3(3:3 + icmax - 1)  ! rhs center and off-diagonals
 
-            n = nx - 2                                                   ! symmetry property to define values at end
-            lhs(n, :) = lhs(3, size(lhs, 2):1:-1)
-            rhs(n, :) = rhs(3, size(rhs, 2):1:-1)
-        end if
+        !     n = nx - 2                                                   ! symmetry property to define values at end
+        !     lhs(n, :) = lhs(3, size(lhs, 2):1:-1)
+        !     rhs(n, :) = rhs(3, size(rhs, 2):1:-1)
+        ! end if
 
-        ! multiply by the Jacobians
-        rhs_d1(:, idl) = -lhs(:, idl)*dx(:, 2)          ! center diagonal
-        do ic = 1, idl - 1                              ! off-diagonals
-            rhs_d1(:, idl - ic) = -lhs(:, idl - ic)*cshift(dx(:, 2), -ic)
-            rhs_d1(:, idl + ic) = -lhs(:, idl + ic)*cshift(dx(:, 2), +ic)
-        end do
+        ! ! multiply by the Jacobians
+        ! rhs_d1(:, idl) = -lhs(:, idl)*dx(:, 2)          ! center diagonal
+        ! do ic = 1, idl - 1                              ! off-diagonals
+        !     rhs_d1(:, idl - ic) = -lhs(:, idl - ic)*cshift(dx(:, 2), -ic)
+        !     rhs_d1(:, idl + ic) = -lhs(:, idl + ic)*cshift(dx(:, 2), +ic)
+        ! end do
 
-        lhs(:, idl) = lhs(:, idl)*dx(:, 1)*dx(:, 1)     ! center diagonal
-        do ic = 1, idl - 1                              ! off-diagonals
-            lhs(:, idl - ic) = lhs(:, idl - ic)*cshift(dx(:, 1), -ic)*cshift(dx(:, 1), -ic)
-            lhs(:, idl + ic) = lhs(:, idl + ic)*cshift(dx(:, 1), +ic)*cshift(dx(:, 1), +ic)
-        end do
+        ! lhs(:, idl) = lhs(:, idl)*dx(:, 1)*dx(:, 1)     ! center diagonal
+        ! do ic = 1, idl - 1                              ! off-diagonals
+        !     lhs(:, idl - ic) = lhs(:, idl - ic)*cshift(dx(:, 1), -ic)*cshift(dx(:, 1), -ic)
+        !     lhs(:, idl + ic) = lhs(:, idl + ic)*cshift(dx(:, 1), +ic)*cshift(dx(:, 1), +ic)
+        ! end do
 
-        ! normalize such the coefficent in 1. off-diagonal of rhs is 1
-        lhs(:, :) = lhs(:, :)/coef_int(3)
-        rhs(:, :) = rhs(:, :)/coef_int(3)
-        rhs_d1(:, :) = rhs_d1(:, :)/coef_int(3)
+        ! ! normalize such the coefficent in 1. off-diagonal of rhs is 1
+        ! lhs(:, :) = lhs(:, :)/coef_int(3)
+        ! rhs(:, :) = rhs(:, :)/coef_int(3)
+        ! rhs_d1(:, :) = rhs_d1(:, :)/coef_int(3)
 
         return
     end subroutine Create_System_2der
