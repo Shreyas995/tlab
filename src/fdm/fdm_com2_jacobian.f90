@@ -244,21 +244,21 @@ contains
             rhs(n, :) = rhs(2, size(rhs, 2):1:-1)
         end if
 
-        ! if (present(coef_bc3)) then
-        !     n = 3
-        !     if (size(lhs, 2) == 3) then
-        !         lhs(n, :) = [coef_bc3(1), 1.0_wp, coef_bc3(2)]
-        !     else
-        !         lhs(n, :) = [1.0_wp]
-        !     end if
-        !     rhs(n, :) = 0.0_wp
-        !     icmax = min(idr + 2, 6)                                      ! max of 6 point stencil
-        !     rhs(n, idr - 2:idr + icmax - 3) = coef_bc3(3:3 + icmax - 1)  ! rhs center and off-diagonals
+        if (present(coef_bc3)) then
+            n = 3
+            if (size(lhs, 2) == 3) then
+                lhs(n, :) = [coef_bc3(1), 1.0_wp, coef_bc3(2)]
+            else
+                lhs(n, :) = [1.0_wp]
+            end if
+            rhs(n, :) = 0.0_wp
+            icmax = min(idr + 2, 6)                                      ! max of 6 point stencil
+            rhs(n, idr - 2:idr + icmax - 3) = coef_bc3(3:3 + icmax - 1)  ! rhs center and off-diagonals
 
-        !     n = nx - 2                                                   ! symmetry property to define values at end
-        !     lhs(n, :) = lhs(3, size(lhs, 2):1:-1)
-        !     rhs(n, :) = rhs(3, size(rhs, 2):1:-1)
-        ! end if
+            n = nx - 2                                                   ! symmetry property to define values at end
+            lhs(n, :) = lhs(3, size(lhs, 2):1:-1)
+            rhs(n, :) = rhs(3, size(rhs, 2):1:-1)
+        end if
 
         ! ! multiply by the Jacobians
         ! rhs_d1(:, idl) = -lhs(:, idl)*dx(:, 2)          ! center diagonal
