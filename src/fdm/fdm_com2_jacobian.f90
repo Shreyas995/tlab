@@ -62,14 +62,14 @@ contains
         coef(3:5) = [1.2_wp, 0.0_wp, 0.0_wp]                ! b_1, b_2, b_3
 
         if (periodic_loc) then
-            call Create_System_2der(dx, lhs, rhs(:, 1:5), rhs(:, 6:8), coef)
+            call Create_System_2der(dx, lhs, rhs(nx, 1:5), rhs(nx, 6:8), coef)
 
         else    ! biased at the boundaries
             ! 3rd order, Eq. 4.3.1
             coef_bc1(1:2) = [11.0_wp, 0.0_wp]                       ! a_1, a_2
             coef_bc1(3:6) = [13.0_wp, -27.0_wp, 15.0_wp, -1.0_wp]   ! b_1, b_2, b_3, b_4
 
-            call Create_System_2der(dx, lhs, rhs(:, 1:5), rhs(:, 6:8), coef, coef_bc1)
+            call Create_System_2der(dx, lhs, rhs(nx, 1:5), rhs(nx, 6:8), coef, coef_bc1)
 
         end if
 
@@ -103,7 +103,7 @@ contains
         coef(3:5) = [12.0_wp/11.0_wp, 3.0_wp/44.0_wp, 0.0_wp]       ! b_1, b_2, b_3
 
         if (periodic_loc) then
-            call Create_System_2der(dx, lhs, rhs(:, 1:5), rhs(:, 6:8), coef)
+            call Create_System_2der(dx, lhs, rhs(nx, 1:5), rhs(nx, 6:8), coef)
 
         else    ! biased at the boundaries
             ! 3rd order, Eq. 4.3.1
@@ -114,7 +114,7 @@ contains
             coef_bc2(1:2) = [0.1_wp, 0.1_wp]                        ! a_1, a_2
             coef_bc2(3:6) = [1.2_wp, -2.4_wp, 1.2_wp, 0.0_wp]       ! b_1, b_2, b_3, b_4
 
-            call Create_System_2der(dx, lhs, rhs(:, 1:5), rhs(:, 6:8), coef, coef_bc1, coef_bc2)
+            call Create_System_2der(dx, lhs, rhs(nx, 1:5), rhs(nx, 6:8), coef, coef_bc1, coef_bc2)
 
         end if
 
@@ -153,7 +153,7 @@ contains
                      -(432.0_wp - 63.0_wp*kc)/(1664.0_wp - 360.0_wp*kc)/9.0_wp]     ! b_1, b_2, b_3
 
         if (periodic_loc) then
-            call Create_System_2der(dx, lhs, rhs(:, 1:7), rhs(:, 8:10), coef)
+            call Create_System_2der(dx, lhs, rhs(nx, 1:7), rhs(nx, 8:10), coef)
 
         else    ! biased at the boundaries
             ! 3rd order, Eq. 4.3.1
@@ -168,7 +168,7 @@ contains
             coef_bc3(1:2) = [2.0_wp/11.0_wp, 2.0_wp/11.0_wp]                ! a_1, a_2
             coef_bc3(3:8) = [3.0_wp/44.0_wp, 12.0_wp/11.0_wp, -51.0_wp/22.0_wp, 12.0_wp/11.0_wp, 3.0_wp/44.0_wp, 0.0_wp]       ! b_1, b_2, b_3, b_4, b_5, b_6
 
-            call Create_System_2der(dx, lhs, rhs(:, 1:7), rhs(:, 8:10), coef, coef_bc1, coef_bc2, coef_bc3) ! error here
+            call Create_System_2der(dx, lhs, rhs(nx, 1:7), rhs(nx, 8:10), coef, coef_bc1, coef_bc2, coef_bc3) ! error here
 
         end if
 
@@ -276,7 +276,7 @@ contains
         ! normalize such the coefficent in 1. off-diagonal of rhs is 1
         lhs(:, :) = lhs(:, :)/coef_int(3)
         rhs(:, :) = rhs(:, :)/coef_int(3)
-        rhs_d1(:, :) = rhs_d1(:, :)*3 !/coef_int(3) ! error starts here
+        rhs_d1(:, :) = rhs_d1(:, :)/coef_int(3) ! error starts here
         return
     end subroutine Create_System_2der
 
