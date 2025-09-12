@@ -47,14 +47,8 @@ program INIFLOW
     call TLabMPI_Initialize(ifile)
     call TLabMPI_Trp_Initialize(ifile)
 #endif
-    PRINT *, 'Reading grid from '
     call TLab_Grid_Read(gfile, x, y, z)
-    print *, 'Grid read complete.'
-    PRINT *, 'Grid size: ', imax, jmax, kmax
-    PRINT *, 'Total size: ', imax*jmax*kmax
-    PRINT *, 'Initializing FDMs.'
     call FDM_Initialize(ifile)
-    print *, 'FDM initialization complete.'
     call NavierStokes_Initialize_Parameters(ifile)
     call Thermodynamics_Initialize_Parameters(ifile)
     call Gravity_Initialize(ifile)

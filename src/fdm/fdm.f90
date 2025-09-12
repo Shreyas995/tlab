@@ -123,22 +123,15 @@ contains
         x%periodic = g(1)%periodic
         y%periodic = g(2)%periodic
         z%periodic = g(3)%periodic
-        print *, 'Grid uniformity (x,y,z): ', g(1)%uniform, g(2)%uniform, g(3)%uniform
-        print *, 'Grid periodicity (x,y,z): ', g(1)%periodic, g(2)%periodic, g(3)%periodic  
         !########################################################################
         ! Initializing fdm plan for derivatives
         call FDM_CreatePlan(x, g(1))
-        print *, 'FDM derivative plans created for X.'
         call FDM_CreatePlan(y, g(2))
-        print *, 'FDM derivative plans created for Y.'
         call FDM_CreatePlan(z, g(3))
-        print *, 'FDM derivative plans created for Z.'
-        print *, 'FDM derivative plans created.'
         ! ###################################################################
         ! Initializing fdm plans for first-order integrals (cases lambda = 0.0_wp)
         call FDM_Int1_Initialize(y%nodes(:), g(2)%der1, 0.0_wp, BCS_MIN, fdm_Int0(BCS_MIN))
         call FDM_Int1_Initialize(y%nodes(:), g(2)%der1, 0.0_wp, BCS_MAX, fdm_Int0(BCS_MAX))
-        print *, 'FDM int1_Initialize done.'
         return
     end subroutine FDM_Initialize
 
@@ -169,9 +162,7 @@ contains
         else
             g%scale = 1.0_wp  ! to avoid conditionals and NaN in some of the calculations below
         end if
-        print *, 'FDM_CreatePlan for ', 'Periodicity check'
         if (present(locScale)) then
-! print *, abs((scale_loc - g%scale)/scale_loc)
             if (abs((locScale - g%scale)/g%scale) > roundoff_wp) then
                 call TLab_Write_ASCII(efile, __FILE__//'. Unmatched domain scale.')
                 call TLab_Stop(DNS_ERROR_OPTION)
@@ -202,13 +193,11 @@ contains
 
         ! Calculating derivative dxds into g%jac(:, 1)
         g%der1%periodic = .false.
-        print *, 'FDM_CreatePlan for ', '1st order derivative'
         call FDM_Der1_Solve(1, BCS_NONE, g%der1, g%der1%lu, x%nodes, g%jac(:, 1), g%jac(:, 2)) !g%jac(:, 2) is used as aux array...
 
         ! -------------------------------------------------------------------
         ! Actual grid; possibly nonuniform
         g%nodes(:) = x%nodes(1:nx)
-        print *, 'FDM_CreatePlan for ', 'FFDM_Der1_Initialize'
         call FDM_Der1_Initialize(g%nodes, g%jac(:, 1), g%der1, periodic=g%periodic, bcs_cases=[BCS_DD, BCS_ND, BCS_DN, BCS_NN])
 
         if (g%periodic) g%der1%mwn(:) = g%der1%mwn(:)/g%jac(1, 1)           ! normalized by dx
@@ -222,28 +211,20 @@ contains
         g%jac(:, 2) = 1.0_wp
         g%jac(:, 3) = 0.0_wp
 
-        print *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 1'
-
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, periodic=.false., uniform=.true.)
 
         ! Calculating derivative d2xds2 into g%jac(:, 3)
         g%der2%periodic = .false.
-        print *, 'FDM_CreatePlan for ', 'FDM_Der2_Solve'
         call FDM_Der2_Solve(1, g%der2, g%der2%lu, x%nodes, g%jac(:, 3), g%jac(:, 2), g%jac(:, 2)) !g%jac(:, 2) is used as aux array...
         
         ! -------------------------------------------------------------------
         ! Actual grid; possibly nonuniform
         g%nodes(:) = x%nodes(1:nx)
         g%jac(:, 2) = g%jac(:, 1)
-        print *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 2'
-        print *, shape(g%der2%rhs)
-        print *, "FDM_Der2_Initialize 2: in FDM_CreatePlan"
         ! -------------------------------------------------------------------
 
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, g%periodic, g%uniform)
-        print *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 2 done'
         if (g%der2%periodic) g%der2%mwn(:) = g%der2%mwn(:)/(g%jac(1, 1)**2)      ! normalized by dx
-        print *, 'normalized by dx'
 
         ! ###################################################################
         ! interpolation for staggered cases
@@ -251,9 +232,7 @@ contains
 
         if (stagger_on) then
             if (g%periodic) then
-                print *, 'FDM_CreatePlan for ', 'Staggered grid along periodic directions.'
                 call FDM_Interpol_Initialize(x%nodes(:), g%jac(:, 1), g%intl, g%der1%mwn(:))
-                print *, 'FDM_CreatePlan for ', 'FDM_Interpol_Initialize'
                 ! else
                 !     call TLab_Write_ASCII(efile, 'Staggered grid only along periodic directions.')
                 !     call TLab_Stop(DNS_ERROR_UNDEVELOP)

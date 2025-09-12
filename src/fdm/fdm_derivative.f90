@@ -158,20 +158,12 @@ contains
         g%size = size(x)                ! # grid points
         nx = g%size                     ! for code readability
 
-        if (allocated(g%lhs)) then
-            deallocate (g%lhs)
-        end if
-        if (allocated(g%rhs)) then
-            deallocate (g%rhs)
-        end if
-        if (allocated(g%mwn)) then 
-            deallocate (g%mwn)
-        end if
-        print *, 'FDM_Der1_CreateSystem: g%rhs','size', nx, ndl_max
+        if (allocated(g%lhs)) deallocate (g%lhs)
+        if (allocated(g%rhs)) deallocate (g%rhs)
+        if (allocated(g%mwn)) deallocate (g%mwn)
+
         allocate (g%lhs(nx, ndl_max))
-        print *, 'FDM_Der1_CreateSystem: g%rhs','size', nx, ndr_max
         allocate (g%rhs(nx, ndr_max))
-        print *, 'FDM_Der1_CreateSystem: g%mwn','size', nx
         allocate (g%mwn(nx))
         g%lhs(:, :) = 0.0_wp
         g%rhs(:, :) = 0.0_wp
@@ -295,26 +287,20 @@ contains
         logical, intent(in) :: periodic, uniform
 
         ! ###################################################################
-        PRINT *, 'FDM_Der2_Initialize creating system' ! error here
 
         call FDM_Der2_CreateSystem(x, dx, gdt, periodic, uniform)
-        PRINT *, 'FDM_Der2_CreateSystem'
         ! -------------------------------------------------------------------
         ! LU decomposition
-        PRINT *, 'FDM_Der2_Initialize: deallocating gdt%lu if allocaeted'
-        PRINT *, 'FDM_Der2_Initialize: allocating gdt%lu:', (allocated(gdt%lu))
         if (allocated(gdt%lu)) deallocate (gdt%lu)
         if (gdt%periodic) then
-            PRINT *, 'FDM_Der2_Initialize: periodic allocating gdt%lu', gdt%size, gdt%nb_diag(1)
             allocate (gdt%lu(gdt%size, gdt%nb_diag(1) + 2))
         else
-            PRINT *, 'FDM_Der2_Initialize: non-periodic allocating gdt%lu', gdt%size, gdt%nb_diag(1)
             allocate (gdt%lu(gdt%size, gdt%nb_diag(1)*1))          ! Only 1 bcs
         end if
-        PRINT *, 'FDM_Der2_Initialize: allocated gdt%lu completed'
-        gdt%lu(:, :) = 0.0_wp
 
+        gdt%lu(:, :) = 0.0_wp
         gdt%lu(:, 1:gdt%nb_diag(1)) = gdt%lhs(:, 1:gdt%nb_diag(1))
+
         if (gdt%periodic) then
             select case (gdt%nb_diag(1))
             case (3)
@@ -364,60 +350,19 @@ contains
         ! ###################################################################
         gder2%size = size(x)                ! # grid points
         nx = gder2%size                     ! for code readability
-        print *, 'mode_fdm'
-        print *, gder2%mode_fdm
-        print *, 'size'
-        PRINT *, gder2%size
-        PRINT *, 'periodic'
-        PRINT *, gder2%periodic
-        PRINT *, 'need_1der'
-        PRINT *, gder2%need_1der
-        PRINT *, 'nb_diag'
-        PRINT *, gder2%nb_diag
-        print *, 'lhs'
-        PRINT *, shape(gder2%lhs)
-        PRINT *, gder2%lhs
-        PRINT *, shape(gder2%rhs)
-        PRINT *, gder2%rhs
-        PRINT *, shape(gder2%mwn)
-        PRINT *, gder2%mwn
-        PRINT *, gder2%lu
-        PRINT *, SHAPE(gder2%lu)
 
-        PRINT *, 'FDM_Der2_CreateSystem:','gder2%size = ', gder2%size
-        PRINT *, 'FDM_Der2_CreateSystem:','nx= ', nx
-        print *, 'FDM_Der2_CreateSystem:','Allocating and deallocating gder2%lhs, gder2%rhs, gder2%mwn'
-        if (allocated(gder2%lhs)) then
-            PRINT *, 'FDM_Der2_CreateSystem:','Deallocated gder2%lhs'
-            deallocate (gder2%lhs)
-        end if
-        
-        if (allocated(gder2%rhs)) then 
-            PRINT *, 'FDM_Der2_CreateSystem:','Deallocating gder2%rhs'
-            print *, shape(gder2%rhs)
-            print *, gder2%rhs
-            gder2%rhs(:,:) = -1.0_wp
-            print *, shape(gder2%rhs)
-            print *, gder2%rhs
-            deallocate (gder2%rhs) ! error here
-            PRINT *, 'FDM_Der2_CreateSystem:','Deallocated gder2%rhs'
-        end if
+        if (allocated(gder2%lhs)) deallocate (gder2%lhs)      
+        if (allocated(gder2%rhs)) deallocate (gder2%rhs)
+        if (allocated(gder2%mwn)) deallocate (gder2%mwn)
 
-        if (allocated(gder2%mwn)) then 
-            print *, 'FDM_Der2_CreateSystem:','Allocating gder2%lhs, gder2%rhs, gder2%mwn'
-            deallocate (gder2%mwn)
-        end if
-        print *, 'FDM_Der2_CreateSystem: gder2%rhs','size nx, ndl_max', nx, ndl_max
         allocate (gder2%lhs(nx, ndl_max))
-        print *, 'FDM_Der2_CreateSystem: gder2%rhs','size nx, ndr_max, ndl_max', nx, ndr_max, ndl_max
         allocate (gder2%rhs(nx, ndr_max + ndl_max))     ! ndl_max is space for du correction in nonuniform case
-        print *, 'FDM_Der2_CreateSystem: gder2%mwn','size', nx
         allocate (gder2%mwn(nx))
+
         gder2%lhs(:, :) = 0.0_wp
         gder2%rhs(:, :) = 0.0_wp
 
         gder2%periodic = periodic
-        PRINT *, 'FDM_Der2_CreateSystem:','Case select for gder2%mode_fdm = ', gder2%mode_fdm
         ! -------------------------------------------------------------------
         select case (gder2%mode_fdm)
         case (FDM_COM4_JACOBIAN)
@@ -441,7 +386,6 @@ contains
             gder2%need_1der = .false.
 
         end select
-        print *, 'end select'
         ! -------------------------------------------------------------------
         ! modified wavenumbers
         if (periodic) then
