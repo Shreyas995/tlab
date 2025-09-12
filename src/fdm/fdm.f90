@@ -248,7 +248,7 @@ contains
         ! ###################################################################
         ! interpolation for staggered cases
         ! ###################################################################
-        STOP
+
         if (stagger_on) then
             if (g%periodic) then
                 print *, 'FDM_CreatePlan for ', 'Staggered grid along periodic directions.'
