@@ -297,19 +297,6 @@ contains
         ! ###################################################################
         PRINT *, 'FDM_Der2_Initialize creating system' ! error here
 
-        if (ALLOCATED(gdt%rhs)) deallocate (gdt%rhs)
-        PRINT *, '1: deacllocated gdt%rhs in FDM_Der2_Initialize'
-        allocate (gdt%rhs(gdt%size, 12))
-        gdt%rhs(:,:) = -1.0_wp 
-        print *, "1: Allocated gdt%rhs in FDM_Der2_Initialize"
-
-        if (ALLOCATED(gdt%rhs)) deallocate (gdt%rhs)
-        PRINT *, '2: deacllocated gdt%rhs in FDM_Der2_Initialize'
-        allocate (gdt%rhs(gdt%size, 12))
-        gdt%rhs(:,:) = -1.0_wp 
-        print *, "2: Allocated dt%rhs in FDM_Der2_Initialize"
-
-
         call FDM_Der2_CreateSystem(x, dx, gdt, periodic, uniform)
         PRINT *, 'FDM_Der2_CreateSystem'
         ! -------------------------------------------------------------------

@@ -224,20 +224,6 @@ contains
 
         print *, 'FDM_CreatePlan for ', 'FDM_Der2_Initialize 1'
 
-        if (ALLOCATED(g%der2%rhs)) deallocate (g%der2%rhs)
-        print *,'1: ', 'deacllocated g%der2%rhs'
-        allocate (g%der2%rhs(g%der2%size, 12))
-        print*, 'Changing the value of g%der2%rhs'
-        g%der2%rhs(:,:) = -1.0_wp 
-        print *, "Allocated g%der2%rhs"
-
-        if (ALLOCATED(g%der2%rhs)) deallocate (g%der2%rhs)
-        print *,'2: ', 'deacllocated g%der2%rhs'
-        allocate (g%der2%rhs(g%der2%size, 12))
-        print*, 'Changing the value of g%der2%rhs'
-        g%der2%rhs(:,:) = -1.0_wp 
-        print *, "Allocated g%der2%rhs"
-        print *, "FDM_Der2_Initialize 1: in FDM_CreatePlan"
         call FDM_Der2_Initialize(g%nodes, g%jac(:, 2:), g%der2, periodic=.false., uniform=.true.)
 
         ! Calculating derivative d2xds2 into g%jac(:, 3)
