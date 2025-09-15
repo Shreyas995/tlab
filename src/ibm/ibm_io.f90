@@ -83,22 +83,18 @@ subroutine IBM_IO_WRITE_INT_GEOMETRY(wrk3d, stag)
     character(len=32) :: name
 
     ! ================================================================== !
-    print *, '1. IBM_IO_WRITE_INT_GEOMETRY'
     ! wp to int1
     if (stag) then
         name = epsp_name
         wrk3d(:) = int(epsp(:), 1)
-        print *, '2. IBM_IO_WRITE_INT_GEOMETRY'
     else
         name = eps_name
         wrk3d(:) = int(eps(:), 1)
-        print *, '3. IBM_IO_WRITE_INT_GEOMETRY'
     end if
 
     ! header (offset, nx, ny, nz, nt == 20 byte)
     ! write eps field as int(1)
     call IO_Write_Field_INT1(name, imax, jmax, kmax, 0, wrk3d)
-    print *, '4. IBM_IO_WRITE_INT_GEOMETRY'
     return
 end subroutine IBM_IO_WRITE_INT_GEOMETRY
 
@@ -121,14 +117,11 @@ subroutine IBM_IO_WRITE_BIT_GEOMETRY(wrk3d, stag)
     character(len=32) :: name
 
     ! ================================================================== !
-    print *, '5. IBM_IO_WRITE_BIT_GEOMETRY'
     ! size of bit-array
     bsize_field = isize_field/8
     imax_bit = imax/8 ! already checked in IBM_READ_CONSISTENCY_CHECK if possible
-    print *, '6. IBM_IO_WRITE_BIT_GEOMETRY'
     ! assign to scratch
     eps_bit => wrk3d(1:bsize_field)
-    print *, '7. IBM_IO_WRITE_BIT_GEOMETRY'
     ! wp real to bitwise int1
     if (stag) then
         name = epsp_name
@@ -137,13 +130,10 @@ subroutine IBM_IO_WRITE_BIT_GEOMETRY(wrk3d, stag)
         name = eps_name
         call IBM_IO_R2B(isize_field, bsize_field, eps, eps_bit)
     end if
-    print *, '8. IBM_IO_WRITE_BIT_GEOMETRY'
     ! header (offset, nx, ny, nz, nt == 20 byte)
     ! write bitwise eps_bit field as int(1)
     call IO_Write_Field_INT1(name, imax_bit, jmax, kmax, 0, eps_bit)
-    print *, '9. IBM_IO_WRITE_BIT_GEOMETRY'
     nullify (eps_bit)
-    print *, '10. IBM_IO_WRITE_BIT_GEOMETRY'
     return
 end subroutine IBM_IO_WRITE_BIT_GEOMETRY
 
@@ -215,7 +205,6 @@ subroutine IBM_IO_R2B(rsize, bsize, r, b)
 
     integer(wi) :: i, ip, ib
     ! ================================================================== !
-    print *, '7. IBM_IO_R2B'
     ! initialize bit-array
     b(1:bsize) = int(0, 1)
 
@@ -228,7 +217,6 @@ subroutine IBM_IO_R2B(rsize, bsize, r, b)
             end if
         end do
     end do
-    print *, '8. IBM_IO_R2B'
     return
 end subroutine IBM_IO_R2B
 
@@ -247,7 +235,6 @@ subroutine IBM_IO_B2R(bsize, rsize, b, r)
 
     integer(wi) :: i, ip, ib
     ! ================================================================== !
-    print *, '9. IBM_IO_B2R'
     ! initialize real-array
     r(:) = 0.0_wp
 
@@ -260,7 +247,6 @@ subroutine IBM_IO_B2R(bsize, rsize, b, r)
             end if
         end do
     end do
-    print *, '10. IBM_IO_B2R'
     return
 end subroutine IBM_IO_B2R
 
