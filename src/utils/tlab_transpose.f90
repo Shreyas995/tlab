@@ -43,7 +43,6 @@ subroutine TLab_Transpose(a, nra, nca, ma, b, mb)
     CALL SYSTEM_CLOCK(clock_0,clock_cycle) 
 
 ! -------------------------------------------------------------------
-    PRINT *, 'Executing:', 'Tlab_Transpose'
 #if defined(USE_MKL)
     call MKL_DOMATCOPY('c', 't', nra, nca, 1.0_wp, a, ma, b, mb)
 #elif defined(USE_APU)
@@ -258,7 +257,6 @@ subroutine TLab_Transpose_COMPLEX_APU(a, nra, nca, ma, b, mb)
     integer(wi) last_k, last_j
 
 ! -------------------------------------------------------------------
-    PRINT *, 'Executing:', 'Tlab_Transpose_COMPLEX_APU'
     !$omp target teams distribute parallel do collapse(2) default(shared) private(k,j)
     do j = 1, nra
         do k = 1, nca

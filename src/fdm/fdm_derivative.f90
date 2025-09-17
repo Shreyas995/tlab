@@ -453,7 +453,6 @@ contains
                             result)
             end select
         end if
-        PRINT *, 'FDM_Der2_Solve done'
         return
     end subroutine FDM_Der2_Solve
 

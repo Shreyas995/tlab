@@ -175,7 +175,6 @@ contains
         else
             ibc_loc = BCS_NONE
         end if
-        PRINT *, 'Executing:', 'APU MatMul_3d_APU'
                 ! -------------------------------------------------------------------
                 ! Boundary; the first 3/2+1+1=3 rows might be different
                 if (any([BCS_MIN, BCS_BOTH] == ibc_loc)) then
@@ -326,7 +325,6 @@ contains
 
         ! -------------------------------------------------------------------
         ! Interior points; accelerate2
-        PRINT *, 'Executing:', 'MatMul_3d_add'
 #ifdef USE_APU
         !$omp target teams distribute parallel do default(shared) private(n,l)
         do n = 2, nx - 1
@@ -388,7 +386,6 @@ contains
 
         ! -------------------------------------------------------------------
         ! Interior points; accelerate
-        PRINT *, 'Executing:', 'MatMul_3d_antisym'
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)        
         do l = 1, len
@@ -457,7 +454,6 @@ contains
 
         ! -------------------------------------------------------------------
         ! Interior points; accelerate
-        PRINT *, 'Executing:', 'MatMul_3d_sym'
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)
         do l = 1, len
@@ -680,7 +676,6 @@ contains
 
         ! -------------------------------------------------------------------
         ! Interior points; accelerate
-        PRINT *, 'Executing:', 'MatMul_5d_add'
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)
         do l = 1, len
@@ -748,7 +743,6 @@ contains
         end if
 
         ! Interior points
-        PRINT *, 'Executing:', 'MatMul_5d_antisym'
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)
         do l = 1, len
@@ -829,7 +823,6 @@ contains
         end if
 
         ! Interior points
-        PRINT *, 'Executing:', 'MatMul_5d_sym'
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)
         do l = 1, len
@@ -919,7 +912,6 @@ contains
         end if
 
         ! Interior points
-        PRINT *, 'Executing:', 'MatMul_7d_antisym'
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)
         do l = 1, len
@@ -1013,7 +1005,6 @@ contains
         end if
 
         ! Interior points
-        PRINT *, 'Executing:', 'MatMul_7d_sym'
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(n,l)
         do l = 1, len
@@ -1059,7 +1050,6 @@ contains
             if (any([BCS_DN, BCS_NN] == ibc)) f(:, nx) = 0.0_wp
 
         end if
-        Print *, 'Finished:', 'MatMul_7d_sym'
         return
     end subroutine MatMul_7d_sym
 

@@ -418,7 +418,6 @@ contains
 #define u(j,k,i) p_wrk3d(j,k,i)
 
         ! Solve for each (kx,kz) a system of 1 complex equation as 2 independent real equations
-        PRINT *, 'Executing:', 'OPR_Poisson_FourierXZ_Direct'
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2)            &
         !$omp& map(to: f(1:2,1:nz,1:i_max), f(2*ny-1:2*ny,1:nz,1:i_max)) &

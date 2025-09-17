@@ -61,7 +61,6 @@ contains
         c0115 = 1.0_wp/15.0_wp
 
         imm1 = imax - 1
-        PRINT *, 'Executing:', 'FDM_C0INTVP6P_RHS'
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) map(to: u) map(from: d)
 #endif
@@ -100,7 +99,6 @@ contains
         c0115 = 1.0_wp/15.0_wp
 
         imm1 = imax - 1
-        PRINT *, 'Executing:', 'FDM_C0INTPV6P_RHS'
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) map(to: u) map(from: d)
 #endif
@@ -351,7 +349,6 @@ contains
         c17189 = 17.0_wp/189.0_wp
     
         imm1 = imax - 1
-        PRINT *, 'Executing:', 'FDM_C1INTVP6P_RHS'
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) map(to: u) map(from: d)
 #endif
@@ -391,7 +388,6 @@ contains
         c17189 = 17.0_wp/189.0_wp
     
         imm1 = imax - 1
-        PRINT *, 'Executing:', 'FDM_C1INTPV6P_RHS'
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) map(to: u) map(from: d)
 #endif
