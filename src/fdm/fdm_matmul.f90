@@ -9,11 +9,13 @@ module FDM_MatMul
     use TLab_Constants, only: BCS_DD, BCS_DN, BCS_ND, BCS_NN
     use TLab_Constants, only: BCS_NONE, BCS_MIN, BCS_MAX, BCS_BOTH
     use TLab_Constants, only: BCS_PERIODIC
+    use Tlab_Type, only: fdm_integral_dt
     implicit none
     private
 
     ! generic cases
     public MatMul_3d            ! Calculate f = B u, assuming B is tridiagonal
+    public MatMul_3d_APU        ! Calculate f = B u, assuming B is tridiagonal, APU offloading
     public MatMul_3d_add        ! Calculate f = f + B u, assuming B is tridiagonal
     ! special cases where coefficients are constant in the interior points
     public MatMul_3d_antisym    ! Calculate f = B u, assuming B is tridiagonal, antisymmetric
@@ -21,6 +23,7 @@ module FDM_MatMul
 
     ! generic cases
     public MatMul_5d            ! Calculate f = B u, assuming B is pentadiagonal
+    public MatMul_5d_APU        ! Calculate f = B u, assuming B is pentadiagonal, APU offloading
     public MatMul_5d_add        ! Calculate f = f + B u, assuming B is pentadiagonal
     ! special cases where coefficients are constant in the interior points
     public MatMul_5d_antisym    ! Calculate f = B u, assuming B is pentadiagonal, antisymmetric
@@ -56,6 +59,23 @@ module FDM_MatMul
 #define r5_i(j) rhs(j,5)
 #define r6_i(j) rhs(j,6)
 #define r7_i(j) rhs(j,7)
+
+#define r0b(k,i,j) fdmi(k, i)%rhs_b(j,0)
+#define r1b(k,i,j) fdmi(k, i)%rhs_b(j,1)
+#define r2b(k,i,j) fdmi(k, i)%rhs_b(j,2)
+#define r3b(k,i,j) fdmi(k, i)%rhs_b(j,3)
+#define r4b(k,i,j) fdmi(k, i)%rhs_b(j,4)
+#define r5b(k,i,j) fdmi(k, i)%rhs_b(j,5)
+#define r6b(k,i,j) fdmi(k, i)%rhs_b(j,6)
+#define r7b(k,i,j) fdmi(k, i)%rhs_b(j,7)
+
+#define r1t(k,i,j) fdmi(k,i)%rhs_t(j,1)
+#define r2t(k,i,j) fdmi(k,i)%rhs_t(j,2)
+#define r3t(k,i,j) fdmi(k,i)%rhs_t(j,3)
+#define r4t(k,i,j) fdmi(k,i)%rhs_t(j,4)
+#define r5t(k,i,j) fdmi(k,i)%rhs_t(j,5)
+#define r6t(k,i,j) fdmi(k,i)%rhs_t(j,6)
+#define r7t(k,i,j) fdmi(k,i)%rhs_t(j,7)
 
 contains
     ! #######################################################################
@@ -119,6 +139,167 @@ contains
 
         return
     end subroutine MatMul_3d
+
+subroutine MatMul_3d_APU(nlines, klines, ilines, rhs, u, f, ibc, fdmi, bcs_b, bcs_t)
+        use TLab_Time, only: mat3d_time, t_compute
+        integer(wi) nlines, ilines, klines
+        type(fdm_integral_dt), intent(in) :: fdmi(:, :) !rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
+        real(wp), intent(in) :: rhs(:, :)                                   ! diagonals of B
+        real(wp), intent(in) :: u(1:2*size(fdmi(1,1)%lhs, 1), 1:klines, 1:ilines)                                     ! vector u
+        real(wp), intent(out) :: f(1:2, 1:size(fdmi(1,1)%lhs, 1), 1:klines, 1:ilines)                                 ! vector f = B u
+        integer, intent(in), optional :: ibc
+        real(wp), intent(out), optional :: bcs_b(:, :, :), bcs_t(:, :, :)
+
+        ! -------------------------------------------------------------------
+        integer(wi) n, nx, len, i, k, l
+        integer(wi) pa, pb, pc, pd, pe, pf
+        integer(wi) lp0, lp1, lp2, lp3, lp4, lp5, lp6, lp7
+        integer ibc_loc
+        ! APU offloading 
+
+        integer clock_0, clock_1, clock_2, clock_cycle, clock_3
+        ! -----------------------------------------------------------------------
+        ! Profiling
+        ! -----------------------------------------------------------------------
+        call SYSTEM_CLOCK(clock_0,clock_cycle)  ! delete after testing
+
+        ! #######################################################################
+        nx = size(rhs, 1)
+        len = size(f,1)
+
+        lp0 = 2*nx; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3 
+        lp5 = 2*nx - 5; lp4 = 2*nx - 4; lp7 = 2*nx - 7; lp6 = 2*nx - 6 
+
+        if (present(ibc)) then
+            ibc_loc = ibc
+        else
+            ibc_loc = BCS_NONE
+        end if
+                ! -------------------------------------------------------------------
+                ! Boundary; the first 3/2+1+1=3 rows might be different
+                if (any([BCS_MIN, BCS_BOTH] == ibc_loc)) then
+                    if (present(bcs_b)) then
+#ifdef USE_APU
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i,n,pa,pb,pc,pd,pe,pf)
+#endif                    
+                        do i = 1, ilines
+                            do k = 1, klines
+                                bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
+                                ! f(1) contains the boundary condition
+                                f(:, 2, k, i) = f(:, 1, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
+                                f(:, 3, k, i) = f(:, 1, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
+                                ! -------------------------------------------------------------------
+                                !  Interior points
+                                do n = 4, nx - 3
+                                        pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
+                                        f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                                end do
+                                ! -------------------------------------------------------------------
+                            end do
+                        end do
+#ifdef USE_APU
+                        !$omp end target teams distribute parallel do
+#endif
+                    else
+#ifdef USE_APU
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i,n,pa,pb,pc,pd,pe,pf)
+#endif
+                        do i = 1, ilines
+                            do k = 1, klines
+                                f(:, 2, k, i) = f(:, 1, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
+                                f(:, 3, k, i) = f(:, 1, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
+                                ! -------------------------------------------------------------------
+                                !  Interior points
+                                do n = 4, nx - 3
+                                    pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
+                                    f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                                end do
+                                ! -------------------------------------------------------------------
+                            end do
+                        end do   
+#ifdef USE_APU
+                        !$omp end target teams distribute parallel do
+#endif         
+                    end if
+                else
+#ifdef USE_APU
+                    !$omp target teams distribute parallel do collapse(2) default(shared) &
+                    !$omp private(k,i,n,pa,pb,pc,pd,pe,pf)
+#endif
+                    do i = 1, ilines
+                        do k = 1, klines
+                            f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
+                            f(:, 2, k, i) = u(1:2, k, i)*r1_i(2) + u(3:4, k, i)*r2_i(2) + u(5:6, k, i)*r3_i(2)
+                            f(:, 3, k, i) = u(3:4, k, i)*r1_i(3) + u(5:6, k, i)*r2_i(3) + u(7:8, k, i)*r3_i(3)
+                            ! -------------------------------------------------------------------
+                            do n = 4, nx - 3
+                                pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
+                                f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                            end do
+                            ! -------------------------------------------------------------------
+                        end do
+                    end do
+#ifdef USE_APU
+                    !$omp end target teams distribute parallel do
+#endif
+                end if
+                ! -----------------------------------------------------------------------
+                ! Boundary; the last 3/2+1+1=3 rows might be different
+                if (any([BCS_MAX, BCS_BOTH] == ibc_loc)) then
+                    ! f(nx) contains the boundary condition
+                    if (present(bcs_t)) then
+#ifdef USE_APU
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i)
+#endif
+                        do i = 1, ilines
+                            do k = 1, klines
+                                f(:, nx - 2, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(:, nx, k, i)*r4t(k, i, 0)
+                                f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
+                                bcs_t(:, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(:, nx, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
+                            end do
+                        end do
+#ifdef USE_APU
+                        !$omp end target teams distribute parallel do
+#endif         
+                    else
+#ifdef USE_APU
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i)
+#endif                    
+                        do i = 1, ilines
+                            do k = 1, klines
+                                f(:, nx - 2, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(:, nx, k, i)*r4t(k, i, 0)
+                                f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
+                            end do
+                        end do
+                    end if
+                else
+#ifdef USE_APU
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i)
+#endif
+                    do i = 1, ilines
+                        do k = 1, klines
+                            f(:, nx - 2, k, i) = u(lp7:lp6, k, i)*r1_i(nx - 2) + u(lp5:lp4, k, i)*r2_i(nx - 2) + u(lp3:lp2, k, i)*r3_i(nx - 2)
+                            f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1_i(nx - 1) + u(lp3:lp2, k, i)*r2_i(nx - 1) + u(lp1:lp0, k, i)*r3_i(nx - 1)
+                            f(:, nx, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
+                        end do
+                    end do
+#ifdef USE_APU
+                        !$omp end target teams distribute parallel do
+#endif                    
+                end if
+        ! -----------------------------------------------------------------------
+        ! Profiling
+        ! -----------------------------------------------------------------------
+        call SYSTEM_CLOCK(clock_1)
+        mat3d_time = mat3d_time + real(clock_1 - clock_0)/ real(clock_cycle) 
+        t_compute  = t_compute + real(clock_3 - clock_2) / real(clock_cycle)
+        return
+    end subroutine MatMul_3d_APU
 
     ! #######################################################################
     ! #######################################################################
@@ -260,6 +441,114 @@ contains
         return
     end subroutine MatMul_3d_sym
 
+    ! #######################################################################
+    ! Calculate f = B u, assuming B is pentadiagonal and 1. upper-diagonal in interior points is equal to 1
+        subroutine MatMul_5d_APU(nlines, klines, ilines, rhs, u, f, ibc, fdmi, bcs_b, bcs_t)
+        integer(wi) nlines, ilines, klines
+        type(fdm_integral_dt), intent(in) :: fdmi(:, :) !rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
+        real(wp), intent(in) :: rhs(:, :)
+        real(wp), intent(in) :: u(1:2*size(fdmi(1,1)%lhs, 1), 1:klines, 1:ilines)           ! vector u
+        real(wp), intent(out) :: f(1:2, 1:size(fdmi(1,1)%lhs, 1), 1:klines, 1:ilines)       ! vector f = B u
+        integer, intent(in) :: ibc
+        real(wp), intent(out), optional :: bcs_b(:,:,:), bcs_t(:,:,:)
+
+        ! -------------------------------------------------------------------
+        integer(wi) n, nx, len, i, k
+        integer(wi) pa, pb, pc, pd, pe, pf, pg, ph, pi, pj
+        integer(wi) lp0, lp1, lp2, lp3, lp4, lp5, lp6, lp7, lp8, lp9, lp10, lp11, lp12
+        integer ibc_loc
+        ! #######################################################################
+        nx = size(rhs, 1)
+        ! print *, nd = size(rhs, 2)    ! # diagonals, should be 5
+        ! size(u,2) and size(f,2) should be nx
+        ! size(u,1) and size(f,1) and size(bcs_b) and size(bcs_t) should be the same (number of equations to solve)
+        lp0 = 2*nx; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3; lp4 = 2*nx - 4; lp5 = 2*nx - 5; lp6 = 2*nx - 6; 
+        lp7 = 2*nx - 7; lp8 = 2*nx - 8; lp9 = 2*nx - 9; lp10 = 2*nx - 10; lp11 = 2*nx - 11; lp12 = 2*nx - 12
+        ! -------------------------------------------------------------------
+        ! Boundary; the first 5/2+1+1=4 rows might be different
+        if (any([BCS_MIN, BCS_BOTH] == ibc)) then
+            ! f(1) contains the boundary condition
+            if (present(bcs_b)) then
+                do i = 1, ilines
+                    do k = 1, klines
+                        bcs_b(:, k, i) = f(:, 1, k, i)*r3b(k, i, 1) + u(3:4, k, i)*r4b(k, i, 1) + u(5:6, k, i)*r5b(k, i, 1) + u(7:8, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
+                        f(:, 2, k, i) = f(:, 1, k, i)*r2b(k, i, 2) + u(3:4, k, i)*r3b(k, i, 2) + u(5:6, k, i)*r4b(k, i, 2) + u(7:8, k, i)*r5b(k, i, 2)
+                        f(:, 3, k, i) = f(:, 1, k, i)*r1b(k, i, 3) + u(3:4, k, i)*r2b(k, i, 3) + u(5:6, k, i)*r3b(k, i, 3) + u(7:8, k, i)*r4b(k, i, 3) + u(9:10, k, i)*r5b(k, i, 3)
+                        f(:, 4, k, i) = f(:, 1, k, i)*r0b(k, i, 4)  + u(3:4, k, i)*r1b(k, i, 4) + u(5:6, k, i)*r2b(k, i, 4) + u(7:8, k, i)*r3b(k, i, 4) + u(9:10, k, i)*r4b(k, i, 4) + u(11:12, k, i)*r5b(k, i, 4)
+                        ! -------------------------------------------------------------------
+                        ! Interior points; accelerate
+                        do n = 5, nx - 4
+                            pa = 2*n - 5; pb = 2*n - 4; pc = 2*n - 3; pd = 2*n - 2; pe = 2*n - 1; pf = 2*n; pg = 2*n + 1; ph = 2*n + 2; pi = 2*n + 3; pj = 2*n + 4
+                            f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)*r3_i(n) + u(pg:ph, k, i) + u(pi:pj, k, i)*r5_i(n)
+                        end do
+                    end do
+                end do    
+                ! -------------------------------------------------------------------
+            else
+                do i = 1, ilines
+                    do k = 1, klines
+                        f(:, 2, k, i) = f(:, 1, k, i)*r2b(k, i, 2) + u(3:4, k, i)*r3b(k, i, 2) + u(5:6, k, i)*r4b(k, i, 2) + u(7:8, k, i)*r5b(k, i, 2)
+                        f(:, 3, k, i) = f(:, 1, k, i)*r1b(k, i, 3) + u(3:4, k, i)*r2b(k, i, 3) + u(5:6, k, i)*r3b(k, i, 3) + u(7:8, k, i)*r4b(k, i, 3) + u(9:10, k, i)*r5b(k, i, 3)
+                        f(:, 4, k, i) = f(:, 1, k, i)*r0b(k, i, 4)  + u(3:4, k, i)*r1b(k, i, 4) + u(5:6, k, i)*r2b(k, i, 4) + u(7:8, k, i)*r3b(k, i, 4) + u(9:10, k, i)*r4b(k, i, 4) + u(11:12, k, i)*r5b(k, i, 4)
+                        ! -------------------------------------------------------------------
+                        ! Interior points; accelerate
+                        do n = 5, nx - 4
+                            f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)*r3_i(n) + u(pg:ph, k, i) + u(pi:pj, k, i)*r5_i(n)
+                        end do
+                    end do
+                end do
+                    ! -------------------------------------------------------------------
+            end if
+        else
+            do i = 1, ilines
+                do k = 1, klines
+                    f(:, 1, k, i) = u(1:2, k, i)*r3_i(1) + u(3:4, k, i)*r4_i(1) + u(5:6, k, i)*r5_i(1) + u(7:8, k, i)*r1_i(1)   ! r1(1) contains extended stencil
+                    f(:, 2, k, i) = u(1:2, k, i)*r2_i(2) + u(3:4, k, i)*r3_i(2) + u(5:6, k, i)*r4_i(2) + u(7:8, k, i)*r5_i(2)
+                    f(:, 3, k, i) = u(1:2, k, i)*r1_i(3) + u(3:4, k, i)*r2_i(3) + u(5:6, k, i)*r3_i(3) + u(7:8, k, i)*r4_i(3) + u(9:10, k, i)*r5_i(3)
+                    f(:, 4, k, i) = u(3:4, k, i)*r1_i(4) + u(5:6, k, i)*r2_i(4) + u(7:8, k, i)*r3_i(4) + u(9:10, k, i)*r4_i(4) + u(11:12, k, i)*r5_i(4)
+                    ! -------------------------------------------------------------------
+                    ! Interior points; accelerate
+                    do n = 5, nx - 4
+                        f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)*r3_i(n) + u(pg:ph, k, i) + u(pi:pj, k, i)*r5_i(n)
+                    end do
+                end do
+            end do
+            ! -------------------------------------------------------------------
+        end if       
+        ! Boundary; the last 5/2+1+1=4 rows might be different
+        if (any([BCS_MAX, BCS_BOTH] == ibc)) then
+            ! f(nx) contains the boundary condition
+            if (present(bcs_t)) then
+                do i = 1, ilines
+                    do k = 1, klines
+                        f(:, nx-3, k, i) = u(lp11:lp10, k, i)*r1t(i, k, 0) + u(lp9:lp8, k, i)*r2t(i, k, 0) + u(lp7:lp6, k, i)*r3t(i, k, 0) + u(lp5:lp4, k, i)*r4t(i, k, 0) + u(lp3:lp2, k, i)*r5t(i, k, 0) + f(:, nx, k, i)*r6t(i, k, 0)
+                        f(:, nx-2, k, i) = u(lp9:lp8, k, i)*r1t(i, k, 1) + u(lp7:lp6, k, i)*r2t(i, k, 1) + u(lp5:lp4, k, i)*r3t(i, k, 1) + u(lp3:lp2, k, i)*r4t(i, k, 1) + f(:, nx, k, i)*r5t(i, k, 1)
+                        f(:, nx-1, k, i) = u(lp7:lp6, k, i)*r1t(i, k, 2) + u(lp5:lp4, k, i)*r2t(i, k, 2) + u(lp3:lp2, k, i)*r3t(i, k, 2) + f(:, nx, k, i)*r4t(i, k, 2)
+                        bcs_t(:, k, i) = u(lp7:lp6, k, i)*r5t(i, k, 3) + u(lp5:lp4, k, i)*r1t(i, k, 3) + u(lp3:lp2, k, i)*r2t(i, k, 3) + f(:, nx, k, i)*r3t(i, k, 3) ! r5(nx) contains extended stencil
+                    end do
+                end do
+            else
+                do i = 1, ilines
+                    do k = 1, klines
+                        f(:, nx-3, k, i) = u(lp11:lp10, k, i)*r1t(i, k, 0) + u(lp9:lp8, k, i)*r2t(i, k, 0) + u(lp7:lp6, k, i)*r3t(i, k, 0) + u(lp5:lp4, k, i)*r4t(i, k, 0) + u(lp3:lp2, k, i)*r5t(i, k, 0) + f(:, nx, k, i)*r6t(i, k, 0)
+                        f(:, nx-2, k, i) = u(lp9:lp8, k, i)*r1t(i, k, 1) + u(lp7:lp6, k, i)*r2t(i, k, 1) + u(lp5:lp4, k, i)*r3t(i, k, 1) + u(lp3:lp2, k, i)*r4t(i, k, 1) + f(:, nx, k, i)*r5t(i, k, 1)
+                        f(:, nx, k, i) = u(lp7:lp6, k, i)*r1t(i, k, 2) + u(lp5:lp4, k, i)*r2t(i, k, 2) + u(lp3:lp2, k, i)*r3t(i, k, 2) + f(:, nx, k, i)*r4t(i, k, 2)
+                    end do
+                end do
+            end if
+        else
+            do i = 1, ilines
+                do k = 1, klines
+                    f(:, nx-3, k, i) = u(lp11:lp10, k, i)*r1_i(nx - 3) + u(lp9:lp8, k, i)*r2_i(nx - 3) + u(lp7:lp6, k, i)*r3_i(nx - 3) + u(lp5:lp4, k, i)*r4_i(nx - 3) + u(lp3:lp2, k, i)*r5_i(nx - 3)
+                    f(:, nx-2, k, i) = u(lp9:lp8, k, i)*r1_i(nx - 2) + u(lp7:lp6, k, i)*r2_i(nx - 2) + u(lp5:lp4, k, i)*r3_i(nx - 2) + u(lp3:lp2, k, i)*r4_i(nx - 2) + u(lp1:lp0, k, nx)*r5_i(nx - 2)
+                    f(:, nx-1, k, i) = u(lp7:lp6, k, i)*r1_i(nx - 1) + u(lp5:lp4, k, i)*r2_i(nx - 1) + u(lp3:lp2, k, i)*r3_i(nx - 1) + u(lp1:lp0, k, nx)*r4_i(nx - 1)
+                    f(:, nx, k, i) = u(lp7:lp6, k, i)*r5_i(nx) + u(lp5:lp4, k, i)*r1_i(nx) + u(lp3:lp2, k, i)*r2_i(nx) + u(lp1:lp0, k, nx)*r3_i(nx) ! r5(nx) contains extended stencil
+                end do
+            end do
+        end if
+
+        return
+    end subroutine MatMul_5d_APU
     ! #######################################################################
     ! #######################################################################
     ! Calculate f = B u, assuming B is pentadiagonal and 1. upper-diagonal in interior points is equal to 1

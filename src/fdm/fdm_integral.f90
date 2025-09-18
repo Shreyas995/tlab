@@ -12,18 +12,21 @@ module FDM_Integral
     use FDM_MatMul
     use FDM_Derivative, only: fdm_derivative_dt
     use FDM_Base
+    use Tlab_Type, only: fdm_integral_dt
+    use LinearDss, only: TRIDSS_APU, PENTADSS_APU, HEPTADSS_APU
+
     implicit none
     private
 
-    type, public :: fdm_integral_dt
-        sequence
-        integer mode_fdm                            ! original finite-difference method; only informative
-        real(wp) :: lambda                          ! constant of the equation
-        integer :: bc                               ! type of boundary condition, [ BCS_MIN, BCS_MAX ]
-        real(wp) :: rhs_b(1:5, 0:7), rhs_t(0:4, 8)  ! # of diagonals is 7, # rows is 7/2+1
-        real(wp), allocatable :: lhs(:, :)          ! Often overwritten to LU decomposition.
-        real(wp), allocatable :: rhs(:, :)
-    end type fdm_integral_dt
+    ! type, public :: fdm_integral_dt
+    !     sequence
+    !     integer mode_fdm                            ! original finite-difference method; only informative
+    !     real(wp) :: lambda                          ! constant of the equation
+    !     integer :: bc                               ! type of boundary condition, [ BCS_MIN, BCS_MAX ]
+    !     real(wp) :: rhs_b(1:5, 0:7), rhs_t(0:4, 8)  ! # of diagonals is 7, # rows is 7/2+1
+    !     real(wp), allocatable :: lhs(:, :)          ! Often overwritten to LU decomposition.
+    !     real(wp), allocatable :: rhs(:, :)
+    ! end type fdm_integral_dt
     ! This type is used in elliptic operators for different eigenvalues. This can lead to fragmented memory.
     ! One could use pointers instead of allocatable for lhs and rhs, and point the pointers to the
     ! corresponding memory space.
@@ -35,6 +38,7 @@ module FDM_Integral
     public FDM_Int2_Initialize                      ! Prepare to solve (u')' - \lamba^2 u = f
     ! public FDM_Int2_CreateSystem
     public FDM_Int2_Solve
+    public FDM_Int2_Solve_APU
 
 contains
     !########################################################################
@@ -672,4 +676,62 @@ contains
         return
     end subroutine FDM_Int2_Solve
 
+subroutine FDM_Int2_Solve_APU(nlines, ilines, klines, fdmi, rhsi, f, result, wrk2d)
+        integer(wi) nlines, ilines, klines
+        type(fdm_integral_dt), intent(in) :: fdmi(:,:)
+        real(wp), intent(in) :: rhsi(:, :)
+        real(wp), intent(in) :: f(1:2*size(fdmi(1,1)%lhs, 1), 1:klines, 1:ilines)
+        real(wp), intent(inout) :: result(1:nlines, 1:size(fdmi(1,1)%lhs, 1), 1:klines, 1:ilines)   ! contains bcs
+        real(wp), intent(inout) :: wrk2d(nlines, 2, klines, ilines)
+
+        ! -------------------------------------------------------------------
+        integer(wi) :: nx, ndl, ndr, i, k
+        real(wp) :: fdm_sum_result, fdm_sum_f
+
+        ! ###################################################################
+        fdm_sum_result = 0.0_wp
+        fdm_sum_f = 0.0_wp
+        nx = size(fdmi(1,1)%lhs, 1)
+        ndl = size(fdmi(1,1)%lhs, 2)
+        ndr = size(rhsi, 2)
+
+        select case (ndr)
+        case (3)
+            call MatMul_3d_APU(nlines, klines, ilines, rhsi(:, 1:3), f, result(1:nlines, 1:size(fdmi(1,1)%lhs, 1), 1:klines, 1:ilines), &
+                                BCS_BOTH, fdmi, bcs_b=wrk2d(:, 1, :, :), bcs_t=wrk2d(:, 2, :, :))
+        case (5)
+            call MatMul_5d_APU(nlines, ilines, klines, rhsi(:, 1:5), f, result(1:nlines, 1:size(fdmi(1,1)%lhs, 1), 1:klines, 1:ilines), &
+                              BCS_BOTH, fdmi, bcs_b=wrk2d(:, 1, :, :), bcs_t=wrk2d(:, 2, :, :))
+        end select
+
+        ! Solve pentadiagonal linear system
+        select case (ndl)
+        case (3)
+            call TRIDSS_APU(nlines, nx, klines, ilines, fdmi, result(1:nlines, 1:nx, 1:klines, 1:ilines))
+        case (5)
+            call PENTADSS_APU(nlines, nx, klines, ilines, fdmi, result(1:nlines, 1:nx, 1:klines, 1:ilines))  !%lhs(2:, 1), fdmi%lhs(2:, 2), fdmi%lhs(2:, 3), fdmi%lhs(2:, 4), fdmi%lhs(2:, 5), result(:, 2:))
+        case (7)
+            call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi, result(1:nlines, 1:nx, 1:klines, 1:ilines))
+        end select
+        do i = 1, ilines
+            do k = 1, klines
+                !   Corrections to the BCS_DD to account for Neumann
+                if (any([BCS_ND, BCS_NN] == fdmi(k,i)%bc)) then
+                    result(:, 1, k, i) = wrk2d(:, 1, k, i) &
+                                + fdmi(k,i)%lhs(1, 1)*result(:, 2, k, i) + fdmi(k,i)%lhs(1, 2)*result(:, 3, k, i) + fdmi(k,i)%lhs(1, 3)*result(:, 4, k, i)
+                end if
+
+                if (any([BCS_DN, BCS_NN] == fdmi(k,i)%bc)) then
+                    result(:, nx, k, i) = wrk2d(:, 2, k, i) &
+                                    + fdmi(k, i)%lhs(nx, ndl)*result(:, nx - 1, k, i) + fdmi(k, i)%lhs(nx, ndl - 1)*result(:, nx - 2, k, i) &
+                                    + fdmi(k, i)%lhs(nx, ndl - 2)*result(:, nx - 3, k, i)
+                end if
+            end do
+        end do
+        fdm_sum_result = sum(result)
+        fdm_sum_f = sum(f)
+        ! print *, 'FDM_Int2_Solve_APU: sum of result = ', fdm_sum_result, ' sum of f = ', fdm_sum_f
+        return
+    end subroutine FDM_Int2_Solve_APU
+    
 end module FDM_Integral

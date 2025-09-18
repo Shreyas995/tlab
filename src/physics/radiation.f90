@@ -5,7 +5,8 @@ module Radiation
     use TLab_Constants, only: wp, wi, pi_wp, efile, MAX_PARS, MAX_VARS
     use TLab_Constants, only: BCS_MAX, BCS_MIN
     use TLab_Grid, only: y
-    use FDM_Integral, only: FDM_Int1_Solve, fdm_integral_dt
+    use FDM_Integral, only: FDM_Int1_Solve
+    use Tlab_Type, only: fdm_integral_dt
     use NavierStokes, only: nse_eqns, DNS_EQNS_ANELASTIC
     use TLab_Memory, only: inb_scal_array
     use TLab_Arrays, only: wrk2d, wrk3d

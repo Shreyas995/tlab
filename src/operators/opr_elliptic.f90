@@ -11,7 +11,9 @@ module OPR_Elliptic
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop, stagger_on
     use TLab_Arrays, only: wrk1d, wrk2d, wrk3d
     use TLab_Pointers_C, only: c_wrk3d
+    use TLab_Pointers_3D, only: p_wrk2d
     use TLab_Grid, only: y
+
 #ifdef USE_MPI
     use TLabMPI_VARS, only: ims_offset_i, ims_offset_k, ims_pro_i
 #endif
@@ -21,6 +23,7 @@ module OPR_Elliptic
     use OPR_ODES
     use OPR_Partial, only: OPR_Partial_Y, OPR_P1
     use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
+    use Tlab_Type, only: fdm_integral_dt
     implicit none
     private
 
@@ -125,6 +128,7 @@ contains
         call FDM_CreatePlan(y, fdm_loc)
 
         isize_line = imax/2 + 1
+
         allocate (lambda(kmax, isize_line))
         norm = 1.0_wp/real(g(1)%size*g(3)%size, wp)
 
@@ -378,11 +382,12 @@ contains
 
         ! -----------------------------------------------------------------------
         integer(wi), parameter :: bcs_p(2, 2) = 0                       ! For partial_y at the end
-
+        real(wp) :: opr_poisson_sum_tmp1, opr_poisson_sum_tmp2, opr_poisson_sum_p
         ! #######################################################################
         call c_f_pointer(c_loc(tmp1), c_tmp1, shape=[isize_txc_field])
         call c_f_pointer(c_loc(tmp2), c_tmp2, shape=[isize_txc_field])
         p_wrk3d(1:2*ny, 1:nz, 1:nx/2 + 1) => wrk3d(1:isize_txc_field)
+        call c_f_pointer(c_loc(wrk2d), p_wrk2d, shape=[4,isize_line, nz])
 
         ! #######################################################################
         ! Fourier transform of forcing term; output of this section in array tmp1
@@ -403,35 +408,50 @@ contains
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
         ! ###################################################################
         ! Make x direction last one and leave y direction first
+#ifdef USE_APU
+        call TLab_Transpose_COMPLEX_APU(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
+#else
         call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
+#endif
 
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
 
         ! Solve for each (kx,kz) a system of 1 complex equation as 2 independent real equations
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(2)            &
+        !$omp& map(to: f(1:2,1:nz,1:i_max), f(2*ny-1:2*ny,1:nz,1:i_max)) &
+        !$omp& map(from: u(1:2,1:nz,1:i_max), u(2*ny-1:2*ny,1:nz,1:i_max))
+#endif
         do i = 1, i_max
             do k = 1, nz
                 u(1:2, k, i) = f(1:2, k, i)                         ! bottom boundary conditions
                 u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
-
-                select case (ibc)
-                case (BCS_NN)           ! use precalculated LU factorization
-                    ! Compatibility constraint for singular modes. The reference value of p at bottom is set to zero
-                    if (any(i_sing == i) .and. any(k_sing == k)) u(1:2, k, i) = 0.0_wp
-
-                    call FDM_Int2_Solve(2, fdm_int2(k, i), rhs_d, f(:, k, i), u(:, k, i), wrk2d)
-
-                case default            ! Need to calculate and factorize LHS
-                    call FDM_Int2_Initialize(fdm_loc%nodes(:), fdm_loc%der2, lambda(k, i), ibc, fdm_int2_loc)
-                    call FDM_Int2_Solve(2, fdm_int2_loc, fdm_int2_loc%rhs, f(:, k, i), u(:, k, i), wrk2d)
-
-                end select
-
             end do
         end do
+#ifdef USE_APU
+        !$omp end target teams distribute parallel do
+#endif
 
+        select case (ibc)
+        case (BCS_NN)           ! use precalculated LU factorization
+            ! Compatibility constraint for singular modes. The reference value of p at bottom is set to zero
+            u(1:2, i_sing(1),k_sing(1)) = 0.0_wp; u(1:2, i_sing(1),k_sing(2)) = 0.0_wp
+            u(1:2, i_sing(2),k_sing(1)) = 0.0_wp; u(1:2, i_sing(2),k_sing(2)) = 0.0_wp
+            call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2(1:nz, 1:i_max), rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p_wrk2d(:,:,:))
+        case default            ! Need to calculate and factorize LHS
+            do i = 1, i_max
+                do k = 1, nz
+                    call FDM_Int2_Initialize(fdm_loc%nodes(:), fdm_loc%der2, lambda(k, i), ibc, fdm_int2_loc)
+                    call FDM_Int2_Solve(2, fdm_int2_loc, fdm_int2_loc%rhs, f(:, k, i), u(:, k, i), wrk2d)
+                end do
+            end do
+        end select
+#ifdef USE_APU
+        call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
+#else
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
-
+#endif
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
         ! ###################################################################
