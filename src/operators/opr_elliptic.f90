@@ -417,7 +417,11 @@ contains
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
 
-        ! Solve for each (kx,kz) a system of 1 complex equation as 2 independent real equations
+        ! Solve for each (kx,kz) a system of 1 complex equation as 2 independent real equations2
+        print *, 'is_contiguous f(1:2,1:nz,1:i_max)=', is_contiguous(f(1:2,1:nz,1:i_max))
+        print *, 'is_contiguous f(2*ny-1:2*ny,1:nz,1:i_max)=', is_contiguous(f(2*ny-1:2*ny,1:nz,1:i_max))
+        print *, 'is_contiguous u(1:2,1:nz,1:i_max)=', is_contiguous(u(1:2,1:nz,1:i_max))
+        print *, 'is_contiguous u(2*ny-1:2*ny,1:nz,1:i_max)=', is_contiguous(u(2*ny-1:2*ny,1:nz,1:i_max))
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2)            &
         !$omp& map(to: f(1:2,1:nz,1:i_max), f(2*ny-1:2*ny,1:nz,1:i_max)) &
