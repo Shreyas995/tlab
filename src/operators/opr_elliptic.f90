@@ -417,24 +417,19 @@ contains
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
 
-        ! Solve for each (kx,kz) a system of 1 complex equation as 2 independent real equations2
-        print *, 'is_contiguous f(1:2,1:nz,1:i_max)=', is_contiguous(f(1:2,1:nz,1:i_max))
-        print *, 'is_contiguous f(2*ny-1:2*ny,1:nz,1:i_max)=', is_contiguous(f(2*ny-1:2*ny,1:nz,1:i_max))
-        print *, 'is_contiguous u(1:2,1:nz,1:i_max)=', is_contiguous(u(1:2,1:nz,1:i_max))
-        print *, 'is_contiguous u(2*ny-1:2*ny,1:nz,1:i_max)=', is_contiguous(u(2*ny-1:2*ny,1:nz,1:i_max))
-#ifdef USE_APU
-        !$omp target data map(to: tmp2) map(from: p_wrk3d)
-        !$omp target teams distribute parallel do collapse(2)
-#endif
-        do i = 1, i_max
-            do k = 1, nz
-                u(1:2, k, i) = f(1:2, k, i)                         ! bottom boundary conditions
-                u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
-            end do
-        end do
-#ifdef USE_APU
-        !$omp end target data
-#endif
+! #ifdef USE_APU
+!         !$omp target data map(to: tmp2) map(from: p_wrk3d)
+!         !$omp target teams distribute parallel do collapse(2)
+! #endif
+!         do i = 1, i_max
+!             do k = 1, nz
+                u(1:2, :, :) = f(1:2, :, :)                         ! bottom boundary conditions
+                u(2*ny - 1:2*ny, :, :) = f(2*ny - 1:2*ny, :, :)     ! top boundary conditions
+!             end do
+!         end do
+! #ifdef USE_APU
+!         !$omp end target data
+! #endif
 
         select case (ibc)
         case (BCS_NN)           ! use precalculated LU factorization
