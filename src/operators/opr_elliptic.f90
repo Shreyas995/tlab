@@ -382,7 +382,6 @@ contains
 
         ! -----------------------------------------------------------------------
         integer(wi), parameter :: bcs_p(2, 2) = 0                       ! For partial_y at the end
-        integer(ilong) :: integer :: bytes
         real(wp) :: opr_poisson_sum_tmp1, opr_poisson_sum_tmp2, opr_poisson_sum_p
         ! #######################################################################
         call c_f_pointer(c_loc(tmp1), c_tmp1, shape=[isize_txc_field])
