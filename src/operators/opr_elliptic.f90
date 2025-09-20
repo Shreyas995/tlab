@@ -3,7 +3,7 @@
 ! Split the routines into the ones that are initialized and the ones that not?
 ! If not initialized, you can enter with any jmax, but the periodic directions need to be the global ones because of OPR_Fourier.
 module OPR_Elliptic
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, longi
     use TLab_Constants, only: BCS_DD, BCS_DN, BCS_ND, BCS_NN, BCS_NONE, BCS_MIN, BCS_MAX, BCS_BOTH
     use TLab_Constants, only: lfile
     use TLab_Memory, only: TLab_Allocate_Real
@@ -382,6 +382,7 @@ contains
 
         ! -----------------------------------------------------------------------
         integer(wi), parameter :: bcs_p(2, 2) = 0                       ! For partial_y at the end
+        integer(ilong) :: integer :: bytes
         real(wp) :: opr_poisson_sum_tmp1, opr_poisson_sum_tmp2, opr_poisson_sum_p
         ! #######################################################################
         call c_f_pointer(c_loc(tmp1), c_tmp1, shape=[isize_txc_field])
@@ -423,9 +424,8 @@ contains
         print *, 'is_contiguous u(1:2,1:nz,1:i_max)=', is_contiguous(u(1:2,1:nz,1:i_max))
         print *, 'is_contiguous u(2*ny-1:2*ny,1:nz,1:i_max)=', is_contiguous(u(2*ny-1:2*ny,1:nz,1:i_max))
 #ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(2)            &
-        !$omp& map(to: f(1:2,1:nz,1:i_max), f(2*ny-1:2*ny,1:nz,1:i_max)) &
-        !$omp& map(from: u(1:2,1:nz,1:i_max), u(2*ny-1:2*ny,1:nz,1:i_max))
+        !$omp target data map(to: f) map(from: u)
+        !$omp target teams distribute parallel do collapse(2)
 #endif
         do i = 1, i_max
             do k = 1, nz
@@ -434,7 +434,7 @@ contains
             end do
         end do
 #ifdef USE_APU
-        !$omp end target teams distribute parallel do
+        !$omp end target data
 #endif
 
         select case (ibc)
