@@ -421,12 +421,12 @@ contains
 !         !$omp target data map(to: tmp2) map(from: p_wrk3d)
 !         !$omp target teams distribute parallel do collapse(2)
 ! #endif
-!         do i = 1, i_max
-!             do k = 1, nz
+        do i = 1, i_max
+            do k = 1, nz
                 u(1:2, :, :) = f(1:2, :, :)                         ! bottom boundary conditions
                 u(2*ny - 1:2*ny, :, :) = f(2*ny - 1:2*ny, :, :)     ! top boundary conditions
-!             end do
-!         end do
+            end do
+        end do
 ! #ifdef USE_APU
 !         !$omp end target data
 ! #endif
@@ -436,7 +436,12 @@ contains
             ! Compatibility constraint for singular modes. The reference value of p at bottom is set to zero
             u(1:2, i_sing(1),k_sing(1)) = 0.0_wp; u(1:2, i_sing(1),k_sing(2)) = 0.0_wp
             u(1:2, i_sing(2),k_sing(1)) = 0.0_wp; u(1:2, i_sing(2),k_sing(2)) = 0.0_wp
-            call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2(1:nz, 1:i_max), rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p_wrk2d(:,:,:))
+            do i = 1, i_max
+                do k = 1, nz
+                    call FDM_Int2_Solve(2, fdm_int2(k, i), rhs_d, f(:, k, i), u(:, k, i), wrk2d(:,:,:))
+                    ! call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2(1:nz, 1:i_max), rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p_wrk2d(:,:,:))
+                end do
+            end do
         case default            ! Need to calculate and factorize LHS
             do i = 1, i_max
                 do k = 1, nz
