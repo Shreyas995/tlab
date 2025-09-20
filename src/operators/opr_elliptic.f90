@@ -423,7 +423,7 @@ contains
         print *, 'is_contiguous u(1:2,1:nz,1:i_max)=', is_contiguous(u(1:2,1:nz,1:i_max))
         print *, 'is_contiguous u(2*ny-1:2*ny,1:nz,1:i_max)=', is_contiguous(u(2*ny-1:2*ny,1:nz,1:i_max))
 #ifdef USE_APU
-        !$omp target data map(to: f) map(from: u)
+        !$omp target data map(to: tmp2) map(from: p_wrk3d)
         !$omp target teams distribute parallel do collapse(2)
 #endif
         do i = 1, i_max
