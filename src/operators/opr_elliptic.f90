@@ -417,19 +417,19 @@ contains
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
 
-! #ifdef USE_APU
-!         !$omp target data map(to: tmp2) map(from: p_wrk3d)
-!         !$omp target teams distribute parallel do collapse(2)
-! #endif
+#ifdef USE_APU
+        !$omp target data map(to: tmp2) map(from: p_wrk3d)
+        !$omp target teams distribute parallel do collapse(2)
+#endif
         do i = 1, i_max
             do k = 1, nz
                 u(1:2, k, i) = f(1:2, k, i)                         ! bottom boundary conditions
                 u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
             end do
         end do
-! #ifdef USE_APU
-!         !$omp end target data
-! #endif
+#ifdef USE_APU
+        !$omp end target data
+#endif
 
         select case (ibc)
         case (BCS_NN)           ! use precalculated LU factorization
