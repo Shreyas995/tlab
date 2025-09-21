@@ -423,8 +423,8 @@ contains
 ! #endif
         do i = 1, i_max
             do k = 1, nz
-                u(1:2, :, :) = f(1:2, :, :)                         ! bottom boundary conditions
-                u(2*ny - 1:2*ny, :, :) = f(2*ny - 1:2*ny, :, :)     ! top boundary conditions
+                u(1:2, k, i) = f(1:2, k, i)                         ! bottom boundary conditions
+                u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
             end do
         end do
 ! #ifdef USE_APU
