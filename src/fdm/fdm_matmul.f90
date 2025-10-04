@@ -9,7 +9,7 @@ module FDM_MatMul
     use TLab_Constants, only: BCS_DD, BCS_DN, BCS_ND, BCS_NN
     use TLab_Constants, only: BCS_NONE, BCS_MIN, BCS_MAX, BCS_BOTH
     use TLab_Constants, only: BCS_PERIODIC
-    use Tlab_Type, only: fdm_integral_dt
+    use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
     implicit none
     private
 
@@ -60,22 +60,22 @@ module FDM_MatMul
 #define r6_i(j) rhs(j,6)
 #define r7_i(j) rhs(j,7)
 
-#define r0b(k,i,j) fdmi(k, i)%rhs_b(j,0)
-#define r1b(k,i,j) fdmi(k, i)%rhs_b(j,1)
-#define r2b(k,i,j) fdmi(k, i)%rhs_b(j,2)
-#define r3b(k,i,j) fdmi(k, i)%rhs_b(j,3)
-#define r4b(k,i,j) fdmi(k, i)%rhs_b(j,4)
-#define r5b(k,i,j) fdmi(k, i)%rhs_b(j,5)
-#define r6b(k,i,j) fdmi(k, i)%rhs_b(j,6)
-#define r7b(k,i,j) fdmi(k, i)%rhs_b(j,7)
+#define r0b(k,i,j) fdmi%rhs_b(j,k,i,0)
+#define r1b(k,i,j) fdmi%rhs_b(j,k,i,1)
+#define r2b(k,i,j) fdmi%rhs_b(j,k,i,2)
+#define r3b(k,i,j) fdmi%rhs_b(j,k,i,3)
+#define r4b(k,i,j) fdmi%rhs_b(j,k,i,4)
+#define r5b(k,i,j) fdmi%rhs_b(j,k,i,5)
+#define r6b(k,i,j) fdmi%rhs_b(j,k,i,6)
+#define r7b(k,i,j) fdmi%rhs_b(j,k,i,7)
 
-#define r1t(k,i,j) fdmi(k,i)%rhs_t(j,1)
-#define r2t(k,i,j) fdmi(k,i)%rhs_t(j,2)
-#define r3t(k,i,j) fdmi(k,i)%rhs_t(j,3)
-#define r4t(k,i,j) fdmi(k,i)%rhs_t(j,4)
-#define r5t(k,i,j) fdmi(k,i)%rhs_t(j,5)
-#define r6t(k,i,j) fdmi(k,i)%rhs_t(j,6)
-#define r7t(k,i,j) fdmi(k,i)%rhs_t(j,7)
+#define r1t(k,i,j) fdmi%rhs_t(j,k,i,1)
+#define r2t(k,i,j) fdmi%rhs_t(j,k,i,2)
+#define r3t(k,i,j) fdmi%rhs_t(j,k,i,3)
+#define r4t(k,i,j) fdmi%rhs_t(j,k,i,4)
+#define r5t(k,i,j) fdmi%rhs_t(j,k,i,5)
+#define r6t(k,i,j) fdmi%rhs_t(j,k,i,6)
+#define r7t(k,i,j) fdmi%rhs_t(j,k,i,7)
 
 contains
     ! #######################################################################
@@ -140,18 +140,18 @@ contains
         return
     end subroutine MatMul_3d
 
-subroutine MatMul_3d_APU(nlines, klines, ilines, rhs, u, f, ibc, fdmi, bcs_b, bcs_t)
+    subroutine MatMul_3d_APU(nlines, klines, ilines, nx, fdmi, rhs, u, f, ibc, bcs_b, bcs_t)
         use TLab_Time, only: mat3d_time, t_compute
-        integer(wi) nlines, ilines, klines
-        type(fdm_integral_dt), intent(in) :: fdmi(:, :) !rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
+        integer(wi) nlines, ilines, klines, nx
+        type(fdm_integral_dt2), intent(in) :: fdmi                          ! rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
         real(wp), intent(in) :: rhs(:, :)                                   ! diagonals of B
-        real(wp), intent(in) :: u(1:2*size(fdmi(1,1)%lhs, 1), 1:klines, 1:ilines)                                     ! vector u
-        real(wp), intent(out) :: f(1:2, 1:size(fdmi(1,1)%lhs, 1), 1:klines, 1:ilines)                                 ! vector f = B u
+        real(wp), intent(in) :: u(1:2*nx, 1:klines, 1:ilines)                                     ! vector u
+        real(wp), intent(out) :: f(1:2, 1:nx, 1:klines, 1:ilines)                                 ! vector f = B u
         integer, intent(in), optional :: ibc
         real(wp), intent(out), optional :: bcs_b(:, :, :), bcs_t(:, :, :)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx, len, i, k, l
+        integer(wi) n, len, i, k, l
         integer(wi) pa, pb, pc, pd, pe, pf
         integer(wi) lp0, lp1, lp2, lp3, lp4, lp5, lp6, lp7
         integer ibc_loc
@@ -164,7 +164,6 @@ subroutine MatMul_3d_APU(nlines, klines, ilines, rhs, u, f, ibc, fdmi, bcs_b, bc
         call SYSTEM_CLOCK(clock_0,clock_cycle)  ! delete after testing
 
         ! #######################################################################
-        nx = size(rhs, 1)
         len = size(f,1)
 
         lp0 = 2*nx; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3 
@@ -443,22 +442,21 @@ subroutine MatMul_3d_APU(nlines, klines, ilines, rhs, u, f, ibc, fdmi, bcs_b, bc
 
     ! #######################################################################
     ! Calculate f = B u, assuming B is pentadiagonal and 1. upper-diagonal in interior points is equal to 1
-        subroutine MatMul_5d_APU(nlines, klines, ilines, rhs, u, f, ibc, fdmi, bcs_b, bcs_t)
-        integer(wi) nlines, ilines, klines
-        type(fdm_integral_dt), intent(in) :: fdmi(:, :) !rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
+        subroutine MatMul_5d_APU(nlines, klines, ilines, nx, fdmi, rhs, u, f, ibc, bcs_b, bcs_t)
+        integer(wi) nlines, ilines, klines, nx
+        type(fdm_integral_dt2), intent(in) :: fdmi   !rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
         real(wp), intent(in) :: rhs(:, :)
-        real(wp), intent(in) :: u(1:2*size(fdmi(1,1)%lhs, 1), 1:klines, 1:ilines)           ! vector u
-        real(wp), intent(out) :: f(1:2, 1:size(fdmi(1,1)%lhs, 1), 1:klines, 1:ilines)       ! vector f = B u
+        real(wp), intent(in) :: u(1:2*nx, 1:klines, 1:ilines)           ! vector u
+        real(wp), intent(out) :: f(1:2, 1:nx, 1:klines, 1:ilines)       ! vector f = B u
         integer, intent(in) :: ibc
         real(wp), intent(out), optional :: bcs_b(:,:,:), bcs_t(:,:,:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx, len, i, k
+        integer(wi) n, len, i, k
         integer(wi) pa, pb, pc, pd, pe, pf, pg, ph, pi, pj
         integer(wi) lp0, lp1, lp2, lp3, lp4, lp5, lp6, lp7, lp8, lp9, lp10, lp11, lp12
         integer ibc_loc
         ! #######################################################################
-        nx = size(rhs, 1)
         ! print *, nd = size(rhs, 2)    ! # diagonals, should be 5
         ! size(u,2) and size(f,2) should be nx
         ! size(u,1) and size(f,1) and size(bcs_b) and size(bcs_t) should be the same (number of equations to solve)

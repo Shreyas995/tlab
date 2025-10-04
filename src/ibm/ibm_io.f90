@@ -83,7 +83,6 @@ subroutine IBM_IO_WRITE_INT_GEOMETRY(wrk3d, stag)
     character(len=32) :: name
 
     ! ================================================================== !
-    PRINT *, 'Writing int eps field'
     ! wp to int1
     if (stag) then
         name = epsp_name
@@ -118,7 +117,6 @@ subroutine IBM_IO_WRITE_BIT_GEOMETRY(wrk3d, stag)
     character(len=32) :: name
 
     ! ================================================================== !
-    PRINT *, 'Writing bitwise eps field'
     ! size of bit-array
     bsize_field = isize_field/8
     imax_bit = imax/8 ! already checked in IBM_READ_CONSISTENCY_CHECK if possible

@@ -31,7 +31,7 @@
 
 module LinearDss
     use TLab_Constants, only: wp, wi
-    use Tlab_Type, only: fdm_integral_dt
+    use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
 
     PUBLIC :: TRIDSS_APU
     PUBLIC :: PENTADSS_APU
@@ -46,7 +46,7 @@ contains
         integer(wi), intent(IN) :: len   ! number of systems to be solved
         integer(wi), intent(IN) :: klen  ! number of equations in each system
         integer(wi), intent(IN) :: ilen  ! number of equations in each system
-        type(fdm_integral_dt), intent(in) :: fdmi(:,:)
+        type(fdm_integral_dt2), intent(in) :: fdmi
         real(wp), dimension(1:len, 1:nmax, 1:klen, 1:ilen), intent(INOUT) :: f    ! RHS and solution
 
     ! -------------------------------------------------------------------
@@ -67,7 +67,7 @@ contains
             do k = 1, klen
                 do n = 3, nmax
                     do l = 1, len
-                        f(l, n, k, i) = f(l, n, k, i) + fdmi(k,i)%lhs(n, 1)*f(l, n-1, k, i)
+                        f(l, n, k, i) = f(l, n, k, i) + fdmi%lhs(n, k, i ,1)*f(l, n-1, k, i)
                     end do
                 end do
             end do
@@ -80,7 +80,7 @@ contains
         do i = 1, ilen
             do k = 1, klen
                 do l = 1, len
-                    f(l, nmax, k, i) = f(l, nmax, k, i)*fdmi(k,i)%lhs(nmax, 2)
+                    f(l, nmax, k, i) = f(l, nmax, k, i)*fdmi%lhs(nmax, k, i, 2)
                 end do
             end do
         end do
@@ -89,7 +89,7 @@ contains
             do k = 1, klen
                 do n = nmax - 2, 1, -1
                     do l = 1, len
-                        f(l, n, k, i) = f(l, n, k, i) + fdmi(k,i)%lhs(n, 3)*f(l, n+1, k, i)*fdmi(k,i)%lhs(n, 2)
+                        f(l, n, k, i) = f(l, n, k, i) + fdmi%lhs(n, k, i, 3)*f(l, n+1, k, i)*fdmi%lhs(n, k, i, 2)
                     end do
                 end do
             end do
@@ -105,7 +105,7 @@ contains
         implicit none
 
         integer(wi) nmax, len, klen, ilen
-        type(fdm_integral_dt), intent(in) :: fdmi(:,:) !real(wp), dimension(nmax), intent(IN) :: a, b, c, d, e
+        type(fdm_integral_dt2), intent(in) :: fdmi !real(wp), dimension(nmax), intent(IN) :: a, b, c, d, e
         real(wp), dimension(1:len, 1:nmax, 1:klen, 1:ilen), intent(INOUT) :: f
         ! -----------------------------------------------------------------------
         integer(wi) n, i, k, l
@@ -118,12 +118,12 @@ contains
             do k = 1, klen
                 n = 3
                 do l = 1, len
-                    f(l, n, k, i) = f(l, n, k, i) + f(l, n - 1, k, i)*fdmi(k,i)%lhs(3, 2)
+                    f(l, n, k, i) = f(l, n, k, i) + f(l, n - 1, k, i)*fdmi%lhs(3, k, i, 2)
                 end do
 
                 do n = 4, nmax - 1
                     do l = 1, len
-                        f(l, n, k, i) = f(l, n, k, i) + f(l, n - 1, k, i)*fdmi(k,i)%lhs(n, 2) + f(l, n - 2, k, i)*fdmi(k,i)%lhs(n, 1)
+                        f(l, n, k, i) = f(l, n, k, i) + f(l, n - 1, k, i)*fdmi%lhs(n, k, i, 2) + f(l, n - 2, k, i)*fdmi%lhs(n, k, i, 1)
                     end do
                 end do
 
@@ -132,17 +132,17 @@ contains
                 ! -----------------------------------------------------------------------
                 n = nmax - 1
                 do l = 1, len
-                    f(l, n, k, i) = f(l, n, k, i)*fdmi(k,i)%lhs(n, 3)
+                    f(l, n, k, i) = f(l, n, k, i)*fdmi%lhs(n, k, i, 3)
                 end do
 
                 n = nmax - 1 - 1
                 do l = 1, len
-                    f(l, n, k, i) = (f(l, n, k, i) + f(l, n + 1, k, i)*fdmi(k,i)%lhs(n, 4))*fdmi(k,i)%lhs(n, 3)
+                    f(l, n, k, i) = (f(l, n, k, i) + f(l, n + 1, k, i)*fdmi%lhs(n, k, i, 4))*fdmi%lhs(n, k, i, 3)
                 end do
 
                 do n = nmax - 3, 2, -1
                     do l = 1, len
-                        f(l, n, k,i) = (f(l, n, k, i) + f(l, n + 1, k, i)*fdmi(k,i)%lhs(n, 4) + f(l, n + 2, k, i)*fdmi(k,i)%lhs(n, 5))*fdmi(k,i)%lhs(n, 3)
+                        f(l, n, k,i) = (f(l, n, k, i) + f(l, n + 1, k, i)*fdmi%lhs(n, k, i, 4) + f(l, n + 2, k, i)*fdmi%lhs(n, k, i, 5))*fdmi%lhs(n, k, i, 3)
                     end do
                 end do
             end do
@@ -156,7 +156,7 @@ contains
         implicit none
         
         integer(wi) len, nmax, klen, ilen
-        type(fdm_integral_dt), intent(in) :: fdmi(:,:) !real(wp), dimension(nmax), intent(IN) :: a, b, c, d, e
+        type(fdm_integral_dt2), intent(in) :: fdmi   !real(wp), dimension(nmax), intent(IN) :: a, b, c, d, e
         real(wp), dimension(1:len, 1:nmax, 1:klen, 1:ilen), intent(INOUT) :: frc
 
     ! -----------------------------------------------------------------------
@@ -169,9 +169,9 @@ contains
         do i = 1, ilen
             do k = 1, klen
                 do ij = 1, len
-                    frc(ij, 2, k, i) = frc(ij, 2, k, i)*fdmi(k,i)%lhs(1, 3) ! Normalize first eqn. See HEPTADFS
-                    frc(ij, 3, k, i) = frc(ij, 3, k, i) - frc(ij, 2, k, i)*fdmi(k,i)%lhs(2, 3)
-                    frc(ij, 4, k, i) = frc(ij, 4, k, i) - frc(ij, 3, k, i)*fdmi(k,i)%lhs(3, 3) - frc(ij, 2, k, i)*fdmi(k,i)%lhs(3, 2)
+                    frc(ij, 2, k, i) = frc(ij, 2, k, i)*fdmi%lhs(1, k, i, 3) ! Normalize first eqn. See HEPTADFS
+                    frc(ij, 3, k, i) = frc(ij, 3, k, i) - frc(ij, 2, k, i)*fdmi%lhs(2, k, i, 3)
+                    frc(ij, 4, k, i) = frc(ij, 4, k, i) - frc(ij, 3, k, i)*fdmi%lhs(3, k, i, 3) - frc(ij, 2, k, i)*fdmi%lhs(3, k, i, 2)
                 end do
             end do
         end do
@@ -180,7 +180,7 @@ contains
             do k = 1, klen
                 do n = 5, nmax-1
                     do ij = 1, len
-                        frc(ij, n, k, i) = frc(ij, n, k, i) - frc(ij, n-1, k, i)*fdmi(k,i)%lhs(n, 3) - frc(ij, n-2, k, i)*fdmi(k,i)%lhs(n, 2) - frc(ij, n - 3, k, i)*fdmi(k,i)%lhs(n, 1)
+                        frc(ij, n, k, i) = frc(ij, n, k, i) - frc(ij, n-1, k, i)*fdmi%lhs(n, k, i, 3) - frc(ij, n-2, k, i)*fdmi%lhs(n, k, i, 2) - frc(ij, n - 3, k, i)*fdmi%lhs(n, k, i, 1)
                     end do
                 end do
             end do
@@ -193,9 +193,9 @@ contains
             do k = 1, klen
                 n = nmax - 1
                 do ij = 1, len
-                    frc(ij, n, k, i) = frc(ij, n, k, i)/fdmi(k,i)%lhs(n, 4)
-                    frc(ij, n-1, k, i) = (frc(ij, n-1, k, i) - frc(ij, n, k, i)*fdmi(k,i)%lhs(n-1, 5))/fdmi(k,i)%lhs(n-1, 4)
-                    frc(ij, n-2, k, i) = (frc(ij, n-2, k, i) - frc(ij, n-1, k, i)*fdmi(k,i)%lhs(n-2, 5) - frc(ij, n, k, i)*fdmi(k,i)%lhs(n-2, 6))/fdmi(k,i)%lhs(n-2, 4)
+                    frc(ij, n, k, i) = frc(ij, n, k, i)/fdmi%lhs(n, k, i, 4)
+                    frc(ij, n-1, k, i) = (frc(ij, n-1, k, i) - frc(ij, n, k, i)*fdmi%lhs(n-1, k, i, 5))/fdmi%lhs(n-1, k, i, 4)
+                    frc(ij, n-2, k, i) = (frc(ij, n-2, k, i) - frc(ij, n-1, k, i)*fdmi%lhs(n-2, k, i, 5) - frc(ij, n, k, i)*fdmi%lhs(n-2, k, i, 6))/fdmi%lhs(n-2, k, i, 4)
                 end do
             end do
         end do
@@ -204,7 +204,7 @@ contains
             do k = 1, klen
                 do n = nmax - 4, 1, -1
                     do ij = 1, len
-                        frc(ij, n, k, i) = (frc(ij, n, k, i) - frc(ij, n + 1, k, i)*fdmi(k,i)%lhs(n, 5) - frc(ij, n + 2, k ,i)*fdmi(k,i)%lhs(n, 6) - frc(ij, n + 3, k, i)*fdmi(k,i)%lhs(n, 7))/fdmi(k,i)%lhs(n, 4)
+                        frc(ij, n, k, i) = (frc(ij, n, k, i) - frc(ij, n + 1, k, i)*fdmi%lhs(n, k, i, 5) - frc(ij, n + 2, k ,i)*fdmi%lhs(n, k, i, 6) - frc(ij, n + 3, k, i)*fdmi%lhs(n, k, i, 7))/fdmi%lhs(n, k, i, 4)
                     end do
                 end do
             end do

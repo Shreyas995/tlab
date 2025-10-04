@@ -7,12 +7,13 @@ module OPR_Elliptic
     use TLab_Constants, only: BCS_DD, BCS_DN, BCS_ND, BCS_NN, BCS_NONE, BCS_MIN, BCS_MAX, BCS_BOTH
     use TLab_Constants, only: lfile
     use TLab_Memory, only: TLab_Allocate_Real
-    use TLab_Memory, only: imax, jmax, kmax, isize_txc_field
+    use TLab_Memory, only: imax, jmax, kmax, isize_txc_field, isize_line
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop, stagger_on
     use TLab_Arrays, only: wrk1d, wrk2d, wrk3d
     use TLab_Pointers_C, only: c_wrk3d
     use TLab_Pointers_3D, only: p_wrk2d
     use TLab_Grid, only: y
+    use Tlab_Type
 
 #ifdef USE_MPI
     use TLabMPI_VARS, only: ims_offset_i, ims_offset_k, ims_pro_i
@@ -23,7 +24,7 @@ module OPR_Elliptic
     use OPR_ODES
     use OPR_Partial, only: OPR_Partial_Y, OPR_P1
     use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
-    use Tlab_Type, only: fdm_integral_dt
+    use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
     implicit none
     private
 
@@ -66,7 +67,7 @@ module OPR_Elliptic
 
     real(wp) norm
     integer(wi) i_sing(2), k_sing(2)                                ! singular modes
-    integer(wi) i, k, i_max, isize_line
+    integer(wi) i, k, i_max
 
     type(fdm_dt) fdm_loc                                            ! scheme used for the elliptic solvers
 
@@ -74,7 +75,7 @@ module OPR_Elliptic
     real(wp), allocatable, target :: rhs_b(:, :), rhs_t(:, :)       ! rhs to free memory space
     type(fdm_integral_dt) :: fdm_int1_loc(2)
 
-    type(fdm_integral_dt), allocatable :: fdm_int2(:, :)            ! direct method
+    type(fdm_integral_dt2), allocatable :: fdm_int2                 ! direct method (moving 2D dimneions into the type)
     real(wp), allocatable, target :: rhs_d(:, :)                    ! rhs to free memory space
     type(fdm_integral_dt) :: fdm_int2_loc
 
@@ -159,7 +160,15 @@ contains
             ndl = fdm_loc%der2%nb_diag(1)
             ndr = fdm_loc%der2%nb_diag(2)
             nd = ndl
-            allocate (fdm_int2(kmax, isize_line))
+            if (allocated(fdm_int2)) deallocate(fdm_int2)                       !(kmax, isize_line) moving the dimension inside fdm_int2
+            allocate(fdm_int2)
+            allocate (fdm_int2%lambda(kmax, isize_line))
+            allocate (fdm_int2%bc(kmax, isize_line))
+            allocate (fdm_int2%rhs_b(1:5, kmax, isize_line,0:7))                 ! # of diagonals is 7, # rows is 7/2+1
+            allocate (fdm_int2%rhs_t(0:4, kmax, isize_line, 8))
+            allocate (fdm_int2%lhs(fdm_loc%der2%size, kmax, isize_line, ndr))
+            allocate (fdm_int2%rhs(fdm_loc%der2%size, kmax, isize_line, ndl))
+
             call TLab_Allocate_Real(__FILE__, rhs_d, [g(2)%size, nd], 'rhs_d')
 
             i_sing = [1, 1]                     ! 2nd order FDMs are non-zero at Nyquist
@@ -235,19 +244,21 @@ contains
 
                     ! Compatibility constraint. The reference value of p at the lower boundary will be set to zero
                     if (any(i_sing == i) .and. any(k_sing == k)) then
-                        call FDM_Int2_Initialize(fdm_loc%nodes(:), fdm_loc%der2, lambda(k, i), BCS_DN, fdm_int2(k, i))
+                        ! print *, k ,i , shape(fdm_loc%nodes), shape(fdm_loc%der2), shape(lambda), BCS_NN, shape(fdm_int2)
+                        call FDM_Int2_Initialize_APU(k, i, fdm_loc%nodes(:), fdm_loc%der2, lambda(k, i), BCS_DN, fdm_int2)
                     else
-                        call FDM_Int2_Initialize(fdm_loc%nodes(:), fdm_loc%der2, lambda(k, i), BCS_NN, fdm_int2(k, i))
+                        call FDM_Int2_Initialize_APU(k, i, fdm_loc%nodes(:), fdm_loc%der2, lambda(k, i), BCS_NN, fdm_int2)
                     end if
-
-                    ! free memory that is independent of lambda
-                    rhs_d(:, :) = fdm_int2(k, i)%rhs(:, :)
-                    if (allocated(fdm_int2(k, i)%rhs)) deallocate (fdm_int2(k, i)%rhs)
-
+                    
+                    rhs_d(:, :) = fdm_int2%rhs(:, k, i, :)
                 end select
 
             end do
         end do
+        ! free memory that is independent of lambda
+        if (imode_elliptic == TYPE_DIRECT) then
+            if (allocated(fdm_int2%rhs)) deallocate (fdm_int2%rhs)
+        end if 
 
         return
     end subroutine OPR_Elliptic_Initialize
@@ -439,7 +450,7 @@ contains
             ! do i = 1, i_max
             !     do k = 1, nz
             !         call FDM_Int2_Solve(2, fdm_int2(k, i), rhs_d, f(:, k, i), u(:, k, i), p_wrk2d(:,:,:))
-                    call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2(1:nz, 1:i_max), rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p_wrk2d(:,:,:))
+                    call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2, rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p_wrk2d(:,:,:))
             !     end do
             ! end do
         case default            ! Need to calculate and factorize LHS

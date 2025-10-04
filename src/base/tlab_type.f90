@@ -29,5 +29,15 @@ module Tlab_Type
         real(wp), allocatable :: rhs(:, :)
     end type fdm_integral_dt
 
+        type, public :: fdm_integral_dt2
+        sequence
+        integer mode_fdm                               ! original finite-difference method; only informative
+        real(wp), allocatable :: lambda(:,:)                           ! constant of the equation
+        integer, allocatable :: bc(:,:)                                ! type of boundary condition, [ BCS_MIN, BCS_MAX ]
+        real(wp), allocatable :: rhs_b(:, :, :, :), rhs_t(:, :, :, :)  ! # of diagonals is 7, # rows is 7/2+1
+        real(wp), allocatable :: lhs(:, :, :, :)                       ! Often overwritten to LU decomposition.
+        real(wp), allocatable :: rhs(:, :, :, :)
+    end type fdm_integral_dt2
+
 end module Tlab_Type
 !########################################################################

@@ -124,6 +124,7 @@ module TLab_Memory
     integer(wi), public :: isize_wrk3d = 0                      ! 3D scratch array (only 1)
     integer(wi), public :: isize_txc_field = 0, inb_txc         ! 3D arrays for intermediate calculations
     integer(wi), public :: isize_txc_dimz                       ! partition for MPI data transposition
+    integer(wi), public :: isize_line                           ! max size of a line in opr_elleptic
 
     character*128 :: str, line
     integer :: ierr
