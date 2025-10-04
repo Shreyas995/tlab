@@ -429,8 +429,8 @@ contains
 #define u(j,k,i) p_wrk3d(j,k,i)
 
 #ifdef USE_APU
-        !$omp target data map(to: tmp2) map(from: p_wrk3d)
-        !$omp target teams distribute parallel do collapse(2)
+        ! !$omp target data map(to: tmp2) map(from: p_wrk3d)
+        ! !$omp target teams distribute parallel do collapse(2)
 #endif
         do i = 1, i_max
             do k = 1, nz
@@ -439,7 +439,7 @@ contains
             end do
         end do
 #ifdef USE_APU
-        !$omp end target data
+        ! !$omp end target data
 #endif
 
         select case (ibc)
