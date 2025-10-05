@@ -430,7 +430,7 @@ contains
 
 #ifdef USE_APU
         !$omp target data map(to: tmp2) map(from: p_wrk3d)
-        !$omp target teams distribute parallel do collapse(2)
+        !$omp target teams distribute parallel do
 #endif
         do i = 1, i_max
             do k = 1, nz
