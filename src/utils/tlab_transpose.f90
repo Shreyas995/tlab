@@ -257,13 +257,17 @@ subroutine TLab_Transpose_COMPLEX_APU(a, nra, nca, ma, b, mb)
     integer(wi) last_k, last_j
 
 ! -------------------------------------------------------------------
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(2) default(shared) private(k,j)
+#endif
     do j = 1, nra
         do k = 1, nca
             b(k, j) = a(j, k)
         end do
     end do
+#ifdef USE_APU
     !$omp end target teams distribute parallel do
+#endif
     return
 end subroutine TLab_Transpose_COMPLEX_APU
 

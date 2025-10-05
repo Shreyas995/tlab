@@ -448,12 +448,7 @@ contains
             ! Compatibility constraint for singular modes. The reference value of p at bottom is set to zero
             u(1:2, i_sing(1),k_sing(1)) = 0.0_wp; u(1:2, i_sing(1),k_sing(2)) = 0.0_wp
             u(1:2, i_sing(2),k_sing(1)) = 0.0_wp; u(1:2, i_sing(2),k_sing(2)) = 0.0_wp
-            ! do i = 1, i_max
-            !     do k = 1, nz
-            !         call FDM_Int2_Solve(2, fdm_int2(k, i), rhs_d, f(:, k, i), u(:, k, i), p_wrk2d(:,:,:))
-                    call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2, rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p_wrk2d(:,:,:))
-            !     end do
-            ! end do
+            call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2, rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p_wrk2d(:,:,:))
         case default            ! Need to calculate and factorize LHS
             do i = 1, i_max
                 do k = 1, nz
