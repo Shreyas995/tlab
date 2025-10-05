@@ -1271,7 +1271,7 @@ contains
         case (7)
             call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi, result(1:nlines, 1:nx, 1:klines, 1:ilines))
         end select
-        !$omp target teams distribute parallel do collapse(2)        &
+        !$omp target teams distribute parallel do  &
         !$omp& map(to: wrk2d, fdmi%lhs, fdmi%bc) map(tofrom: result)
         do i = 1, ilines
             do k = 1, klines
