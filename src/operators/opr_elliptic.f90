@@ -429,6 +429,7 @@ contains
 #define u(j,k,i) p_wrk3d(j,k,i)
 
 #ifdef USE_APU
+        ! Here collapse (2) does not work
         !$omp target data map(to: tmp2) map(from: p_wrk3d)
         !$omp target teams distribute parallel do
 #endif

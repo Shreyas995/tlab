@@ -179,8 +179,8 @@ contains
                 if (any([BCS_MIN, BCS_BOTH] == ibc_loc)) then
                     if (present(bcs_b)) then
 #ifdef USE_APU
-                        ! !$omp target teams distribute parallel do collapse(2) default(shared) &
-                        ! !$omp private(k,i,n,pa,pb,pc,pd,pe,pf)
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i,n,pa,pb,pc,pd,pe,pf)
 #endif                    
                         do i = 1, ilines
                             do k = 1, klines
@@ -198,12 +198,12 @@ contains
                             end do
                         end do
 #ifdef USE_APU
-                        ! !$omp end target teams distribute parallel do
+                        !$omp end target teams distribute parallel do
 #endif
                     else
 #ifdef USE_APU
-                        ! !$omp target teams distribute parallel do collapse(2) default(shared) &
-                        ! !$omp private(k,i,n,pa,pb,pc,pd,pe,pf)
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i,n,pa,pb,pc,pd,pe,pf)
 #endif
                         do i = 1, ilines
                             do k = 1, klines
@@ -219,13 +219,13 @@ contains
                             end do
                         end do   
 #ifdef USE_APU
-                        ! !$omp end target teams distribute parallel do
+                        !$omp end target teams distribute parallel do
 #endif         
                     end if
                 else
 #ifdef USE_APU
-                    ! !$omp target teams distribute parallel do collapse(2) default(shared) &
-                    ! !$omp private(k,i,n,pa,pb,pc,pd,pe,pf)
+                    !$omp target teams distribute parallel do collapse(2) default(shared) &
+                    !$omp private(k,i,n,pa,pb,pc,pd,pe,pf)
 #endif
                     do i = 1, ilines
                         do k = 1, klines
@@ -241,7 +241,7 @@ contains
                         end do
                     end do
 #ifdef USE_APU
-                    ! !$omp end target teams distribute parallel do
+                    !$omp end target teams distribute parallel do
 #endif
                 end if
                 ! -----------------------------------------------------------------------
@@ -250,8 +250,8 @@ contains
                     ! f(nx) contains the boundary condition
                     if (present(bcs_t)) then
 #ifdef USE_APU
-                        ! !$omp target teams distribute parallel do collapse(2) default(shared) &
-                        ! !$omp private(k,i)
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i)
 #endif
                         do i = 1, ilines
                             do k = 1, klines
@@ -261,12 +261,12 @@ contains
                             end do
                         end do
 #ifdef USE_APU
-                        ! !$omp end target teams distribute parallel do
+                        !$omp end target teams distribute parallel do
 #endif         
                     else
 #ifdef USE_APU
-                        ! !$omp target teams distribute parallel do collapse(2) default(shared) &
-                        ! !$omp private(k,i)
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i)
 #endif                    
                         do i = 1, ilines
                             do k = 1, klines
@@ -277,8 +277,8 @@ contains
                     end if
                 else
 #ifdef USE_APU
-                        ! !$omp target teams distribute parallel do collapse(2) default(shared) &
-                        ! !$omp private(k,i)
+                        !$omp target teams distribute parallel do collapse(2) default(shared) &
+                        !$omp private(k,i)
 #endif
                     do i = 1, ilines
                         do k = 1, klines
@@ -288,7 +288,7 @@ contains
                         end do
                     end do
 #ifdef USE_APU
-                        ! !$omp end target teams distribute parallel do
+                        !$omp end target teams distribute parallel do
 #endif                    
                 end if
         ! -----------------------------------------------------------------------
