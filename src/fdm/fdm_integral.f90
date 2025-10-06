@@ -1277,7 +1277,7 @@ contains
         CALL SYSTEM_CLOCK(clock_0,clock_cycle) 
         !$omp target teams distribute parallel do collapse(2) &
         !$omp& map(to: wrk2d, fdmi%lhs, fdmi%bc) map(tofrom: result) &
-        !$omp& private(i, k, j, bcs)
+        !$omp& private(i, k, bcs)
         do i = 1, ilines
             do k = 1, klines
                 bcs = fdmi%bc(k,i)
