@@ -1247,7 +1247,7 @@ contains
         real(wp), intent(inout) :: wrk2d(nlines, 2, klines, ilines)
 
         ! -------------------------------------------------------------------
-        integer(wi) :: nx, ndl, ndr, i, k
+        integer(wi) :: nx, ndl, ndr, i, j, k
         integer(wi) :: clock_0, clock_1, clock_cycle
 
         ! ###################################################################
