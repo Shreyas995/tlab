@@ -318,6 +318,7 @@ program VBURGERS
    PRINT 101, 'MATMUL3Din    ',t_map_in/nrun, 100*t_map_in/SUM(runtime)
    PRINT 101, 'MATMUL3Dcom   ',t_compute/nrun, 100*t_compute/SUM(runtime)
    PRINT 101, 'MATMUL3Dout   ',t_map_out/nrun, 100*t_map_out/SUM(runtime)
+   PRINT 101, 'FDM_SOLVE2    ',fdm_solve2_time/nrun, 100*fdm_solve2_time/SUM(runtime)
 100 FORMAT('T MEAN|MIN|MAX                 [s]:', F7.3, 1x, F7.3, 1x , F7.3)
 101 FORMAT('Time per run in ',A15,'[s]:', F9.5,'s (', F7.4,'%)') 
 
