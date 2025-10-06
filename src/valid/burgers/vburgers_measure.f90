@@ -66,6 +66,7 @@ program VBURGERS
    t_map_in = 0.0_wp
    t_compute = 0.0_wp
    t_map_out = 0.0_wp
+   fdm_solve2_time = 0.0_wp
 
    call SYSTEM_CLOCK(clock_0,clock_cycle)
    IF ( COMMAND_ARGUMENT_COUNT() .GE. 1 ) THEN 

@@ -1238,6 +1238,7 @@ contains
     end subroutine FDM_Int2_Solve
 
     subroutine FDM_Int2_Solve_APU(nlines, ilines, klines, fdmi, rhsi, f, result, wrk2d)
+        use TLab_Time, only: fdm_solve2_time
         integer(wi) nlines, ilines, klines
         type(fdm_integral_dt2), intent(in) :: fdmi
         real(wp), intent(in) :: rhsi(:, :)
@@ -1247,6 +1248,7 @@ contains
 
         ! -------------------------------------------------------------------
         integer(wi) :: nx, ndl, ndr, i, k
+        integer(wi) :: clock_0, clock_1, clock_cycle
 
         ! ###################################################################
         nx = size(fdmi%lhs, 1)
@@ -1271,24 +1273,32 @@ contains
         case (7)
             call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi, result(1:nlines, 1:nx, 1:klines, 1:ilines))
         end select
-        !$omp target teams distribute parallel do  &
+
+        CALL SYSTEM_CLOCK(clock_0,clock_cycle) 
+        !$omp target teams distribute parallel do collapse (2) &
         !$omp& map(to: wrk2d, fdmi%lhs, fdmi%bc) map(tofrom: result)
         do i = 1, ilines
             do k = 1, klines
                 !   Corrections to the BCS_DD to account for Neumann
                 if (any([BCS_ND, BCS_NN] == fdmi%bc(k,i))) then
-                    result(:, 1, k, i) = wrk2d(:, 1, k, i) &
-                                + fdmi%lhs(1, k, i, 1)*result(:, 2, k, i) + fdmi%lhs(1, k, i, 2)*result(:, 3, k, i) + fdmi%lhs(1, k, i, 3)*result(:, 4, k, i)
+                    do j = 1, nlines
+                        result(j, 1, k, i) = wrk2d(j, 1, k, i) &
+                                + fdmi%lhs(1, k, i, 1)*result(j, 2, k, i) + fdmi%lhs(1, k, i, 2)*result(j, 3, k, i) + fdmi%lhs(1, k, i, 3)*result(j, 4, k, i)
+                    end do
                 end if
 
                 if (any([BCS_DN, BCS_NN] == fdmi%bc(k,i))) then
-                    result(:, nx, k, i) = wrk2d(:, 2, k, i) &
-                                    + fdmi%lhs(nx, k, i, ndl)*result(:, nx - 1, k, i) + fdmi%lhs(nx, k, i, ndl - 1)*result(:, nx - 2, k, i) &
-                                    + fdmi%lhs(nx, k, i, ndl - 2)*result(:, nx - 3, k, i)
+                    do j = 1, nlines
+                        result(j, nx, k, i) = wrk2d(j, 2, k, i) &
+                                    + fdmi%lhs(nx, k, i, ndl)*result(j, nx - 1, k, i) + fdmi%lhs(nx, k, i, ndl - 1)*result(j, nx - 2, k, i) &
+                                    + fdmi%lhs(nx, k, i, ndl - 2)*result(j, nx - 3, k, i)
+                    end do
                 end if
             end do
         end do
         !$omp end target teams distribute parallel do
+        CALL SYSTEM_CLOCK(clock_1,clock_cycle)
+        fdm_solve2_time = fdm_solve2_time + real(clock_1 - clock_0)/real(clock_cycle)
         return
     end subroutine FDM_Int2_Solve_APU
     
