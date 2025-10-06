@@ -1247,7 +1247,7 @@ contains
         real(wp), intent(inout) :: wrk2d(nlines, 2, klines, ilines)
 
         ! -------------------------------------------------------------------
-        integer(wi) :: nx, ndl, ndr, i, j, k
+        integer(wi) :: nx, ndl, ndr, i, j, k, bcs
         integer(wi) :: clock_0, clock_1, clock_cycle
 
         ! ###################################################################
@@ -1279,15 +1279,16 @@ contains
         !$omp& map(to: wrk2d, fdmi%lhs, fdmi%bc) map(tofrom: result)
         do i = 1, ilines
             do k = 1, klines
+                bcs = fdmi%bc(k,i)
                 !   Corrections to the BCS_DD to account for Neumann
-                if (any([BCS_ND, BCS_NN] == fdmi%bc(k,i))) then
+                if ((BCS_ND == bcs) .or. (BCS_NN == bcs) ) then
                     do j = 1, nlines
                         result(j, 1, k, i) = wrk2d(j, 1, k, i) &
                                 + fdmi%lhs(1, k, i, 1)*result(j, 2, k, i) + fdmi%lhs(1, k, i, 2)*result(j, 3, k, i) + fdmi%lhs(1, k, i, 3)*result(j, 4, k, i)
                     end do
                 end if
 
-                if (any([BCS_DN, BCS_NN] == fdmi%bc(k,i))) then
+                if ((BCS_DN == bcs) .or. (BCS_NN == bcs)) then
                     do j = 1, nlines
                         result(j, nx, k, i) = wrk2d(j, 2, k, i) &
                                     + fdmi%lhs(nx, k, i, ndl)*result(j, nx - 1, k, i) + fdmi%lhs(nx, k, i, ndl - 1)*result(j, nx - 2, k, i) &
