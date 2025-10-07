@@ -141,7 +141,7 @@ contains
     end subroutine MatMul_3d
 
     subroutine MatMul_3d_APU(nlines, klines, ilines, nx, fdmi, rhs, u, f, ibc, bcs_b, bcs_t)
-        use TLab_Time, only: mat3d_time, t_compute
+        use TLab_Time, only: mat3d_time
         integer(wi) nlines, ilines, klines, nx
         type(fdm_integral_dt2), intent(in) :: fdmi                          ! rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
         real(wp), intent(in) :: rhs(:, :)                                   ! diagonals of B
@@ -294,9 +294,8 @@ contains
         ! -----------------------------------------------------------------------
         ! Profiling
         ! -----------------------------------------------------------------------
-        call SYSTEM_CLOCK(clock_1)
+        call SYSTEM_CLOCK(clock_1, clock_cycle)
         mat3d_time = mat3d_time + real(clock_1 - clock_0)/ real(clock_cycle) 
-        t_compute  = t_compute + real(clock_3 - clock_2) / real(clock_cycle)
         return
     end subroutine MatMul_3d_APU
 

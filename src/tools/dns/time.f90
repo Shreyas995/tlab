@@ -401,7 +401,7 @@ contains
         select case (nse_eqns)
         case (DNS_EQNS_INCOMPRESSIBLE, DNS_EQNS_ANELASTIC)
             if (z%size > 1) then
-                do k = 1, kmax
+                do k = 1, kmax ! offload to APU
                     k_glo = k + kdsp
                     do j = 1, jmax
                         do i = 1, imax

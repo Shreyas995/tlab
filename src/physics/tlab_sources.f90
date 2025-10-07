@@ -83,7 +83,7 @@ contains
                 ILEN = siz
                 call DAXPY(ILEN, dummy, tmp1(srt), 1, hq(srt, iq), 1)
 #else
-                do ij = srt, end
+                do ij = srt, end ! offload to APU
                     hq(ij, iq) = hq(ij, iq) + dummy*tmp1(ij)
                 end do
 #endif

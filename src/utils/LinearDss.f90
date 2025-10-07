@@ -32,7 +32,7 @@
 module LinearDss
     use TLab_Constants, only: wp, wi
     use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
-
+    use TLab_Time, only: pentadss_time, heptadss_time, tridss_time
     PUBLIC :: TRIDSS_APU
     PUBLIC :: PENTADSS_APU
     PUBLIC :: HEPTADSS_APU
@@ -50,15 +50,18 @@ contains
         real(wp), dimension(1:len, 1:nmax, 1:klen, 1:ilen), intent(INOUT) :: f    ! RHS and solution
 
     ! -------------------------------------------------------------------
-        integer(wi) ::  i, k, n, l
-        integer(wi) :: srt, end, siz
-        real(wp) :: dummy1, dummy2
-
+        integer(wi) ::  i, k, n, l    
+    ! -------------------------------------------------------------------
+    ! Profiling
+    ! -------------------------------------------------------------------
+        integer(wi) :: clock_0, clock_1, clock_cycle
+        CALL SYSTEM_CLOCK(clock_0,clock_cycle)
     ! ###################################################################
     ! -----------------------------------------------------------------------
     ! Forward sweep
     ! -----------------------------------------------------------------------
-
+        ! !$omp target teams distribute parallel do collapse(2) & 
+        ! !$omp& map(to: fdmi%lhs) map(tofrom: f) private(n,l)
         if (len <= 0) then
             goto 999
         end if
@@ -95,7 +98,9 @@ contains
             end do
         end do
     999 continue
-
+    ! !$omp end target teams distribute parallel do
+        CALL SYSTEM_CLOCK(clock_1,clock_cycle)
+        tridss_time = tridss_time + real(clock_1 - clock_0)/real(clock_cycle)
         return
     end subroutine TRIDSS_APU
 !########################################################################
@@ -109,11 +114,17 @@ contains
         real(wp), dimension(1:len, 1:nmax, 1:klen, 1:ilen), intent(INOUT) :: f
         ! -----------------------------------------------------------------------
         integer(wi) n, i, k, l
-
+        ! -----------------------------------------------------------------------
+        ! Profiling
+        ! -----------------------------------------------------------------------
+        integer(wi) :: clock_0, clock_1, clock_cycle
         ! #######################################################################
+        CALL SYSTEM_CLOCK(clock_0,clock_cycle) 
         ! -----------------------------------------------------------------------
         ! Solve Ly=f, forward
         ! -----------------------------------------------------------------------
+        ! !$omp target teams distribute parallel do collapse(2) & 
+        ! !$omp& map(to: fdmi%lhs) map(tofrom: f) private(n,l)
         do i = 1, ilen
             do k = 1, klen
                 n = 3
@@ -142,12 +153,14 @@ contains
 
                 do n = nmax - 3, 2, -1
                     do l = 1, len
-                        f(l, n, k,i) = (f(l, n, k, i) + f(l, n + 1, k, i)*fdmi%lhs(n, k, i, 4) + f(l, n + 2, k, i)*fdmi%lhs(n, k, i, 5))*fdmi%lhs(n, k, i, 3)
+                        f(l, n, k, i) = (f(l, n, k, i) + f(l, n + 1, k, i)*fdmi%lhs(n, k, i, 4) + f(l, n + 2, k, i)*fdmi%lhs(n, k, i, 5))*fdmi%lhs(n, k, i, 3)
                     end do
                 end do
             end do
         end do
-        !! !$omp end parallel
+        ! !$omp end target teams distribute parallel do
+        CALL SYSTEM_CLOCK(clock_1,clock_cycle) 
+        pentadss_time = pentadss_time + real(clock_1 - clock_0)/real(clock_cycle)
         return
     end subroutine PENTADSS_APU
 !########################################################################
@@ -161,11 +174,17 @@ contains
 
     ! -----------------------------------------------------------------------
         integer(wi) n, ij, i, k
-
+    ! -----------------------------------------------------------------------
+    ! Profiling
+    ! -----------------------------------------------------------------------
+        integer(wi) :: clock_0, clock_1, clock_cycle
+        CALL SYSTEM_CLOCK(clock_0,clock_cycle)
     ! #######################################################################
     ! -----------------------------------------------------------------------
     ! Solve Ly=frc, forward
     ! -----------------------------------------------------------------------
+        ! !$omp target teams distribute parallel do collapse(2) & 
+        ! !$omp& map(to: fdmi%lhs) map(tofrom: f) private(n,l)
         do i = 1, ilen
             do k = 1, klen
                 do ij = 1, len
@@ -209,7 +228,9 @@ contains
                 end do
             end do
         end do
-
+        ! !$omp end target teams distribute parallel do
+        CALL SYSTEM_CLOCK(clock_1,clock_cycle)
+        heptadss_time = heptadss_time + real(clock_1 - clock_0)/real(clock_cycle)
         return
     end subroutine HEPTADSS_APU
 end module LinearDss

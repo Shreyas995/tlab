@@ -55,6 +55,7 @@ end subroutine TRIDFS
 ! #######################################################################
 subroutine TRIDSS(nmax, len, a, b, c, f)
     use TLab_Constants, only: wp, wi
+    use TLab_Time, only: tridss_time
     use TLab_OpenMP
 
 #ifdef USE_OPENMP
@@ -80,6 +81,9 @@ subroutine TRIDSS(nmax, len, a, b, c, f)
     integer(wi) l
 #endif
 
+! -------------------------------------------------------------------
+    integer(wi) :: clock_0, clock_1, clock_cycle
+
 ! ###################################################################
 ! -----------------------------------------------------------------------
 ! Forward sweep
@@ -88,6 +92,7 @@ subroutine TRIDSS(nmax, len, a, b, c, f)
     ilen = len
 #endif
 
+    CALL SYSTEM_CLOCK(clock_0,clock_cycle) 
 #ifdef USE_BLAS
 ! !$omp parallel default(none) &
 ! !$omp private(n,ilen,srt,end,siz,dummy1,dummy2) &
@@ -107,12 +112,12 @@ subroutine TRIDSS(nmax, len, a, b, c, f)
     ilen = siz
 #endif
 
-    do n = 2, nmax
+    do n = 2, nmax !nx
         dummy1 = a(n)
 #ifdef USE_BLAS
         call AXPY_LOC(ilen, dummy1, f(srt, n - 1), 1, f(srt, n), 1)
 #else
-        do l = srt, end
+        do l = srt, end ! end = 1
             f(l, n) = f(l, n) + dummy1*f(l, n - 1)
         end do
 #endif
@@ -125,19 +130,19 @@ subroutine TRIDSS(nmax, len, a, b, c, f)
 #ifdef USE_BLAS
     call SCAL_LOC(ilen, dummy1, f(srt, nmax), 1)
 #else
-    do l = srt, end
+    do l = srt, end ! end = 1
         f(l, nmax) = f(l, nmax)*dummy1
     end do
 #endif
 
-    do n = nmax - 1, 1, -1
+    do n = nmax - 1, 1, -1 ! nmax = nx
         dummy1 = c(n)
         dummy2 = b(n)
 #ifdef USE_BLAS
         call AXPY_LOC(ilen, dummy1, f(srt, n + 1), 1, f(srt, n), 1)
         call SCAL_LOC(ilen, dummy2, f(srt, n), 1)
 #else
-        do l = srt, end
+        do l = srt, end ! end = 1
             f(l, n) = (f(l, n) + dummy1*f(l, n + 1))*dummy2
         end do
 
@@ -145,7 +150,8 @@ subroutine TRIDSS(nmax, len, a, b, c, f)
     end do
 999 continue
 ! !$omp end parallel
-
+    CALL SYSTEM_CLOCK(clock_1,clock_cycle) 
+    tridss_time = tridss_time + real(clock_1 - clock_0,wp)/real(clock_cycle,wp)
     return
 end subroutine TRIDSS
 
@@ -154,6 +160,7 @@ end subroutine TRIDSS
 ! #######################################################################
 subroutine TRIDSS_ADD(nmax, len, a, b, c, f, g, h, d)
     use TLab_Constants, only: wp, wi
+    use TLab_Time, only: tridssadd_time
     use TLab_OpenMP
 
 #ifdef USE_OPENMP
@@ -180,6 +187,8 @@ subroutine TRIDSS_ADD(nmax, len, a, b, c, f, g, h, d)
     integer ilen
 #endif
 
+! -------------------------------------------------------------------
+    integer(wi) :: clock_0, clock_1, clock_cycle
 ! ###################################################################
 ! -----------------------------------------------------------------------
 ! Forward sweep
@@ -187,7 +196,7 @@ subroutine TRIDSS_ADD(nmax, len, a, b, c, f, g, h, d)
 #ifdef USE_BLAS
     ilen = len
 #endif
-
+    CALL SYSTEM_CLOCK(clock_0,clock_cycle)
 #ifdef USE_BLAS
 ! !$omp parallel default(none) &
 ! !$omp private(n,l,ilen,srt,end,siz,dummy1,dummy2) &
@@ -252,7 +261,8 @@ subroutine TRIDSS_ADD(nmax, len, a, b, c, f, g, h, d)
 
 999 continue
 ! !$omp end parallel
-
+    CALL SYSTEM_CLOCK(clock_1,clock_cycle)
+    tridssadd_time = tridssadd_time + real(clock_1 - clock_0,wp)/real(clock_cycle,wp)
     return
 end subroutine TRIDSS_ADD
 
@@ -285,7 +295,7 @@ subroutine TRIDPFS(nmax, a, b, c, d, e)
     d(1) = c(nmax)
 
 ! Generate n=2 to n=n-2 elements of LU
-    do n = 2, nmax - 2
+    do n = 2, nmax - 2 ! nmax = nx
         b(n) = b(n) - a(n)*c(n - 1)
         c(n) = c(n)/b(n)
         e(n) = -a(n)*e(n - 1)/b(n)
@@ -299,13 +309,13 @@ subroutine TRIDPFS(nmax, a, b, c, d, e)
 
 ! Generate the n-th element
     sum = 0.0_wp
-    do n = 1, nmax - 1
+    do n = 1, nmax - 1 ! nmax = nx
         sum = sum + d(n)*e(n)
     end do
     b(nmax) = b(nmax) - sum
 
 ! Final operations
-    do n = 1, nmax
+    do n = 1, nmax ! nmax = nx
         b(n) = 1.0_wp/b(n)
         a(n) = -a(n)*b(n)
         c(n) = -c(n)
@@ -320,6 +330,7 @@ end subroutine TRIDPFS
 ! #######################################################################
 subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
     use TLab_Constants, only: wp, wi
+    use TLab_Time, only: tridpss_time
     use TLab_OpenMP
 
 #ifdef USE_OPENMP
@@ -342,10 +353,14 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
     integer :: ilen
 #endif
 
+! ---------------------------------------------------
+    integer(wi) :: clock_0, clock_1, clock_cycle
+
 ! -------------------------------------------------------------------
 ! Forward sweep
 ! -------------------------------------------------------------------
 
+    CALL SYSTEM_CLOCK(clock_0,clock_cycle)
 #ifdef USE_BLAS
 ! !$omp parallel default( none ) &
 ! !$omp private(n, l,ilen, dummy1, dummy2, srt, end,siz) &
@@ -369,12 +384,12 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
 #ifdef USE_BLAS
     call SCAL_LOC(ilen, dummy1, f(srt, 1), 1)
 #else
-    do l = srt, end
+    do l = srt, end ! end > 15000 offload to APU
         f(l, 1) = f(l, 1)*dummy1
     end do
 #endif
 
-    do n = 2, nmax - 1
+    do n = 2, nmax - 1 ! offload to APU
         dummy1 = a(n)
         dummy2 = b(n)
 #ifdef USE_BLAS
@@ -389,7 +404,7 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
 
     wrk(srt:end) = 0.0_wp
 
-    do n = 1, nmax - 1
+    do n = 1, nmax - 1 ! offload to APU
         dummy1 = d(n)
 #ifdef USE_BLAS
         call AXPY_LOC(ilen, dummy1, f(srt, n), 1, wrk(srt), 1)
@@ -405,7 +420,7 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
     call SCAL_LOC(ilen, dummy1, f(srt, nmax), 1)
     call AXPY_LOC(ilen, -dummy1, wrk(srt), 1, f(srt, nmax), 1)
 #else
-    do l = srt, end
+    do l = srt, end ! offload to APU
         f(l, nmax) = (f(l, nmax) - wrk(l))*dummy1
     end do
 #endif
@@ -418,12 +433,12 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
 #ifdef USE_BLAS
     call AXPY_LOC(ilen, dummy1, f(srt, nmax), 1, f(srt, nmax - 1), 1)
 #else
-    do l = srt, end
+    do l = srt, end ! offload to APU
         f(l, nmax - 1) = dummy1*f(l, nmax) + f(l, nmax - 1)
     end do
 #endif
 
-    do n = nmax - 2, 1, -1
+    do n = nmax - 2, 1, -1 ! offload to APU
         dummy1 = c(n)
         dummy2 = e(n)
 #ifdef USE_BLAS
@@ -437,7 +452,8 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
     end do
 999 continue
 ! !$omp end parallel
-
+    CALL SYSTEM_CLOCK(clock_1,clock_cycle)
+    tridpss_time = tridpss_time + real(clock_1 - clock_0,wp)/real(clock_cycle,wp)
     return
 end subroutine TRIDPSS
 
@@ -446,6 +462,7 @@ end subroutine TRIDPSS
 ! #######################################################################
 subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
     use TLab_Constants, only: wp, wi
+    use TLab_Time, only: tridpssadd_time
     use TLab_OpenMP
 
 #ifdef USE_OPENMP
@@ -465,6 +482,10 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
     integer(wi) :: srt, end, siz
 
     integer(wi) l, n
+
+! -------------------------------------------------------------------
+    integer(wi) :: clock_0, clock_1, clock_cycle
+
 #ifdef USE_BLAS
     integer :: ilen
 #endif
@@ -472,7 +493,7 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
 ! -------------------------------------------------------------------
 ! Forward sweep
 ! -------------------------------------------------------------------
-
+    CALL SYSTEM_CLOCK(clock_0,clock_cycle)
 #ifdef USE_BLAS
 ! !$omp parallel default( none ) &
 ! !$omp private(n, l,ilen, dummy1, dummy2, srt, end,siz) &
@@ -572,6 +593,7 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
     end do
 999 continue
 ! !$omp end parallel
-
+    CALL SYSTEM_CLOCK(clock_1,clock_cycle)
+    tridpssadd_time = tridpssadd_time + real(clock_1 - clock_0,wp)/real(clock_cycle,wp)
     return
 end subroutine TRIDPSS_ADD

@@ -106,7 +106,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 ! !$omp parallel default( shared ) &
 ! !$omp private( ij, srt,end,siz )
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-    do ij = srt, end
+    do ij = srt, end ! offload to APU
         hq(ij, 1) = hq(ij, 1) + tmp1(ij) + tmp7(ij) + tmp8(ij)
     end do
 ! !$omp end parallel
@@ -118,7 +118,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 ! !$omp parallel default( shared ) &
 ! !$omp private( ij, srt,end,siz )
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-    do ij = srt, end
+    do ij = srt, end ! offload to APU
         hq(ij, 2) = hq(ij, 2) + tmp2(ij) + tmp7(ij) + tmp8(ij)
     end do
 ! !$omp end parallel
@@ -130,7 +130,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 ! !$omp parallel default( shared ) &
 ! !$omp private( ij, srt,end,siz )
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-    do ij = srt, end
+    do ij = srt, end ! offload to APU
         hq(ij, 3) = hq(ij, 3) + tmp3(ij) + tmp7(ij) + tmp8(ij)
     end do
 ! !$omp end parallel
@@ -154,7 +154,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 ! !$omp parallel default( shared ) &
 ! !$omp private( ij, srt,end,siz )
         call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-        do ij = srt, end
+        do ij = srt, end ! offload to APU
             hs(ij, is) = hs(ij, is) + tmp1(ij) + tmp2(ij) + tmp3(ij)
         end do
 ! !$omp end parallel
@@ -194,7 +194,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call DZAXPY(ilen, dummy, w(srt), 1, hq(srt, 3), 1, tmp4(srt), 1)
 
 #else
-        do ij = srt, end
+        do ij = srt, end ! offload to APU
             tmp2(ij) = hq(ij, 2) + v(ij)*dummy
             tmp3(ij) = hq(ij, 1) + u(ij)*dummy
             tmp4(ij) = hq(ij, 3) + w(ij)*dummy
@@ -254,7 +254,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     ! -----------------------------------------------------------------------
 ! !$omp parallel default( shared ) private( ij,srt,end,siz )
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-    do ij = srt, end
+    do ij = srt, end ! offload to APU
         tmp1(ij) = tmp1(ij) + tmp2(ij) + tmp3(ij) ! forcing term in tmp1
     end do
 ! !$omp end parallel
@@ -345,7 +345,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call DAXPY(ilen, dummy, tmp3(srt), 1, hq(srt, 2), 1)
         call DAXPY(ilen, dummy, tmp4(srt), 1, hq(srt, 3), 1)
 #else
-        do ij = srt, end
+        do ij = srt, end ! offload to APU
             hq(ij, 1) = hq(ij, 1) - tmp2(ij)
             hq(ij, 2) = hq(ij, 2) - tmp3(ij)
             hq(ij, 3) = hq(ij, 3) - tmp4(ij)
