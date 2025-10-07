@@ -60,11 +60,13 @@ contains
     ! -----------------------------------------------------------------------
     ! Forward sweep
     ! -----------------------------------------------------------------------
-        !$omp target teams distribute parallel do collapse(2) & 
-        !$omp& map(to: fdmi%lhs) map(tofrom: f) private(n,l)
-        if (len <= 0) then
+         if (len <= 0) then
             goto 999
         end if
+        
+        !$omp target teams distribute parallel do collapse(2) & 
+        !$omp& map(to: fdmi%lhs) map(tofrom: f) private(n,l)
+       
 
         do i = 1, ilen
             do k = 1, klen
@@ -97,8 +99,8 @@ contains
                 end do
             end do
         end do
-    999 continue
     !$omp end target teams distribute parallel do
+    999 continue
         CALL SYSTEM_CLOCK(clock_1,clock_cycle)
         tridss_time = tridss_time + real(clock_1 - clock_0)/real(clock_cycle)
         return
