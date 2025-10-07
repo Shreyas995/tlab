@@ -14,7 +14,7 @@ module FDM_Integral
     use FDM_Derivative, only: fdm_derivative_dt
     use FDM_Base
     use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
-    use LinearDss, only: TRIDSS_APU, PENTADSS_APU, HEPTADSS_APU
+    use LinearDss
 
     implicit none
     private
