@@ -135,7 +135,7 @@ contains
                 ! Solve Ux=y, backward
                 ! -----------------------------------------------------------------------
                 n = nmax - 1
-                !$omp simds
+                !$omp simd
                 do l = 1, len
                     f(l, n, k, i) = f(l, n, k, i)*fdmi%lhs(n, k, i, 3)
                 end do
