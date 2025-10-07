@@ -7,7 +7,7 @@ program DNS
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop, TLab_Start
     use TLab_Memory, only: TLab_Initialize_Memory, TLab_Allocate_Real
     use TLab_WorkFlow, only: imode_sim, fourier_on, scal_on, flow_on
-    use TLab_Time, only: itime
+    use TLab_Time
     use TLab_Arrays
 #ifdef USE_MPI
     use TLabMPI_PROCS, only: TLabMPI_Initialize
@@ -60,6 +60,10 @@ program DNS
     integer, parameter :: i0 = 0, i1 = 1
     real(wp) params(2)
 
+    integer irun,nrun,stat
+    integer clock_0, clock_1, clock_cycle
+    
+    
     ! ###################################################################
     call system_clock(start_clock)
     call TLab_Start()
@@ -245,6 +249,8 @@ program DNS
 
     write (str, *) itime
     call TLab_Write_ASCII(lfile, 'Starting time integration at It'//trim(adjustl(str))//'.')
+    call TLab_Time_Initialize()
+    call SYSTEM_CLOCK(clock_0) 
 
     do
         if (itime >= nitera_last) exit
@@ -362,7 +368,7 @@ program DNS
             exit
         end if
     end do
-
+    call TLab_Time_Data()
     ! ###################################################################
     call TLab_Stop(int(logs_data(1)))
 

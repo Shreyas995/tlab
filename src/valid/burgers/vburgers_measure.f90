@@ -47,10 +47,10 @@ program VBURGERS
    integer ibc
 
    integer irun,nrun,stat
-   integer clock_0, clock_1,clock_cycle
+   integer clock_0, clock_1, clock_cycle
    integer clock_add0, clock_add1
    CHARACTER(len=64) :: nrun_string 
-   real(wp), DIMENSION(:), ALLOCATABLE ::  runtime 
+   ! real(wp), DIMENSION(:), ALLOCATABLE ::  runtime 
    real(wp) dummy, error, params(0)
 
    add_time = 0.0_wp
