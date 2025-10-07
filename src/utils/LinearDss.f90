@@ -64,9 +64,8 @@ contains
             goto 999
         end if
         
-        !$omp target teams distribute parallel do collapse(2) & 
-        !$omp& map(to: fdmi%lhs) map(tofrom: f) private(n,l)
-       
+    !$omp target teams distribute parallel do collapse(2) & 
+    !$omp& map(to: fdmi%lhs) map(tofrom: f) private(n,l)
 
         do i = 1, ilen
             do k = 1, klen
