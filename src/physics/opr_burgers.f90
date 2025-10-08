@@ -510,7 +510,7 @@ contains
 
             else
 #ifdef USE_APU
-!$omp paralleln do default( shared ) private( ij )
+!$omp parallel do default( shared ) private( ij )
 #endif
                 do ij = 1, nlines*g%size ! offload to APU
                     result(ij, 1) = result(ij, 1) - u(ij, 1)*dsdx(ij, 1)
