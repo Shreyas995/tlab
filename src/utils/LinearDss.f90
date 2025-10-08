@@ -63,7 +63,7 @@ contains
          if (len <= 0) then
             goto 999
         end if
-        ! !$omp target teams distribute parallel do collapse(2) private(i, k, l, n)
+        !$omp target teams distribute parallel do collapse(2) private(i, k)
         do i = 1, ilen
             do k = 1, klen
                 do n = 3, nmax
@@ -115,15 +115,17 @@ contains
         ! -----------------------------------------------------------------------
         ! Solve Ly=f, forward
         ! -----------------------------------------------------------------------
-        !$omp target teams distribute parallel do private(i, k, l, n)
+        !$omp target teams distribute parallel do collapse(2) private(i, k)
         do i = 1, ilen
             do k = 1, klen
                 n = 3
+                !$omp simd
                 do l = 1, len
                     f(l, n, k, i) = f(l, n, k, i) + f(l, n - 1, k, i)*fdmi%lhs(3, k, i, 2)
                 end do
 
                 do n = 4, nmax - 1
+                    !$omp simd
                     do l = 1, len
                         f(l, n, k, i) = f(l, n, k, i) + f(l, n - 1, k, i)*fdmi%lhs(n, k, i, 2) + f(l, n - 2, k, i)*fdmi%lhs(n, k, i, 1)
                     end do
@@ -133,16 +135,19 @@ contains
                 ! Solve Ux=y, backward
                 ! -----------------------------------------------------------------------
                 n = nmax - 1
+                !$omp simd
                 do l = 1, len
                     f(l, n, k, i) = f(l, n, k, i)*fdmi%lhs(n, k, i, 3)
                 end do
 
                 n = nmax - 1 - 1
+                !$omp simd
                 do l = 1, len
                     f(l, n, k, i) = (f(l, n, k, i) + f(l, n + 1, k, i)*fdmi%lhs(n, k, i, 4))*fdmi%lhs(n, k, i, 3)
                 end do
 
                 do n = nmax - 3, 2, -1
+                    !$omp simd
                     do l = 1, len
                         f(l, n, k, i) = (f(l, n, k, i) + f(l, n + 1, k, i)*fdmi%lhs(n, k, i, 4) + f(l, n + 2, k, i)*fdmi%lhs(n, k, i, 5))*fdmi%lhs(n, k, i, 3)
                     end do
@@ -174,7 +179,7 @@ contains
     ! -----------------------------------------------------------------------
     ! Solve Ly=frc, forward
     ! -----------------------------------------------------------------------
-        !$omp target teams distribute parallel do collapse(2) private(i, k, ij, n)
+        !$omp target teams distribute parallel do collapse(2) private(i, k)
         do i = 1, ilen
             do k = 1, klen
                 !$omp simd
