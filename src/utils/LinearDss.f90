@@ -67,7 +67,7 @@ contains
         do i = 1, ilen
             do k = 1, klen
                 do n = 3, nmax
-                    ! !$omp simd
+                    !$omp simd
                     do l = 1, len
                         f(l, n, k, i) = f(l, n, k, i) + fdmi%lhs(n, k, i ,1)*f(l, n-1, k, i)
                     end do
@@ -76,20 +76,20 @@ contains
         ! Backward sweep
         ! -----------------------------------------------------------------------
                 n = nmax - 1
-                ! !$omp simd
+                !$omp simd
                 do l = 1, len
                     f(l, nmax, k, i) = f(l, nmax, k, i)*fdmi%lhs(nmax, k, i, 2)
                 end do
 
                 do n = nmax - 2, 1, -1
-                    ! !$omp simd
+                    !$omp simd
                     do l = 1, len
                         f(l, n, k, i) = f(l, n, k, i) + fdmi%lhs(n, k, i, 3)*f(l, n+1, k, i)*fdmi%lhs(n, k, i, 2)
                     end do
                 end do
             end do
         end do
-        ! !$omp end target teams distribute parallel do
+        !$omp end target teams distribute parallel do
         999 continue
         CALL SYSTEM_CLOCK(clock_1,clock_cycle)
         tridss_time = tridss_time + real(clock_1 - clock_0)/real(clock_cycle)
