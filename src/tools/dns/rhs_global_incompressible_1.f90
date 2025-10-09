@@ -121,7 +121,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
 #ifdef USE_APU
-    !$omp parallel do default( shared ) $omp private( ij )
+    !$omp parallel do default( shared ) private( ij )
 #endif
     do ij = srt, end ! offload to APU
         hq(ij, 2) = hq(ij, 2) + tmp2(ij) + tmp7(ij) + tmp8(ij)
