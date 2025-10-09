@@ -382,8 +382,8 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
 
     dummy1 = b(1)
 #ifdef USE_APU
-    !$omp parallel do default( shared ) omp private( l )
-    do l = srt, end ! end > 15000 offload to APU
+    !$omp parallel do default( shared ) private( l )
+    do l = srt, end 
         f(l, 1) = f(l, 1)*dummy1
     end do
     !$omp end parallel do
