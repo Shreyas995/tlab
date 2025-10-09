@@ -126,20 +126,20 @@ contains
         case (EQNS_COR_NORMALIZED)
             geo_u = cos(locProps%parameters(1))*locProps%parameters(2)
             geo_w = -sin(locProps%parameters(1))*locProps%parameters(2)
-#ifdef USE_APU
-    ! !$omp parallel default( shared ) &
-    ! !$omp private( ij, dummy,srt,end,siz )
-#endif
+            
             call TLab_OMP_PARTITION(field_sz, srt, end, siz)
 
             dummy = locProps%vector(2)
             dtr3 = 0.0_wp; dtr1 = 0.0_wp
+#ifdef USE_APU
+        !$omp parallel default( shared ) pivate( ii )
+#endif
             do ii = srt, end
                 r(ii, 1) = r(ii, 1) + dummy*(geo_w - u(ii, 3))
                 r(ii, 3) = r(ii, 3) + dummy*(u(ii, 1) - geo_u)
             end do
 #ifdef USE_APU
-! !$omp end parallel
+        !$omp end parallel do
 #endif
         end select
 

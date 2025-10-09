@@ -69,25 +69,23 @@ contains
 
                 end if
 
-#ifdef USE_BLAS
-! !$omp parallel default( shared ) &
-! !$omp private( ilen, dummy, srt,end,siz)
-#else
-! !$omp parallel default( shared ) &
-! !$omp private( ij,   dummy, srt,end,siz )
-#endif
                 call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
                 dummy = buoyancy%vector(iq)
-#ifdef USE_BLAS
-                ILEN = siz
-                call DAXPY(ILEN, dummy, tmp1(srt), 1, hq(srt, iq), 1)
-#else
+#ifdef USE_APU
+                !$omp parallel do default( shared ) omp private( ij )
                 do ij = srt, end ! offload to APU
                     hq(ij, iq) = hq(ij, iq) + dummy*tmp1(ij)
                 end do
+                !$omp end parallel do
+#elif defined(USE_BLAS)
+                ILEN = siz
+                call DAXPY(ILEN, dummy, tmp1(srt), 1, hq(srt, iq), 1)
+#else
+                    do ij = srt, end
+                        hq(ij, iq) = hq(ij, iq) + dummy*tmp1(ij)
+                    end do
 #endif
-! !$omp end parallel
 
             end if
 
@@ -97,15 +95,16 @@ contains
             if (subsidenceProps%active(iq)) then
                 call LargeScaleForcing_Subsidence(subsidenceProps, imax, jmax, kmax, q(:, iq), tmp1)
 
-! !$omp parallel default( shared ) &
-! !$omp private( ij, srt,end,siz )
                 call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-
+#ifdef USE_APU
+                !$omp parallel do default( shared ) private( ij )
+#endif
                 do ij = srt, end
                     hq(ij, iq) = hq(ij, iq) + tmp1(ij)
                 end do
-! !$omp end parallel
-
+#ifdef USE_APU
+                !$omp end parallel do
+#endif
             end if
 
             ! -----------------------------------------------------------------------
@@ -114,16 +113,17 @@ contains
             if (forcingProps%active(iq)) then
                 call SpecialForcing_Source(forcingProps, imax, jmax, kmax, iq, rtime, q(:,iq), hq(:, iq), tmp1)
 
-! !$omp parallel default( shared ) &
-! !$omp private( ij, srt,end,siz )
                 call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-
+#ifdef USE_APU
+                !$omp parallel do default( shared ) private( ij )
+#endif
                 do ij = srt, end
                     ! hq(ij, iq) = hq(ij, iq) + tmp1(ij)*forcingProps%vector(iq)
                     hq(ij, iq) = hq(ij, iq) + tmp1(ij)
                 end do
-! !$omp end parallel
-
+#ifdef USE_APU
+                !$omp end parallel do
+#endif
             end if
         end do
 

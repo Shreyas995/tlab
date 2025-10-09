@@ -490,13 +490,13 @@ contains
 
             else
 #ifdef USE_APU
-!$omp parallel do default( shared ) private( ij )
+            !$omp parallel do default( shared ) private( ij )
 #endif
                 do ij = 1, nlines*g%size
                     result(ij, 1) = result(ij, 1) - uf(ij, 1)*dsf(ij, 1)
                 end do
 #ifdef USE_APU
-!$omp end parallel do
+            !$omp end parallel do
 #endif
             end if
 
@@ -510,13 +510,13 @@ contains
 
             else
 #ifdef USE_APU
-!$omp parallel do default( shared ) private( ij )
+            !$omp parallel do default( shared ) private( ij )
 #endif
                 do ij = 1, nlines*g%size ! offload to APU
                     result(ij, 1) = result(ij, 1) - u(ij, 1)*dsdx(ij, 1)
                 end do
 #ifdef USE_APU
-!$omp end parallel do
+            !$omp end parallel do
 #endif
             end if
         end if

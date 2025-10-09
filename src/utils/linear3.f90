@@ -381,22 +381,34 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
 #endif
 
     dummy1 = b(1)
-#ifdef USE_BLAS
+#ifdef USE_APU
+    !$omp parallel do default( shared ) omp private( l )
+    do l = srt, end ! end > 15000 offload to APU
+        f(l, 1) = f(l, 1)*dummy1
+    end do
+    !$omp end parallel do
+#elif defined(USE_BLAS)
     call SCAL_LOC(ilen, dummy1, f(srt, 1), 1)
 #else
-    do l = srt, end ! end > 15000 offload to APU
+    do l = srt, end 
         f(l, 1) = f(l, 1)*dummy1
     end do
 #endif
 
-    do n = 2, nmax - 1 ! offload to APU
+    do n = 2, nmax - 1 
         dummy1 = a(n)
         dummy2 = b(n)
-#ifdef USE_BLAS
+#ifdef USE_APU
+    !$omp parallel do default( shared ) private( l )
+        do l = srt, end ! offload to APU
+            f(l, n) = f(l, n)*dummy2 + dummy1*f(l, n - 1)
+        end do
+    !$omp end parallel do
+#elif defined(USE_BLAS)
         call SCAL_LOC(ilen, dummy2, f(srt, n), 1)
         call AXPY_LOC(ilen, dummy1, f(srt, n - 1), 1, f(srt, n), 1)
 #else
-        do l = srt, end
+        do l = srt, end 
             f(l, n) = f(l, n)*dummy2 + dummy1*f(l, n - 1)
         end do
 #endif
@@ -404,23 +416,35 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
 
     wrk(srt:end) = 0.0_wp
 
-    do n = 1, nmax - 1 ! offload to APU
+    do n = 1, nmax - 1 
         dummy1 = d(n)
-#ifdef USE_BLAS
+#ifdef USE_APU
+    !$omp parallel do default( shared ) private( l )
+        do l = srt, end ! offload to APU
+            wrk(l) = wrk(l) + dummy1*f(l, n)
+        end do
+    !$omp end parallel do
+#elif defined(USE_BLAS)
         call AXPY_LOC(ilen, dummy1, f(srt, n), 1, wrk(srt), 1)
 #else
-        do l = srt, end
+        do l = srt, end 
             wrk(l) = wrk(l) + dummy1*f(l, n)
         end do
 #endif
     end do
 
     dummy1 = b(nmax)
-#ifdef USE_BLAS
+#ifdef USE_APU
+    !$omp parallel do default( shared ) private( l )
+    do l = srt, end 
+        f(l, nmax) = (f(l, nmax) - wrk(l))*dummy1
+    end do
+    !$omp end parallel do
+#elif defined(USE_BLAS)
     call SCAL_LOC(ilen, dummy1, f(srt, nmax), 1)
     call AXPY_LOC(ilen, -dummy1, wrk(srt), 1, f(srt, nmax), 1)
 #else
-    do l = srt, end ! offload to APU
+    do l = srt, end 
         f(l, nmax) = (f(l, nmax) - wrk(l))*dummy1
     end do
 #endif
@@ -429,11 +453,16 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
 ! Backward sweep
 ! -------------------------------------------------------------------
     dummy1 = e(nmax - 1)
-
-#ifdef USE_BLAS
+#ifdef USE_APU
+    !$omp parallel do default( shared ) private( l )
+    do l = srt, end ! offload to APU
+        f(l, nmax - 1) = dummy1*f(l, nmax) + f(l, nmax - 1)
+    end do
+    !$omp end parallel do
+#elif defined(USE_BLAS)
     call AXPY_LOC(ilen, dummy1, f(srt, nmax), 1, f(srt, nmax - 1), 1)
 #else
-    do l = srt, end ! offload to APU
+    do l = srt, end 
         f(l, nmax - 1) = dummy1*f(l, nmax) + f(l, nmax - 1)
     end do
 #endif
@@ -441,7 +470,13 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
     do n = nmax - 2, 1, -1 ! offload to APU
         dummy1 = c(n)
         dummy2 = e(n)
-#ifdef USE_BLAS
+#ifdef USE_APU
+    !$omp parallel do default( shared ) private( l )
+        do l = srt, end ! offload to APU
+            f(l, n) = f(l, n) + dummy1*f(l, n + 1) + dummy2*f(l, nmax)
+        end do
+    !$omp end parallel do
+#elif defined(USE_BLAS)
         call AXPY_LOC(ilen, dummy2, f(srt, nmax), 1, f(srt, n), 1)
         call AXPY_LOC(ilen, dummy1, f(srt, n + 1), 1, f(srt, n), 1)
 #else
@@ -494,15 +529,6 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
 ! Forward sweep
 ! -------------------------------------------------------------------
     CALL SYSTEM_CLOCK(clock_0,clock_cycle)
-#ifdef USE_BLAS
-! !$omp parallel default( none ) &
-! !$omp private(n, l,ilen, dummy1, dummy2, srt, end,siz) &
-! !$omp shared(f,g,h,wrk,nmax,a,b,c,d,e,len)
-#else
-! !$omp parallel default( none ) &
-! !$omp private(n, l, dummy1, dummy2, srt, end,siz) &
-! !$omp shared(f,g,h,wrk,nmax,a,b,c,d,e,len)
-#endif
 
     call TLab_OMP_PARTITION(len, srt, end, siz)
     if (siz <= 0) then
@@ -514,7 +540,13 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
 #endif
 
     dummy1 = b(1)
-#ifdef USE_BLAS
+#ifdef USE_APU
+    !$omp parallel do default( shared ) private( l )
+    do l = srt, end ! offload to APU
+        f(l, 1) = f(l, 1)*dummy1
+    end do
+    !$omp end parallel do
+#elif defined(USE_BLAS)
     call SCAL_LOC(ilen, dummy1, f(srt, 1), 1)
 #else
     do l = srt, end
@@ -525,7 +557,13 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
     do n = 2, nmax - 1
         dummy1 = a(n)
         dummy2 = b(n)
-#ifdef USE_BLAS
+#ifdef USE_APU
+    !$omp parallel do default( shared ) private( l )
+        do l = srt, end ! offload to APU
+            f(l, n) = f(l, n)*dummy2 + dummy1*f(l, n - 1)
+        end do
+    !$omp end parallel do
+#elif defined(USE_BLAS)
         call SCAL_LOC(ilen, dummy2, f(srt, n), 1)
         call AXPY_LOC(ilen, dummy1, f(srt, n - 1), 1, f(srt, n), 1)
 #else
@@ -539,7 +577,13 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
 
     do n = 1, nmax - 1
         dummy1 = d(n)
-#ifdef USE_BLAS
+#ifdef USE_APU
+    !$omp parallel do default( shared ) private( l )
+        do l = srt, end ! offload to APU
+            wrk(l) = wrk(l) + dummy1*f(l, n)
+        end do
+    !$omp end parallel do
+#elif defined(USE_BLAS)
         call AXPY_LOC(ilen, dummy1, f(srt, n), 1, wrk(srt), 1)
 #else
         do l = srt, end
@@ -549,7 +593,13 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
     end do
 
     dummy1 = b(nmax)
-#ifdef USE_BLAS
+#ifdef USE_APU
+    !$omp parallel do default( shared ) private( l )
+    do l = srt, end ! offload to APU
+        f(l, nmax) = (f(l, nmax) - wrk(l))*dummy1
+    end do
+    !$omp end parallel do
+#elif defined(USE_BLAS)
     call SCAL_LOC(ilen, dummy1, f(srt, nmax), 1)
     call AXPY_LOC(ilen, -dummy1, wrk(srt), 1, f(srt, nmax), 1)
 #else
@@ -562,8 +612,13 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
 ! Backward sweep
 ! -------------------------------------------------------------------
     dummy1 = e(nmax - 1)
-
-#ifdef USE_BLAS
+#ifdef USE_APU
+    !$omp parallel do default( shared ) private( l )
+    do l = srt, end ! offload to APU
+        f(l, nmax - 1) = dummy1*f(l, nmax) + f(l, nmax - 1)
+    end do
+    !$omp end parallel do
+#elif defined(USE_BLAS)
     call AXPY_LOC(ilen, dummy1, f(srt, nmax), 1, f(srt, nmax - 1), 1)
 #else
     do l = srt, end
@@ -574,7 +629,14 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
     do n = nmax - 2, 1, -1
         dummy1 = c(n)
         dummy2 = e(n)
-#ifdef USE_BLAS
+#ifdef USE_APU
+    !$omp parallel do default( shared ) private( l )
+        do l = srt, end
+            f(l, n) = f(l, n) + dummy1*f(l, n + 1) + dummy2*f(l, nmax)
+            f(l, n + 1) = f(l, n + 1) - g(l, n + 1)*h(l, n + 1)
+        end do
+    !$omp end parallel do
+#elif defined(USE_BLAS)
         call AXPY_LOC(ilen, dummy2, f(srt, nmax), 1, f(srt, n), 1)
         call AXPY_LOC(ilen, dummy1, f(srt, n + 1), 1, f(srt, n), 1)
         do l = srt, end
@@ -587,12 +649,17 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
         end do
 #endif
     end do
+#ifdef USE_APU
+    !$omp parallel do default( shared ) private( l )
+#endif
     do l = srt, end
         f(l, 1) = f(l, 1) - g(l, 1)*h(l, 1)
         f(l, nmax) = f(l, nmax) - g(l, nmax)*h(l, nmax)
     end do
+#ifdef USE_APU
+    !$omp end parallel do
+#endif
 999 continue
-! !$omp end parallel
     CALL SYSTEM_CLOCK(clock_1,clock_cycle)
     tridpssadd_time = tridpssadd_time + real(clock_1 - clock_0,wp)/real(clock_cycle,wp)
     return
