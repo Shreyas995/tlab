@@ -73,7 +73,7 @@ contains
 
                 dummy = buoyancy%vector(iq)
 #ifdef USE_APU
-                !$omp parallel do default( shared ) omp private( ij )
+                !$omp parallel do default( shared ) private( ij )
                 do ij = srt, end ! offload to APU
                     hq(ij, iq) = hq(ij, iq) + dummy*tmp1(ij)
                 end do
