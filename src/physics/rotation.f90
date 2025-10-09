@@ -132,7 +132,7 @@ contains
             dummy = locProps%vector(2)
             dtr3 = 0.0_wp; dtr1 = 0.0_wp
 #ifdef USE_APU
-        !$omp parallel default( shared ) pivate( ii )
+        !$omp parallel do default( shared ) pivate( ii )
 #endif
             do ii = srt, end
                 r(ii, 1) = r(ii, 1) + dummy*(geo_w - u(ii, 3))
