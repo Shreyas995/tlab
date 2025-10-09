@@ -364,7 +364,7 @@ subroutine RHS_FLOW_GLOBAL_2()
         hq(i, 2) = hq(i, 2) + visc*(tmp5(i) + tmp2(i))
     end do
 #ifdef USE_APU
-    !$omp end parallel
+    !$omp end parallel do
 #endif
 
     call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs_inf(:, :, 3), g(3), tmp1, tmp2)
