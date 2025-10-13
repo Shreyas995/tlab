@@ -181,8 +181,7 @@ contains
             if (any([BCS_MIN, BCS_BOTH] == ibc)) then
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_b) .and. present(bcs_t)) then
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) \
-                    !$omp& map(to: u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t) map(tofrom: f, bcs_b, bcs_t)
+                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
@@ -200,8 +199,7 @@ contains
                         end do
                     !$omp end target teams distribute parallel do
                     else if (present(bcs_b)) then
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) \
-                    !$omp& map(to: u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t) map(tofrom: f, bcs_b, bcs_t)
+                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
@@ -219,8 +217,7 @@ contains
                     !$omp end target teams distribute parallel do
                     else if (present(bcs_t)) then
                         ! f(1) contains the boundary condition
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) \
-                    !$omp& map(to: u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t) map(tofrom: f, bcs_b, bcs_t)
+                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 f(:, 2, k, i) = f(:, 1, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
@@ -236,8 +233,7 @@ contains
                         end do
                     !$omp end target teams distribute parallel do
                     else
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) \
-                    !$omp& map(to: u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t) map(tofrom: f, bcs_b, bcs_t)
+                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 ! f(1) contains the boundary condition
@@ -255,8 +251,7 @@ contains
                     end if
                 else
                     if (present(bcs_b)) then
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) \
-                    !$omp& map(to: u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t) map(tofrom: f, bcs_b, bcs_t)
+                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) 
                         do i = 1, ilines
                             do k = 1, klines
                                 bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
@@ -274,8 +269,7 @@ contains
                         end do
                     !$omp end target teams distribute parallel do
                     else
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) \
-                    !$omp& map(to: u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t) map(tofrom: f, bcs_b, bcs_t)
+                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) 
                         do i = 1, ilines
                             do k = 1, klines
                         ! f(1) contains the boundary condition
@@ -296,8 +290,7 @@ contains
             else
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_t)) then
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) \
-                    !$omp& map(to: u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t) map(tofrom: f, bcs_b, bcs_t)
+                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
@@ -314,8 +307,7 @@ contains
                         end do
                     !$omp end target teams distribute parallel do
                     else
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) \
-                    !$omp& map(to: u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t) map(tofrom: f, bcs_b, bcs_t)
+                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
@@ -332,8 +324,7 @@ contains
                     !$omp end target teams distribute parallel do
                     end if
                 else
-                !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) \
-                !$omp& map(to: u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t) map(tofrom: f, bcs_b, bcs_t)
+                !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                     do i = 1, ilines
                         do k = 1, klines
                             f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
