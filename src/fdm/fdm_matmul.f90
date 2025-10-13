@@ -1369,7 +1369,7 @@ contains
                     !$omp end target teams distribute parallel do
                 end if
             else
-                if (any([BCS_DN, BCS_NN] == ibc)) thenx
+                if (any([BCS_DN, BCS_NN] == ibc)) then
                     !$omp target teams distribute parallel do private(m,n)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   
