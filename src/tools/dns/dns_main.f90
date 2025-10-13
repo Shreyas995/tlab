@@ -115,7 +115,7 @@ program DNS
     call TLab_Allocate_Real(__FILE__, l_hq, [isize_part, inb_part], 'part-rhs')
 
     call DNS_STATISTICS_INITIALIZE()
-
+    print*, 'Statistics initialized'
     call PLANES_INITIALIZE()
 
     if (PhAvg%active) then
@@ -128,15 +128,13 @@ program DNS
 
     if (imode_ibm == 1) then
         call IBM_ALLOCATE(__FILE__)
+        PRINT *, 'IBM Memory initialized'
     end if
-
     ! ###################################################################
     ! Initialize operators
     ! ###################################################################
     call OPR_Burgers_Initialize(ifile)
-
     call OPR_Elliptic_Initialize(ifile)
-
     call OPR_Filter_Initialize_Parameters(ifile)
     do ig = 1, 3
         call OPR_FILTER_INITIALIZE(g(ig), FilterDomain(ig))
@@ -144,7 +142,6 @@ program DNS
     end do
 
     if (fourier_on) call OPR_Fourier_Initialize()
-
     call OPR_CHECK()
 
     ! ###################################################################
@@ -249,7 +246,6 @@ program DNS
 
     write (str, *) itime
     call TLab_Write_ASCII(lfile, 'Starting time integration at It'//trim(adjustl(str))//'.')
-    call TLab_Time_Initialize()
     call SYSTEM_CLOCK(clock_0) 
 
     do
@@ -368,7 +364,6 @@ program DNS
             exit
         end if
     end do
-    call TLab_Time_Data()
     ! ###################################################################
     call TLab_Stop(int(logs_data(1)))
 
