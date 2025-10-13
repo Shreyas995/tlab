@@ -125,11 +125,7 @@ contains
             case (3)
                 g%matmul => MatMul_3d
             case (5)
-#ifndef USE_APU
                 g%matmul => MatMul_5d
-#else
-                g%matmul => MatMul_5d_APU
-#endif
             end select
         else
             select case (g%nb_diag(2))
