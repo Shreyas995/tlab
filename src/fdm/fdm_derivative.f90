@@ -123,11 +123,7 @@ contains
         if (any([FDM_COM4_DIRECT, FDM_COM6_DIRECT] == g%mode_fdm)) then
             select case (g%nb_diag(2))
             case (3)
-#ifndef USE_APU
                 g%matmul => MatMul_3d
-#else
-                g%matmul => MatMul_3d_APU
-#endif
             case (5)
 #ifndef USE_APU
                 g%matmul => MatMul_5d
