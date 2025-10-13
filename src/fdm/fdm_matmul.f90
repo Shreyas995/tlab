@@ -199,6 +199,7 @@ contains
                             end do
                         end do
                         !$omp end target teams distribute parallel do
+                        !$omp end target data
                     else if (present(bcs_b)) then
                         !$omp target data use_device_ptr(bcs_b, f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
                         !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
@@ -216,7 +217,8 @@ contains
                                 f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
                             end do
                         end do
-                    !$omp end target teams distribute parallel do
+                        !$omp end target teams distribute parallel do
+                        !$omp end target data
                     else if (present(bcs_t)) then
                         ! f(1) contains the boundary condition
                         !$omp target data use_device_ptr(bcs_t, f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
@@ -234,7 +236,8 @@ contains
                                 bcs_t(:, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(:, nx, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
                             end do
                         end do
-                    !$omp end target teams distribute parallel do
+                        !$omp end target teams distribute parallel do
+                        !$omp end target data
                     else
                         !$omp target data use_device_ptr(f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
                         !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
@@ -251,7 +254,8 @@ contains
                                 f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
                             end do
                         end do
-                    !$omp end target teams distribute parallel do
+                        !$omp end target teams distribute parallel do
+                        !$omp end target data
                     end if
                 else
                     if (present(bcs_b)) then
@@ -272,7 +276,8 @@ contains
                                 f(:, nx, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
                             end do
                         end do
-                    !$omp end target teams distribute parallel do
+                        !$omp end target teams distribute parallel do
+                        !$omp end target data
                     else
                         !$omp target data use_device_ptr(bcs_t, bcs_b, f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
                         !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
@@ -290,7 +295,8 @@ contains
                                 f(:, nx, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
                             end do
                         end do
-                    !$omp end target teams distribute parallel do
+                        !$omp end target teams distribute parallel do
+                        !$omp end target data
                     end if
                 end if
             else
@@ -312,7 +318,8 @@ contains
                                 bcs_t(:, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(:, nx, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
                             end do
                         end do
-                    !$omp end target teams distribute parallel do
+                        !$omp end target teams distribute parallel do
+                        !$omp end target data
                     else
                         !$omp target data use_device_ptr(f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
                         !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
@@ -329,7 +336,8 @@ contains
                                 f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
                             end do
                         end do
-                    !$omp end target teams distribute parallel do
+                        !$omp end target teams distribute parallel do
+                        !$omp end target data
                     end if
                 else
                     !$omp target data use_device_ptr(f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
@@ -348,7 +356,8 @@ contains
                             f(:, nx, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
                         end do
                     end do
-                !$omp end target teams distribute parallel do
+                    !$omp end target teams distribute parallel do
+                    !$omp end target data
                 end if
             end if
         ! -----------------------------------------------------------------------
