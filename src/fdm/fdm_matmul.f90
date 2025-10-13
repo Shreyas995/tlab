@@ -673,7 +673,7 @@ contains
         if (ibc == BCS_PERIODIC) then
             !$omp target teams distribute parallel do private(m,n)
             do m = 1, my
-                f(m, 1) = u(:, 2) + u(m, nx) + u(m, 1)*r2_i(1)
+                f(m, 1) = u(m, 2) + u(m, nx) + u(m, 1)*r2_i(1)
                 do n = 2, nx - 1
                     f(m, n) = u(m, n + 1) + u(m, n - 1) + u(m, n)*r2_i(n)
                 end do
