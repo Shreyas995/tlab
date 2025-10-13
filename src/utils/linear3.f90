@@ -379,7 +379,7 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
 #ifdef USE_BLAS
     ilen = siz
 #endif
-
+! first point
     dummy1 = b(1)
 #ifdef USE_APU
     !$omp parallel do default( shared ) private( l )
@@ -394,7 +394,7 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
         f(l, 1) = f(l, 1)*dummy1
     end do
 #endif
-
+! accelerate
     do n = 2, nmax - 1 
         dummy1 = a(n)
         dummy2 = b(n)
@@ -432,7 +432,7 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
         end do
 #endif
     end do
-
+    ! last point
     dummy1 = b(nmax)
 #ifdef USE_APU
     !$omp parallel do default( shared ) private( l )
