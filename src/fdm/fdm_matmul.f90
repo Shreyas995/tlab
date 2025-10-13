@@ -761,7 +761,7 @@ contains
         if (any([BCS_MIN, BCS_BOTH] == ibc)) then
             ! f(1) contains the boundary condition
             if (present(bcs_b)) then
-                !$omp target teams distribute parallel do collapse(2)
+                !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                 do i = 1, ilines
                     do k = 1, klines
                         bcs_b(:, k, i) = f(:, 1, k, i)*r3b(k, i, 1) + u(3:4, k, i)*r4b(k, i, 1) + u(5:6, k, i)*r5b(k, i, 1) + u(7:8, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
@@ -779,7 +779,7 @@ contains
                 !$omp end target teams distribute parallel do  
                 ! -------------------------------------------------------------------
             else
-                !$omp target teams distribute parallel do collapse(2)
+                !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                 do i = 1, ilines
                     do k = 1, klines
                         f(:, 2, k, i) = f(:, 1, k, i)*r2b(k, i, 2) + u(3:4, k, i)*r3b(k, i, 2) + u(5:6, k, i)*r4b(k, i, 2) + u(7:8, k, i)*r5b(k, i, 2)
@@ -796,7 +796,7 @@ contains
                     ! -------------------------------------------------------------------
             end if
         else
-            !$omp target teams distribute parallel do collapse(2)
+            !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
             do i = 1, ilines
                 do k = 1, klines
                     f(:, 1, k, i) = u(1:2, k, i)*r3_i(1) + u(3:4, k, i)*r4_i(1) + u(5:6, k, i)*r5_i(1) + u(7:8, k, i)*r1_i(1)   ! r1(1) contains extended stencil
@@ -817,7 +817,7 @@ contains
         if (any([BCS_MAX, BCS_BOTH] == ibc)) then
             ! f(nx) contains the boundary condition
             if (present(bcs_t)) then
-                !$omp target teams distribute parallel do collapse(2)
+                !$omp target teams distribute parallel do collapse(2) private(i,k)
                 do i = 1, ilines
                     do k = 1, klines
                         f(:, nx-3, k, i) = u(lp11:lp10, k, i)*r1t(i, k, 0) + u(lp9:lp8, k, i)*r2t(i, k, 0) + u(lp7:lp6, k, i)*r3t(i, k, 0) + u(lp5:lp4, k, i)*r4t(i, k, 0) + u(lp3:lp2, k, i)*r5t(i, k, 0) + f(:, nx, k, i)*r6t(i, k, 0)
@@ -828,7 +828,7 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
             else
-                !$omp target teams distribute parallel do collapse(2)!$omp target teams distribute parallel do collapse(2)
+                !$omp target teams distribute parallel do collapse(2) private(i,k)
                 do i = 1, ilines
                     do k = 1, klines
                         f(:, nx-3, k, i) = u(lp11:lp10, k, i)*r1t(i, k, 0) + u(lp9:lp8, k, i)*r2t(i, k, 0) + u(lp7:lp6, k, i)*r3t(i, k, 0) + u(lp5:lp4, k, i)*r4t(i, k, 0) + u(lp3:lp2, k, i)*r5t(i, k, 0) + f(:, nx, k, i)*r6t(i, k, 0)
@@ -839,7 +839,7 @@ contains
                 !$omp end target teams distribute parallel do
             end if
         else
-            !$omp target teams distribute parallel do collapse(2)
+            !$omp target teams distribute parallel do collapse(2) private(i,k)
             do i = 1, ilines
                 do k = 1, klines
                     f(:, nx-3, k, i) = u(lp11:lp10, k, i)*r1_i(nx - 3) + u(lp9:lp8, k, i)*r2_i(nx - 3) + u(lp7:lp6, k, i)*r3_i(nx - 3) + u(lp5:lp4, k, i)*r4_i(nx - 3) + u(lp3:lp2, k, i)*r5_i(nx - 3)
