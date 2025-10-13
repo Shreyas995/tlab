@@ -731,8 +731,6 @@ contains
                 end if
             end if
         end if
-        sum_f = sum(f)
-        sum_u = sum(u)
         return
     end subroutine MatMul_3d_sym_APU
 
@@ -1857,8 +1855,7 @@ contains
             end if
 
         end if
-        sum_f = sum(f)
-        sum_u = sum(u)
+
         return
     end subroutine MatMul_7d_sym_APU
 
