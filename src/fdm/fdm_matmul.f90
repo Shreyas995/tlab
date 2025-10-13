@@ -181,7 +181,8 @@ contains
             if (any([BCS_MIN, BCS_BOTH] == ibc)) then
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_b) .and. present(bcs_t)) then
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
+                        !$omp target data use_device_ptr(bcs_t, bcs_b, f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
+                        !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
@@ -197,9 +198,10 @@ contains
                                 bcs_t(:, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(:, nx, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
                             end do
                         end do
-                    !$omp end target teams distribute parallel do
+                        !$omp end target teams distribute parallel do
                     else if (present(bcs_b)) then
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
+                        !$omp target data use_device_ptr(bcs_b, f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
+                        !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
@@ -217,7 +219,8 @@ contains
                     !$omp end target teams distribute parallel do
                     else if (present(bcs_t)) then
                         ! f(1) contains the boundary condition
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
+                        !$omp target data use_device_ptr(bcs_t, f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
+                        !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 f(:, 2, k, i) = f(:, 1, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
@@ -233,7 +236,8 @@ contains
                         end do
                     !$omp end target teams distribute parallel do
                     else
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
+                        !$omp target data use_device_ptr(f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
+                        !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 ! f(1) contains the boundary condition
@@ -251,7 +255,8 @@ contains
                     end if
                 else
                     if (present(bcs_b)) then
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) 
+                        !$omp target data use_device_ptr(bcs_b, f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
+                        !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
@@ -269,10 +274,11 @@ contains
                         end do
                     !$omp end target teams distribute parallel do
                     else
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf) 
+                        !$omp target data use_device_ptr(bcs_t, bcs_b, f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
+                        !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
-                        ! f(1) contains the boundary condition
+                            ! f(1) contains the boundary condition
                                 f(:, 2, k, i) = f(:, 1, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
                                 f(:, 3, k, i) = f(:, 1, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
                                 do n = 4, nx - 3
@@ -290,7 +296,8 @@ contains
             else
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_t)) then
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
+                        !$omp target data use_device_ptr(bcs_t, f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
+                        !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
@@ -307,7 +314,8 @@ contains
                         end do
                     !$omp end target teams distribute parallel do
                     else
-                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
+                        !$omp target data use_device_ptr(f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
+                        !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
                                 f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
@@ -324,7 +332,8 @@ contains
                     !$omp end target teams distribute parallel do
                     end if
                 else
-                !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
+                    !$omp target data use_device_ptr(f, u, r1b, r2b, r3b, r0b, r1_i, r2_i, r1t, r2t, r3t, r4t)
+                    !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                     do i = 1, ilines
                         do k = 1, klines
                             f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
