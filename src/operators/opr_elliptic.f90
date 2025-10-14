@@ -161,15 +161,14 @@ contains
             ndr = fdm_loc%der2%nb_diag(2)
             nd = ndl
             if (allocated(fdm_int2)) deallocate(fdm_int2)                       !(kmax, isize_line) moving the dimension inside fdm_int2
-            allocate(fdm_int2)
+            allocate (fdm_int2)
             allocate (fdm_int2%lambda(kmax, isize_line))
             allocate (fdm_int2%bc(kmax, isize_line))
             allocate (fdm_int2%rhs_b(1:5, kmax, isize_line,0:7))                 ! # of diagonals is 7, # rows is 7/2+1
             allocate (fdm_int2%rhs_t(0:4, kmax, isize_line, 8))
             allocate (fdm_int2%lhs(fdm_loc%der2%size, kmax, isize_line, ndr))
             allocate (fdm_int2%rhs(fdm_loc%der2%size, kmax, isize_line, ndl))
-
-            call TLab_Allocate_Real(__FILE__, rhs_d, [g(2)%size, nd], 'rhs_d')
+            call TLab_Allocate_Real(__FILE__, rhs_d, [g(2)%size, nd], 'rhs_d')         
 
             i_sing = [1, 1]                     ! 2nd order FDMs are non-zero at Nyquist
             k_sing = [1, 1]

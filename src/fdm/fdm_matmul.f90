@@ -181,7 +181,7 @@ contains
             if (any([BCS_MIN, BCS_BOTH] == ibc)) then
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_b) .and. present(bcs_t)) then
-                        !$omp target data use_device_ptr(bcs_t, bcs_b, f, u)
+                        
                         !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
@@ -199,9 +199,7 @@ contains
                             end do
                         end do
                         !$omp end target teams distribute parallel do
-                        !$omp end target data
                     else if (present(bcs_b)) then
-                        !$omp target data use_device_ptr(bcs_b, f, u)
                         !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
@@ -218,10 +216,8 @@ contains
                             end do
                         end do
                         !$omp end target teams distribute parallel do
-                        !$omp end target data
                     else if (present(bcs_t)) then
                         ! f(1) contains the boundary condition
-                        !$omp target data use_device_ptr(bcs_t, f, u)
                         !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
@@ -237,9 +233,7 @@ contains
                             end do
                         end do
                         !$omp end target teams distribute parallel do
-                        !$omp end target data
                     else
-                        !$omp target data use_device_ptr(f, u)
                         !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
@@ -255,11 +249,9 @@ contains
                             end do
                         end do
                         !$omp end target teams distribute parallel do
-                        !$omp end target data
                     end if
                 else
                     if (present(bcs_b)) then
-                        !$omp target data use_device_ptr(bcs_b, f, u)
                         !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
@@ -277,9 +269,7 @@ contains
                             end do
                         end do
                         !$omp end target teams distribute parallel do
-                        !$omp end target data
                     else
-                        !$omp target data  use_device_ptr(f, u)
                         !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
@@ -296,13 +286,11 @@ contains
                             end do
                         end do
                         !$omp end target teams distribute parallel do
-                        !$omp end target data
                     end if
                 end if
             else
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_t)) then
-                        !$omp target data use_device_ptr(bcs_t, f, u)
                         !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
@@ -319,9 +307,7 @@ contains
                             end do
                         end do
                         !$omp end target teams distribute parallel do
-                        !$omp end target data
                     else
-                        !$omp target data use_device_ptr(f, u)
                         !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                         do i = 1, ilines
                             do k = 1, klines
@@ -337,10 +323,8 @@ contains
                             end do
                         end do
                         !$omp end target teams distribute parallel do
-                        !$omp end target data
                     end if
                 else
-                    !$omp target data use_device_ptr(bcs_t, f, u)
                     !$omp target teams distribute parallel do collapse(2) private(i,k,n,pa,pb,pc,pd,pe,pf)
                     do i = 1, ilines
                         do k = 1, klines
@@ -357,7 +341,6 @@ contains
                         end do
                     end do
                     !$omp end target teams distribute parallel do
-                    !$omp end target data
                 end if
             end if
         ! -----------------------------------------------------------------------
