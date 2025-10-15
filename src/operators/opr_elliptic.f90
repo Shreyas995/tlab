@@ -429,7 +429,7 @@ contains
 
 #ifdef USE_APU
         ! Here collapse (2) does not work
-        !$omp target teams distribute parallel do
+        !$omp target teams distribute parallel do private(i,k)
 #endif
         do i = 1, i_max
             do k = 1, nz
@@ -438,7 +438,7 @@ contains
             end do
         end do
 #ifdef USE_APU
-        !$omp end target data
+        !$omp end target teams distribute parallel do
 #endif
 
         select case (ibc)
