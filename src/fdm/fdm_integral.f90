@@ -1275,9 +1275,7 @@ contains
         end select
 
         CALL SYSTEM_CLOCK(clock_0,clock_cycle) 
-        !$omp target teams distribute parallel do &
-        !$omp& map(to: wrk2d, fdmi_int2%lhs, fdmi_int2%bc) map(tofrom: result) &
-        !$omp& private(i, k, bcs)
+        !$omp target teams distribute parallel do 
         do i = 1, ilines
             do k = 1, klines
                 bcs = fdmi_int2%bc(k,i)
