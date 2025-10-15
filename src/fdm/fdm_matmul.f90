@@ -671,6 +671,7 @@ contains
    
         ! -------------------------------------------------------------------
         ! Boundary
+        !$omp target exit data map(delete: bcs_d, bcs_t)
         if (ibc == BCS_PERIODIC) then
             !$omp target teams distribute parallel do private(m,n)
             do m = 1, my
