@@ -1206,11 +1206,14 @@ contains
 
         select case (ndr)
         case (3)
+            !$omp target exit data map(delete: wrk2d)
             call MatMul_3d(rhsi(:, 1:3), f, result, &
                            BCS_BOTH, rhs_b=fdmi%rhs_b(1:3, 0:3), rhs_t=fdmi%rhs_t(0:2, 1:4), bcs_b=wrk2d(:, 1), bcs_t=wrk2d(:, 2))
         case (5)
+            !$omp target exit data map(delete: wrk2d)
             call MatMul_5d(rhsi(:, 1:5), f, result, &
                            BCS_BOTH, rhs_b=fdmi%rhs_b(1:4, 0:5), rhs_t=fdmi%rhs_t(0:3, 1:6), bcs_b=wrk2d(:, 1), bcs_t=wrk2d(:, 2))
+
         end select
 
         ! Solve pentadiagonal linear system
