@@ -115,7 +115,6 @@ program DNS
     call TLab_Allocate_Real(__FILE__, l_hq, [isize_part, inb_part], 'part-rhs')
 
     call DNS_STATISTICS_INITIALIZE()
-    print*, 'Statistics initialized'
     call PLANES_INITIALIZE()
 
     if (PhAvg%active) then
@@ -128,7 +127,6 @@ program DNS
 
     if (imode_ibm == 1) then
         call IBM_ALLOCATE(__FILE__)
-        PRINT *, 'IBM Memory initialized'
     end if
     ! ###################################################################
     ! Initialize operators
