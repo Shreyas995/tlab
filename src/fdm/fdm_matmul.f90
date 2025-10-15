@@ -178,6 +178,7 @@ contains
 
             ! -------------------------------------------------------------------
             ! Boundary; the first 3/2+1+1=3 rows might be different
+            !$omp target exit data map(delete: bcs_b, bcs_t)
             if (any([BCS_MIN, BCS_BOTH] == ibc)) then
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_b) .and. present(bcs_t)) then
@@ -438,6 +439,7 @@ contains
         sum_u = 0.0_wp
         ! -------------------------------------------------------------------
         ! Boundary
+        !$omp target exit data map(delete: bcs_b, bcs_t)
         if (ibc == BCS_PERIODIC) then
             !$omp target teams distribute parallel do private(m,n)
             do m = 1, my
@@ -671,7 +673,7 @@ contains
    
         ! -------------------------------------------------------------------
         ! Boundary
-        !$omp target exit data map(delete: bcs_d, bcs_t)
+        !$omp target exit data map(delete: bcs_b, bcs_t)
         if (ibc == BCS_PERIODIC) then
             !$omp target teams distribute parallel do private(m,n)
             do m = 1, my
@@ -760,6 +762,7 @@ contains
         lp7 = 2*nx - 7; lp8 = 2*nx - 8; lp9 = 2*nx - 9; lp10 = 2*nx - 10; lp11 = 2*nx - 11; lp12 = 2*nx - 12
         ! -------------------------------------------------------------------
         ! Boundary; the first 5/2+1+1=4 rows might be different
+        !$omp target exit data map(delete: bcs_b, bcs_t)
         if (any([BCS_MIN, BCS_BOTH] == ibc)) then
             ! f(1) contains the boundary condition
             if (present(bcs_b)) then
@@ -1072,6 +1075,7 @@ contains
 
         ! -------------------------------------------------------------------
         ! Boundary
+        !$omp target exit data map(delete: bcs_b, bcs_t)
         if (ibc == BCS_PERIODIC) then
             !$omp target teams distribute parallel do private(m,n)
             do m = 1, my
@@ -1324,6 +1328,7 @@ contains
         sum_f = 0.0_wp
         sum_u = 0.0_wp
         ! Boundary
+        !$omp target exit data map(delete: bcs_b, bcs_t)
         if (ibc == BCS_PERIODIC) then
             !$omp target teams distribute parallel do private(m,n)
             do m = 1, my
@@ -1503,6 +1508,7 @@ contains
         r7_loc = r7_i(5)
         ! -------------------------------------------------------------------
         ! Boundary
+        !$omp target exit data map(delete: bcs_b, bcs_t)
         if (ibc == BCS_PERIODIC) then
             !$omp target teams distribute parallel do private(m,n)
             do m = 1, my
@@ -1763,6 +1769,7 @@ contains
         r4_loc = r4_i(4)
 
         ! Boundary
+        !$omp target exit data map(delete: bcs_b, bcs_t)
         if (ibc == BCS_PERIODIC) then
             !$omp target teams distribute parallel do private(m,n)
             do m = 1, my
