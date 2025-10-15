@@ -1206,11 +1206,9 @@ contains
 
         select case (ndr)
         case (3)
-            !$omp target exit data map(delete: wrk2d)
             call MatMul_3d(rhsi(:, 1:3), f, result, &
                            BCS_BOTH, rhs_b=fdmi%rhs_b(1:3, 0:3), rhs_t=fdmi%rhs_t(0:2, 1:4), bcs_b=wrk2d(:, 1), bcs_t=wrk2d(:, 2))
         case (5)
-            !$omp target exit data map(delete: wrk2d)
             call MatMul_5d(rhsi(:, 1:5), f, result, &
                            BCS_BOTH, rhs_b=fdmi%rhs_b(1:4, 0:5), rhs_t=fdmi%rhs_t(0:3, 1:6), bcs_b=wrk2d(:, 1), bcs_t=wrk2d(:, 2))
 
@@ -1260,9 +1258,11 @@ contains
 
         select case (ndr)
         case (3)
+            !$omp target exit data map(delete: wrk2d)
             call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:2*size(fdmi_int2%lhs, 1), 1:klines, 1:ilines), &
             result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(:, 1, :, :), bcs_t=wrk2d(:, 2, :, :))
         case (5)
+            !$omp target exit data map(delete: wrk2d)
             call MatMul_5d_APU(nlines, ilines, klines, nx, fdmi_int2, rhsi(:, 1:5), f(1:2*size(fdmi_int2%lhs, 1), 1:klines, 1:ilines), &
             result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(:, 1, :, :), bcs_t=wrk2d(:, 2, :, :))
         end select

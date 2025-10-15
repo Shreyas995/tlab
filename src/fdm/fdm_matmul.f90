@@ -178,7 +178,7 @@ contains
 
             ! -------------------------------------------------------------------
             ! Boundary; the first 3/2+1+1=3 rows might be different
-            !$omp target exit data map(delete: bcs_b, bcs_t, wrk2d)
+            !$omp target exit data map(delete: bcs_b, bcs_t)
             if (any([BCS_MIN, BCS_BOTH] == ibc)) then
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_b) .and. present(bcs_t)) then
