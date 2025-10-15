@@ -429,7 +429,6 @@ contains
 
 #ifdef USE_APU
         ! Here collapse (2) does not work
-        !$omp target data map(to: tmp2) map(from: p_wrk3d)
         !$omp target teams distribute parallel do
 #endif
         do i = 1, i_max
