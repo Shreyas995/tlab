@@ -93,15 +93,6 @@ subroutine TRIDSS(nmax, len, a, b, c, f)
 #endif
 
     CALL SYSTEM_CLOCK(clock_0,clock_cycle) 
-#ifdef USE_BLAS
-! !$omp parallel default(none) &
-! !$omp private(n,ilen,srt,end,siz,dummy1,dummy2) &
-! !$omp shared(f,a,b,c,nmax,len)
-#else
-! !$omp parallel default(none) &
-! !$omp private(n,l,srt,end,siz,dummy1,dummy2) &
-! !$omp shared(f,a,b,c,nmax,len)
-#endif
 
     call TLab_OMP_PARTITION(len, srt, end, siz)
     if (siz <= 0) then
@@ -197,15 +188,6 @@ subroutine TRIDSS_ADD(nmax, len, a, b, c, f, g, h, d)
     ilen = len
 #endif
     CALL SYSTEM_CLOCK(clock_0,clock_cycle)
-#ifdef USE_BLAS
-! !$omp parallel default(none) &
-! !$omp private(n,l,ilen,srt,end,siz,dummy1,dummy2) &
-! !$omp shared(f,a,b,c,d,g,h,nmax,len)
-#else
-! !$omp parallel default(none) &
-! !$omp private(n,l,srt,end,siz,dummy1,dummy2) &
-! !$omp shared(f,a,b,c,d,g,h,nmax,len)
-#endif
 
     call TLab_OMP_PARTITION(len, srt, end, siz)
     if (siz <= 0) then
@@ -393,6 +375,7 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
             f(l, n) = f(l, n) + c(n)*f(l, n + 1) + e(n)*f(l, nmax)
         end do
     end do
+    !$omp end target teams distribute parallel do
 #elif defined(USE_BLAS)
 ! -------------------------------------------------------------------
 ! Forward sweep
@@ -494,135 +477,96 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
 ! -------------------------------------------------------------------
     CALL SYSTEM_CLOCK(clock_0,clock_cycle)
 
-    call TLab_OMP_PARTITION(len, srt, end, siz)
+    ! call TLab_OMP_PARTITION(len, srt, end, siz)
+    srt = 1; end = len; siz = len
     if (siz <= 0) then
         goto 999
     end if
 
-#ifdef USE_BLAS
-    ilen = siz
-#endif
-
-    dummy1 = b(1)
 #ifdef USE_APU
-    !$omp parallel do default( shared ) private( l )
-    do l = srt, end ! offload to APU
-        f(l, 1) = f(l, 1)*dummy1
-    end do
-    !$omp end parallel do
-#elif defined(USE_BLAS)
-    call SCAL_LOC(ilen, dummy1, f(srt, 1), 1)
-#else
+    !$omp target teams distribute parallel do                            &
+    !$omp&    default(shared) private(l, n)                              &
+    !$omp&    schedule(static)
     do l = srt, end
+        wrk(l) = 0.0_wp
         f(l, 1) = f(l, 1)*dummy1
+        do n = 2, nmax - 1
+            f(l, n) = f(l, n)*b(n) + a(n)*f(l, n - 1)
+            wrk(l) = wrk(l) + d(n)*f(l, n)
+        end do
+        wrk(l) = wrk(l) + d(1)*f(l, 1)
+        f(l, nmax) = (f(l, nmax) - wrk(l))*b(nmax)
+        ! -------------------------------------------------------------------
+        ! Backward sweep
+        ! -------------------------------------------------------------------
+        f(l, nmax - 1) = e(nmax - 1)*f(l, nmax) + f(l, nmax - 1)
+        do n = nmax - 2, 1, -1
+            f(l, n) = f(l, n) + c(n)*f(l, n + 1) + e(n)*f(l, nmax)
+            f(l, n + 1) = f(l, n + 1) - g(l, n + 1)*h(l, n + 1)
+        end do
+        f(l, 1) = f(l, 1) - g(l, 1)*h(l, 1)
+        f(l, nmax) = f(l, nmax) - g(l, nmax)*h(l, nmax)
     end do
-#endif
-
+    !$omp end target teams distribute parallel do
+#elif defined(USE_BLAS)
+    ilen = siz
+    dummy1 = b(1)
+    call SCAL_LOC(ilen, dummy1, f(srt, 1), 1)
     do n = 2, nmax - 1
         dummy1 = a(n)
         dummy2 = b(n)
-#ifdef USE_APU
-    !$omp parallel do default( shared ) private( l )
-        do l = srt, end ! offload to APU
-            f(l, n) = f(l, n)*dummy2 + dummy1*f(l, n - 1)
-        end do
-    !$omp end parallel do
-#elif defined(USE_BLAS)
         call SCAL_LOC(ilen, dummy2, f(srt, n), 1)
         call AXPY_LOC(ilen, dummy1, f(srt, n - 1), 1, f(srt, n), 1)
-#else
-        do l = srt, end
-            f(l, n) = f(l, n)*dummy2 + dummy1*f(l, n - 1)
-        end do
-#endif
     end do
-
     wrk(srt:end) = 0.0_wp
-
     do n = 1, nmax - 1
         dummy1 = d(n)
-#ifdef USE_APU
-    !$omp parallel do default( shared ) private( l )
-        do l = srt, end ! offload to APU
-            wrk(l) = wrk(l) + dummy1*f(l, n)
-        end do
-    !$omp end parallel do
-#elif defined(USE_BLAS)
         call AXPY_LOC(ilen, dummy1, f(srt, n), 1, wrk(srt), 1)
-#else
-        do l = srt, end
-            wrk(l) = wrk(l) + dummy1*f(l, n)
-        end do
-#endif
     end do
-
     dummy1 = b(nmax)
-#ifdef USE_APU
-    !$omp parallel do default( shared ) private( l )
-    do l = srt, end ! offload to APU
-        f(l, nmax) = (f(l, nmax) - wrk(l))*dummy1
-    end do
-    !$omp end parallel do
-#elif defined(USE_BLAS)
     call SCAL_LOC(ilen, dummy1, f(srt, nmax), 1)
     call AXPY_LOC(ilen, -dummy1, wrk(srt), 1, f(srt, nmax), 1)
-#else
-    do l = srt, end
-        f(l, nmax) = (f(l, nmax) - wrk(l))*dummy1
-    end do
-#endif
-
-! -------------------------------------------------------------------
-! Backward sweep
-! -------------------------------------------------------------------
+    ! -------------------------------------------------------------------
+    ! Backward sweep
+    ! -------------------------------------------------------------------
     dummy1 = e(nmax - 1)
-#ifdef USE_APU
-    !$omp parallel do default( shared ) private( l )
-    do l = srt, end ! offload to APU
-        f(l, nmax - 1) = dummy1*f(l, nmax) + f(l, nmax - 1)
-    end do
-    !$omp end parallel do
-#elif defined(USE_BLAS)
     call AXPY_LOC(ilen, dummy1, f(srt, nmax), 1, f(srt, nmax - 1), 1)
-#else
-    do l = srt, end
-        f(l, nmax - 1) = dummy1*f(l, nmax) + f(l, nmax - 1)
-    end do
-#endif
-
     do n = nmax - 2, 1, -1
         dummy1 = c(n)
         dummy2 = e(n)
-#ifdef USE_APU
-    !$omp parallel do default( shared ) private( l )
-        do l = srt, end
-            f(l, n) = f(l, n) + dummy1*f(l, n + 1) + dummy2*f(l, nmax)
-            f(l, n + 1) = f(l, n + 1) - g(l, n + 1)*h(l, n + 1)
-        end do
-    !$omp end parallel do
-#elif defined(USE_BLAS)
         call AXPY_LOC(ilen, dummy2, f(srt, nmax), 1, f(srt, n), 1)
         call AXPY_LOC(ilen, dummy1, f(srt, n + 1), 1, f(srt, n), 1)
         do l = srt, end
             f(l, n + 1) = f(l, n + 1) - g(l, n + 1)*h(l, n + 1)  ! TO BE IMPLEMENTED USING BLAS
         end do
-#else
-        do l = srt, end
-            f(l, n) = f(l, n) + dummy1*f(l, n + 1) + dummy2*f(l, nmax)
-            f(l, n + 1) = f(l, n + 1) - g(l, n + 1)*h(l, n + 1)
-        end do
-#endif
     end do
-#ifdef USE_APU
-    !$omp parallel do default( shared ) private( l )
-#endif
     do l = srt, end
         f(l, 1) = f(l, 1) - g(l, 1)*h(l, 1)
         f(l, nmax) = f(l, nmax) - g(l, nmax)*h(l, nmax)
     end do
-#ifdef USE_APU
-    !$omp end parallel do
+#else
+    do l = srt, end
+        wrk(l) = 0.0_wp
+        f(l, 1) = f(l, 1)*dummy1
+        do n = 2, nmax - 1
+            f(l, n) = f(l, n)*b(n) + a(n)*f(l, n - 1)
+            wrk(l) = wrk(l) + d(n)*f(l, n)
+        end do
+        wrk(l) = wrk(l) + d(1)*f(l, 1)
+        f(l, nmax) = (f(l, nmax) - wrk(l))*b(nmax)
+        ! -------------------------------------------------------------------
+        ! Backward sweep
+        ! -------------------------------------------------------------------
+        f(l, nmax - 1) = e(nmax - 1)*f(l, nmax) + f(l, nmax - 1)
+        do n = nmax - 2, 1, -1
+            f(l, n) = f(l, n) + c(n)*f(l, n + 1) + e(n)*f(l, nmax)
+            f(l, n + 1) = f(l, n + 1) - g(l, n + 1)*h(l, n + 1)
+        end do
+        f(l, 1) = f(l, 1) - g(l, 1)*h(l, 1)
+        f(l, nmax) = f(l, nmax) - g(l, nmax)*h(l, nmax)
+    end do
 #endif
+
 999 continue
     CALL SYSTEM_CLOCK(clock_1,clock_cycle)
     tridpssadd_time = tridpssadd_time + real(clock_1 - clock_0,wp)/real(clock_cycle,wp)
