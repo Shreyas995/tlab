@@ -5,7 +5,7 @@
 !########################################################################
 module TLab_Sources
     use TLab_Constants, only: wp, wi, small_wp
-    use TLab_Memory, only: imax, jmax, kmax, isize_field, inb_scal, inb_scal_array
+    use TLab_Memory, only: imax, jmax, kmax, isize_field, inb_scal, inb_scal_array, inb_flow
     use NavierStokes, only: nse_eqns, DNS_EQNS_ANELASTIC
     use FDM, only: g
     use FDM, only: fdm_Int0
@@ -35,8 +35,8 @@ contains
 ! #######################################################################
     subroutine TLab_Sources_Flow(q, s, hq, tmp1)
         use TLab_Time, only: rtime
-        real(wp), intent(in) :: q(isize_field, *), s(isize_field, *)
-        real(wp), intent(out) :: hq(isize_field, *)
+        real(wp), intent(in) :: q(isize_field, inb_flow), s(isize_field, inb_scal)
+        real(wp), intent(out) :: hq(isize_field, inb_flow)
         real(wp), intent(inout) :: tmp1(isize_field)
 
         ! -----------------------------------------------------------------------
@@ -136,8 +136,8 @@ contains
     ! #######################################################################
     ! #######################################################################
     subroutine TLab_Sources_Scal(s, hs, tmp1, tmp2, tmp3, tmp4)
-        real(wp), intent(in) :: s(isize_field, *)
-        real(wp), intent(out) :: hs(isize_field, *)
+        real(wp), intent(in) :: s(isize_field, inb_scal)
+        real(wp), intent(out) :: hs(isize_field, inb_scal)
         real(wp), intent(inout) :: tmp1(isize_field), tmp2(isize_field), tmp3(isize_field), tmp4(isize_field)
 
         ! -----------------------------------------------------------------------
