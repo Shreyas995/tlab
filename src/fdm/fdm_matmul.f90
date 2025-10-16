@@ -181,9 +181,9 @@ contains
             if (any([BCS_MIN, BCS_BOTH] == ibc)) then
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_b) .and. present(bcs_t)) then
-                        !$omp target teams distribute parallel do collapse(2) 
-                        !$omp& private(i,k,n,pa,pb,pc,pd,pe,pf) 
-                        !$omp& shared(ilines,klines,nx,bcs_b,bcs_t,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi%rhs_b,fdmi%rhs_t)
+                        !$omp target teams distribute parallel do collapse(2) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp shared(ilines,klines,nx,bcs_b,bcs_t,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi%rhs_b,fdmi%rhs_t)
                         do i = 1, ilines
                             do k = 1, klines
                                 bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
@@ -201,9 +201,9 @@ contains
                         end do
                         !$omp end target teams distribute parallel do
                     else if (present(bcs_b)) then
-                        !$omp target teams distribute parallel do collapse(2) 
-                        !$omp& private(i,k,n,pa,pb,pc,pd,pe,pf) 
-                        !$omp& shared(ilines,klines,nx,bcs_b,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi%rhs_b,fdmi%rhs_t)
+                        !$omp target teams distribute parallel do collapse(2) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp shared(ilines,klines,nx,bcs_b,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi%rhs_b,fdmi%rhs_t)
                         do i = 1, ilines
                             do k = 1, klines
                                 bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
@@ -221,9 +221,9 @@ contains
                         !$omp end target teams distribute parallel do
                     else if (present(bcs_t)) then
                         ! f(1) contains the boundary condition
-                        !$omp target teams distribute parallel do collapse(2) 
-                        !$omp& private(i,k,n,pa,pb,pc,pd,pe,pf) 
-                        !$omp& shared(ilines,klines,nx,bcs_t,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi%rhs_b,fdmi%rhs_t)
+                        !$omp target teams distribute parallel do collapse(2) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp shared(ilines,klines,nx,bcs_t,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi%rhs_b,fdmi%rhs_t)
                         do i = 1, ilines
                             do k = 1, klines
                                 f(:, 2, k, i) = f(:, 1, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
@@ -239,9 +239,9 @@ contains
                         end do
                         !$omp end target teams distribute parallel do
                     else
-                        !$omp target teams distribute parallel do collapse(2) 
-                        !$omp& private(i,k,n,pa,pb,pc,pd,pe,pf) 
-                        !$omp& shared(ilines,klines,nx,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi%rhs_b,fdmi%rhs_t)
+                        !$omp target teams distribute parallel do collapse(2) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp shared(ilines,klines,nx,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi%rhs_b,fdmi%rhs_t)
                         do i = 1, ilines
                             do k = 1, klines
                                 ! f(1) contains the boundary condition
@@ -259,9 +259,9 @@ contains
                     end if
                 else
                     if (present(bcs_b)) then
-                        !$omp target teams distribute parallel do collapse(2) 
-                        !$omp& private(i,k,n,pa,pb,pc,pd,pe,pf) 
-                        !$omp& shared(ilines,klines,nx,bcs_b,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi%rhs_b,rhs)
+                        !$omp target teams distribute parallel do collapse(2) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp shared(ilines,klines,nx,bcs_b,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi%rhs_b,rhs)
                         do i = 1, ilines
                             do k = 1, klines
                                 bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
@@ -279,9 +279,9 @@ contains
                         end do
                         !$omp end target teams distribute parallel do
                     else
-                        !$omp target teams distribute parallel do collapse(2) 
-                        !$omp& private(i,k,n,pa,pb,pc,pd,pe,pf) 
-                        !$omp& shared(ilines,klines,nx,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,rhs,fdmi%rhs_b,fdmi%rhs_t)
+                        !$omp target teams distribute parallel do collapse(2) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp shared(ilines,klines,nx,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,rhs,fdmi%rhs_b,fdmi%rhs_t)
                         do i = 1, ilines
                             do k = 1, klines
                             ! f(1) contains the boundary condition
@@ -302,9 +302,9 @@ contains
             else
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_t)) then
-                        !$omp target teams distribute parallel do collapse(2) 
-                        !$omp& private(i,k,n,pa,pb,pc,pd,pe,pf) 
-                        !$omp& shared(ilines,klines,nx,bcs_t,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,rhs,fdmi%rhs_b,fdmi%rhs_t)
+                        !$omp target teams distribute parallel do collapse(2) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp shared(ilines,klines,nx,bcs_t,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,rhs,fdmi%rhs_b,fdmi%rhs_t)
                         do i = 1, ilines
                             do k = 1, klines
                                 f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
@@ -321,9 +321,9 @@ contains
                         end do
                         !$omp end target teams distribute parallel do
                     else
-                        !$omp target teams distribute parallel do collapse(2) 
-                        !$omp& private(i,k,n,pa,pb,pc,pd,pe,pf) 
-                        !$omp& shared(ilines,klines,rhs,nx,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi%rhs_t)
+                        !$omp target teams distribute parallel do collapse(2) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp shared(ilines,klines,rhs,nx,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi%rhs_t)
                         do i = 1, ilines
                             do k = 1, klines
                                 f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
@@ -340,9 +340,9 @@ contains
                         !$omp end target teams distribute parallel do
                     end if
                 else
-                    !$omp target teams distribute parallel do collapse(2) 
-                    !$omp& private(i,k,n,pa,pb,pc,pd,pe,pf) 
-                    !$omp& shared(ilines,klines,rhs,nx,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6)
+                    !$omp target teams distribute parallel do collapse(2) &
+                    !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                    !$omp shared(ilines,klines,rhs,nx,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6)
                     do i = 1, ilines
                         do k = 1, klines
                             f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
@@ -416,9 +416,9 @@ contains
         ! -------------------------------------------------------------------
         nx = size(rhs, 1)
         my = size(f, 1)
-        !$omp target teams distribute parallel do 
-        !$omp& private(m,n) 
-        !$omp& shared(my,nx,f,u,rhs)
+        !$omp target teams distribute parallel do &
+        !$omp private(m,n) &
+        !$omp shared(my,nx,f,u,rhs)
         do m = 1, my
             ! Boundary
             n = 1
@@ -458,9 +458,9 @@ contains
         ! -------------------------------------------------------------------
         ! Boundary
         if (ibc == BCS_PERIODIC) then
-            !$omp target teams distribute parallel do 
-            !$omp& private(m,n) 
-            !$omp& shared(my,nx,u,f)
+            !$omp target teams distribute parallel do &
+            !$omp private(m,n) &
+            !$omp shared(my,nx,u,f)
             do m = 1, my
                 f(m, 1) = u(m, 2) - u(m, nx)
                 f(m, 2) = u(m, 3) - u(m, 1)
@@ -475,9 +475,9 @@ contains
             if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
                 ! f(1) contains the boundary condition
                 if (present(bcs_b)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,u,f,rhs_b,rhs_t,bcs_b,bcs_t)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,u,f,rhs_b,rhs_t,bcs_b,bcs_t)
                     do m = 1, my
                         bcs_b(m) = f(m, 1)*r2_b(1) + u(m, 2)*r3_b(1) + u(m, 3)*r1_b(1) ! r1(1) contains extended stencil
                         f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
@@ -489,9 +489,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,u,f,rhs_b,rhs_t)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,u,f,rhs_b,rhs_t)
                     do m = 1, my
                         f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
                         do n = 3, nx - 2
@@ -503,9 +503,9 @@ contains
                 end if
             else
                 if (present(bcs_b)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,u,f,rhs_b,rhs,bcs_b)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,u,f,rhs_b,rhs,bcs_b)
                     do m = 1, my
                         bcs_b(m) = f(m, 1)*r2_b(1) + u(m, 2)*r3_b(1) + u(m, 3)*r1_b(1) ! r1(1) contains extended stencil
                         f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
@@ -517,9 +517,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,u,f,rhs_b,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,u,f,rhs_b,rhs)
                     do m = 1, my
                         f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
                         do n = 3, nx - 2
@@ -534,9 +534,9 @@ contains
         else
             if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
                 if (present(bcs_t)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,u,f,rhs_t,rhs,bcs_t)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,u,f,rhs_t,rhs,bcs_t)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
                         f(m, 2) = u(m, 1)*r1_i(2) + u(m, 2)*r2_i(2) + u(m, 3)*r3_i(2)
@@ -548,9 +548,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,u,f,rhs_t,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,u,f,rhs_t,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
                         f(m, 2) = u(m, 1)*r1_i(2) + u(m, 2)*r2_i(2) + u(m, 3)*r3_i(2)
@@ -562,9 +562,9 @@ contains
                     !$omp end target teams distribute parallel do
                 end if
             else
-                !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,u,f,rhs)
+                !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,u,f,rhs)
                 do m = 1, my
                     f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
                     f(m, 2) = u(m, 1)*r1_i(2) + u(m, 2)*r2_i(2) + u(m, 3)*r3_i(2)
@@ -707,9 +707,9 @@ contains
         ! -------------------------------------------------------------------
         ! Boundary
         if (ibc == BCS_PERIODIC) then
-            !$omp target teams distribute parallel do 
-            !$omp& private(m,n) 
-            !$omp& shared(my,nx,u,f,rhs)
+            !$omp target teams distribute parallel do &
+            !$omp private(m,n) &
+            !$omp shared(my,nx,u,f,rhs)
             do m = 1, my
                 f(m, 1) = u(m, 2) + u(m, nx) + u(m, 1)*r2_i(1)
                 do n = 2, nx - 1
@@ -721,9 +721,9 @@ contains
         else
             if (any([BCS_ND, BCS_NN] == ibc)) then
                 if (any([BCS_DN, BCS_NN] == ibc)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,u,f,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,u,f,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
                         f(m, 1) = 0.0_wp
@@ -735,9 +735,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else 
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,u,f,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,u,f,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
                         f(m, 1) = 0.0_wp
@@ -750,9 +750,9 @@ contains
                 end if
             else
                 if (any([BCS_DN, BCS_NN] == ibc)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,u,f,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,u,f,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
                         do n = 2, nx - 1
@@ -763,9 +763,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,u,f,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,u,f,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
                         do n = 2, nx - 1
@@ -807,9 +807,9 @@ contains
         if (any([BCS_MIN, BCS_BOTH] == ibc)) then
             ! f(1) contains the boundary condition
             if (present(bcs_b)) then
-                !$omp target teams distribute parallel do collapse(2) 
-                !$omp& private(i,k,n,pa,pb,pc,pd,pe,pf,pg,ph,pi,pj) 
-                !$omp& shared(ilines,klines,nx,bcs_b,f,u,fdmi%rhs_b,rhs)
+                !$omp target teams distribute parallel do collapse(2) &
+                !$omp private(i,k,n,pa,pb,pc,pd,pe,pf,pg,ph,pi,pj) &
+                !$omp shared(ilines,klines,nx,bcs_b,f,u,fdmi%rhs_b,rhs)
                 do i = 1, ilines
                     do k = 1, klines
                         bcs_b(:, k, i) = f(:, 1, k, i)*r3b(k, i, 1) + u(3:4, k, i)*r4b(k, i, 1) + u(5:6, k, i)*r5b(k, i, 1) + u(7:8, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
@@ -827,9 +827,9 @@ contains
                 !$omp end target teams distribute parallel do  
                 ! -------------------------------------------------------------------
             else
-                !$omp target teams distribute parallel do collapse(2) 
-                !$omp& private(i,k,n,pa,pb,pc,pd,pe,pf,pg,ph,pi,pj) 
-                !$omp& shared(ilines,klines,nx,f,u,fdmi%rhs_b,rhs)
+                !$omp target teams distribute parallel do collapse(2) &
+                !$omp private(i,k,n,pa,pb,pc,pd,pe,pf,pg,ph,pi,pj) &
+                !$omp shared(ilines,klines,nx,f,u,fdmi%rhs_b,rhs)
                 do i = 1, ilines
                     do k = 1, klines
                         f(:, 2, k, i) = f(:, 1, k, i)*r2b(k, i, 2) + u(3:4, k, i)*r3b(k, i, 2) + u(5:6, k, i)*r4b(k, i, 2) + u(7:8, k, i)*r5b(k, i, 2)
@@ -846,9 +846,9 @@ contains
                     ! -------------------------------------------------------------------
             end if
         else
-            !$omp target teams distribute parallel do collapse(2) 
-            !$omp& private(i,k,n,pa,pb,pc,pd,pe,pf,pg,ph,pi,pj) 
-            !$omp& shared(ilines,klines,nx,f,u,rhs)
+            !$omp target teams distribute parallel do collapse(2) &
+            !$omp private(i,k,n,pa,pb,pc,pd,pe,pf,pg,ph,pi,pj) &
+            !$omp shared(ilines,klines,nx,f,u,rhs)
             do i = 1, ilines
                 do k = 1, klines
                     f(:, 1, k, i) = u(1:2, k, i)*r3_i(1) + u(3:4, k, i)*r4_i(1) + u(5:6, k, i)*r5_i(1) + u(7:8, k, i)*r1_i(1)   ! r1(1) contains extended stencil
@@ -869,9 +869,9 @@ contains
         if (any([BCS_MAX, BCS_BOTH] == ibc)) then
             ! f(nx) contains the boundary condition
             if (present(bcs_t)) then
-                !$omp target teams distribute parallel do collapse(2) 
-                !$omp& private(i,k) 
-                !$omp& shared(ilines,klines,nx,lp1,lp2,lp3,lp4,lp5,lp6,lp7,lp8,lp9,lp10,lp11,bcs_t,f,u,fdmi%rhs_t)
+                !$omp target teams distribute parallel do collapse(2) &
+                !$omp private(i,k) &
+                !$omp shared(ilines,klines,nx,lp1,lp2,lp3,lp4,lp5,lp6,lp7,lp8,lp9,lp10,lp11,bcs_t,f,u,fdmi%rhs_t)
                 do i = 1, ilines
                     do k = 1, klines
                         f(:, nx-3, k, i) = u(lp11:lp10, k, i)*r1t(i, k, 0) + u(lp9:lp8, k, i)*r2t(i, k, 0) + u(lp7:lp6, k, i)*r3t(i, k, 0) + u(lp5:lp4, k, i)*r4t(i, k, 0) + u(lp3:lp2, k, i)*r5t(i, k, 0) + f(:, nx, k, i)*r6t(i, k, 0)
@@ -882,9 +882,9 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
             else
-                !$omp target teams distribute parallel do collapse(2) 
-                !$omp& private(i,k) 
-                !$omp& shared(ilines,klines,nx,lp1,lp2,lp3,lp4,lp5,lp6,lp7,lp8,lp9,lp10,lp11,f,u,fdmi%rhs_t)
+                !$omp target teams distribute parallel do collapse(2) &
+                !$omp private(i,k) &
+                !$omp shared(ilines,klines,nx,lp1,lp2,lp3,lp4,lp5,lp6,lp7,lp8,lp9,lp10,lp11,f,u,fdmi%rhs_t)
                 do i = 1, ilines
                     do k = 1, klines
                         f(:, nx-3, k, i) = u(lp11:lp10, k, i)*r1t(i, k, 0) + u(lp9:lp8, k, i)*r2t(i, k, 0) + u(lp7:lp6, k, i)*r3t(i, k, 0) + u(lp5:lp4, k, i)*r4t(i, k, 0) + u(lp3:lp2, k, i)*r5t(i, k, 0) + f(:, nx, k, i)*r6t(i, k, 0)
@@ -895,9 +895,9 @@ contains
                 !$omp end target teams distribute parallel do
             end if
         else
-            !$omp target teams distribute parallel do collapse(2) 
-            !$omp& private(i,k)
-            !$omp& shared(ilines,klines,nx,lp1,lp2,lp3,lp4,lp5,lp6,lp7,lp8,lp9,lp10,lp11,f,u,rhs)
+            !$omp target teams distribute parallel do collapse(2) &
+            !$omp private(i,k) &
+            !$omp shared(ilines,klines,nx,lp1,lp2,lp3,lp4,lp5,lp6,lp7,lp8,lp9,lp10,lp11,f,u,rhs)
             do i = 1, ilines
                 do k = 1, klines
                     f(:, nx-3, k, i) = u(lp11:lp10, k, i)*r1_i(nx - 3) + u(lp9:lp8, k, i)*r2_i(nx - 3) + u(lp7:lp6, k, i)*r3_i(nx - 3) + u(lp5:lp4, k, i)*r4_i(nx - 3) + u(lp3:lp2, k, i)*r5_i(nx - 3)
@@ -1016,9 +1016,9 @@ contains
         ! #######################################################################
         nx = size(rhs, 1)
         my = size(f, 1)
-        !$omp target teams distribute parallel do 
-        !$omp& private(m,n) 
-        !$omp& shared(my,nx,f,u,rhs)
+        !$omp target teams distribute parallel do &
+        !$omp private(m,n) &
+        !$omp shared(my,nx,f,u,rhs)
         do m = 1, my
             ! -------------------------------------------------------------------
             ! Boundary
@@ -1128,9 +1128,9 @@ contains
         ! -------------------------------------------------------------------
         ! Boundary
         if (ibc == BCS_PERIODIC) then
-            !$omp target teams distribute parallel do 
-            !$omp& private(m,n) 
-            !$omp& shared(my,nx,r5_loc,f,u)
+            !$omp target teams distribute parallel do &
+            !$omp private(m,n) &
+            !$omp shared(my,nx,r5_loc,f,u)
             do m = 1, my
                 f(m, 1) = u(m, 2) - u(m, nx) + r5_loc*(u(m, 3) - u(m, nx - 1))
                 f(m, 2) = u(m, 3) - u(m, 1) + r5_loc*(u(m, 4) - u(m, nx))
@@ -1148,9 +1148,9 @@ contains
             if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
                 ! f(1) contains boundary condition
                 if (present(bcs_b) .and. present(bcs_t)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,rhs_b,rhs_t,f,u,bcs_b,bcs_t,r5_loc)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,rhs_b,rhs_t,f,u,bcs_b,bcs_t,r5_loc)
                     do m = 1, my
                         bcs_b(m) = f(m, 1)*r3_b(1) + u(m, 2)*r4_b(1) + u(m, 3)*r5_b(1) + u(m, 4)*r1_b(1) ! r1(1) with extended stencil
                         f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
@@ -1165,9 +1165,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else if (present(bcs_b)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,rhs_b,rhs_t,f,u,bcs_b,r5_loc)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,rhs_b,rhs_t,f,u,bcs_b,r5_loc)
                     do m = 1, my
                         bcs_b(m) = f(m, 1)*r3_b(1) + u(m, 2)*r4_b(1) + u(m, 3)*r5_b(1) + u(m, 4)*r1_b(1) ! r1(1) with extended stencil
                         f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
@@ -1181,9 +1181,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else if (present(bcs_t)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,rhs_b,rhs_t,f,u,r5_loc)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,rhs_b,rhs_t,f,u,r5_loc)
                     do m = 1, my
                         f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
                         f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
@@ -1197,9 +1197,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,rhs_b,rhs_t,f,u,r5_loc)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,rhs_b,rhs_t,f,u,r5_loc)
                     do m = 1, my
                         f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
                         f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
@@ -1214,9 +1214,9 @@ contains
                 end if 
             else
                 if (present(bcs_b)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,rhs_b,rhs_t,f,u,bcs_b,r5_loc)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,rhs_b,rhs_t,f,u,bcs_b,r5_loc)
                     do m = 1, my
                         bcs_b(m) = f(m, 1)*r3_b(1) + u(m, 2)*r4_b(1) + u(m, 3)*r5_b(1) + u(m, 4)*r1_b(1) ! r1(1) with extended stencil
                         f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
@@ -1232,9 +1232,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,rhs_b,rhs,f,u,r5_loc)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,rhs_b,rhs,f,u,r5_loc)
                     do m = 1, my
                         f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
                         f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
@@ -1253,9 +1253,9 @@ contains
         else
             if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
                 if (present(bcs_t)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,rhs,rhs_t,f,u,bcs_t,r5_loc)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,rhs,rhs_t,f,u,bcs_t,r5_loc)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   ! r1(1) with extended stencil
                         f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
@@ -1270,9 +1270,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,rhs,rhs_t,f,u,r5_loc)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,rhs,rhs_t,f,u,r5_loc)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   ! r1(1) with extended stencil
                         f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
@@ -1287,9 +1287,9 @@ contains
                     !$omp end target teams distribute parallel do
                 end if
             else
-                !$omp target teams distribute parallel do 
-                !$omp& private(m,n) 
-                !$omp& shared(my,nx,rhs,f,u,bcs_b,r5_loc)
+                !$omp target teams distribute parallel do &
+                !$omp private(m,n) &
+                !$omp shared(my,nx,rhs,f,u,bcs_b,r5_loc)
                 do m = 1, my
                     f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   ! r1(1) with extended stencil
                     f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
@@ -1401,9 +1401,9 @@ contains
         ! Boundary
         !$omp target exit data map(delete: bcs_b, bcs_t)
         if (ibc == BCS_PERIODIC) then
-            !$omp target teams distribute parallel do 
-            !$omp& private(m,n) 
-            !$omp& shared(my,nx,f,u,r5_loc,r3_loc)
+            !$omp target teams distribute parallel do &
+            !$omp private(m,n) &
+            !$omp shared(my,nx,f,u,r5_loc,r3_loc)
             do m = 1, my
                 f(m, 1) = r3_loc*u(m, 1) + u(m, 2) + u(m, nx) + r5_loc*(u(m, 3) + u(m, nx - 1))
                 f(m, 2) = r3_loc*u(m, 2) + u(m, 3) + u(m, 1) + r5_loc*(u(m, 4) + u(m, nx))
@@ -1417,9 +1417,9 @@ contains
         else
             if (any([BCS_ND, BCS_NN] == ibc)) then
                 if (any([BCS_DN, BCS_NN] == ibc)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r5_loc,r3_loc,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r5_loc,r3_loc,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   
                         ! r1(1) contains 3. upper-diagonal to allow for longer stencil at boundary
@@ -1435,9 +1435,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r5_loc,r3_loc,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r5_loc,r3_loc,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   
                         ! r1(1) contains 3. upper-diagonal to allow for longer stencil at boundary
@@ -1454,9 +1454,9 @@ contains
                 end if
             else
                 if (any([BCS_DN, BCS_NN] == ibc)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r5_loc,r3_loc,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r5_loc,r3_loc,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   
                         ! r1(1) contains 3. upper-diagonal to allow for longer stencil at boundary
@@ -1471,9 +1471,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r5_loc,r3_loc,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r5_loc,r3_loc,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   
                         ! r1(1) contains 3. upper-diagonal to allow for longer stencil at boundary
@@ -1591,9 +1591,9 @@ contains
         ! Boundary
         !$omp target exit data map(delete: bcs_b, bcs_t)
         if (ibc == BCS_PERIODIC) then
-            !$omp target teams distribute parallel do 
-            !$omp& private(m,n) 
-            !$omp& shared(my,nx,f,u,r6_loc,r7_loc)
+            !$omp target teams distribute parallel do & 
+            !$omp private(m,n) &
+            !$omp shared(my,nx,f,u,r6_loc,r7_loc)
             do m = 1, my
                 f(m, 1) = u(m, 2) - u(m, nx) + r6_loc*(u(m, 3) - u(m, nx - 1)) + r7_loc*(u(m, 4) - u(m, nx - 2))
                 f(m, 2) = u(m, 3) - u(m, 1) + r6_loc*(u(m, 4) - u(m, nx)) + r7_loc*(u(m, 5) - u(m, nx - 1))
@@ -1614,9 +1614,9 @@ contains
             if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
                 ! f(1) contains boundary condition
                 if (present(bcs_b)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r6_loc,r7_loc,rhs_b,rhs_t,bcs_b,bcs_t)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs_b,rhs_t,bcs_b,bcs_t)
                     do m = 1, my
                         bcs_b(m) = f(m, 1)*r4_b(1) + u(m, 2)*r5_b(1) + u(m, 3)*r6_b(1) + u(m, 4)*r7_b(1) + u(m, 5)*r1_b(1)   ! r1(1) with extended stencil
                         f(m, 2) = f(m, 1)*r3_b(2) + u(m, 2)*r4_b(2) + u(m, 3)*r5_b(2) + u(m, 4)*r6_b(2) + u(m, 5)*r7_b(2)
@@ -1634,9 +1634,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r6_loc,r7_loc,rhs_b,rhs_t)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs_b,rhs_t)
                     do m = 1, my
                         f(m, 2) = f(m, 1)*r3_b(2) + u(m, 2)*r4_b(2) + u(m, 3)*r5_b(2) + u(m, 4)*r6_b(2) + u(m, 5)*r7_b(2)
                         f(m, 3) = f(m, 1)*r2_b(3) + u(m, 2)*r3_b(3) + u(m, 3)*r4_b(3) + u(m, 4)*r5_b(3) + u(m, 5)*r6_b(3) + u(m, 6)*r7_b(3)
@@ -1654,9 +1654,9 @@ contains
                 end if
             else
                 if (present(bcs_b)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r6_loc,r7_loc,rhs_b,rhs,bcs_b)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs_b,rhs,bcs_b)
                     do m = 1, my
                         bcs_b(m) = f(m, 1)*r4_b(1) + u(m, 2)*r5_b(1) + u(m, 3)*r6_b(1) + u(m, 4)*r7_b(1) + u(m, 5)*r1_b(1)   ! r1(1) with extended stencil
                         f(m, 2) = f(m, 1)*r3_b(2) + u(m, 2)*r4_b(2) + u(m, 3)*r5_b(2) + u(m, 4)*r6_b(2) + u(m, 5)*r7_b(2)
@@ -1673,9 +1673,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r6_loc,r7_loc,rhs_b,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs_b,rhs)
                     do m = 1, my
                         f(m, 2) = f(m, 1)*r3_b(2) + u(m, 2)*r4_b(2) + u(m, 3)*r5_b(2) + u(m, 4)*r6_b(2) + u(m, 5)*r7_b(2)
                         f(m, 3) = f(m, 1)*r2_b(3) + u(m, 2)*r3_b(3) + u(m, 3)*r4_b(3) + u(m, 4)*r5_b(3) + u(m, 5)*r6_b(3) + u(m, 6)*r7_b(3)
@@ -1695,9 +1695,9 @@ contains
         else
             if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
                 if (present(bcs_t)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r6_loc,r7_loc,rhs,rhs_t,bcs_t)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs,rhs_t,bcs_t)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   ! r1(1) with extended stencil
                         f(m, 2) = u(m, 1)*r3_i(2) + u(m, 2)*r4_i(2) + u(m, 3)*r5_i(2) + u(m, 4)*r6_i(2) + u(m, 5)*r7_i(2)
@@ -1715,9 +1715,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r6_loc,r7_loc,rhs,rhs_t)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs,rhs_t)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   ! r1(1) with extended stencil
                         f(m, 2) = u(m, 1)*r3_i(2) + u(m, 2)*r4_i(2) + u(m, 3)*r5_i(2) + u(m, 4)*r6_i(2) + u(m, 5)*r7_i(2)
@@ -1735,9 +1735,9 @@ contains
                     !$omp end target teams distribute parallel do
                 end if
             else
-                !$omp target teams distribute parallel do 
-                !$omp& private(m,n) 
-                !$omp& shared(my,nx,f,u,r6_loc,r7_loc,rhs)
+                !$omp target teams distribute parallel do &
+                !$omp private(m,n) &
+                !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs)
                 do m = 1, my
                     f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   ! r1(1) with extended stencil
                     f(m, 2) = u(m, 1)*r3_i(2) + u(m, 2)*r4_i(2) + u(m, 3)*r5_i(2) + u(m, 4)*r6_i(2) + u(m, 5)*r7_i(2)
@@ -1866,9 +1866,9 @@ contains
 
         ! Boundary
         if (ibc == BCS_PERIODIC) then
-            !$omp target teams distribute parallel do 
-            !$omp& private(m,n) 
-            !$omp& shared(my,nx,f,u,r4_loc,r6_loc,r7_loc)
+            !$omp target teams distribute parallel do &
+            !$omp private(m,n) &
+            !$omp shared(my,nx,f,u,r4_loc,r6_loc,r7_loc)
             do m = 1, my
                 f(m, 1) = r4_loc*u(m, 1) + u(m, 2) + u(m, nx) + r6_loc*(u(m, 3) + u(m, nx - 1)) + r7_loc*(u(m, 4) + u(m, nx - 2))
                 f(m, 2) = r4_loc*u(m, 2) + u(m, 3) + u(m, 1) + r6_loc*(u(m, 4) + u(m, nx)) + r7_loc*(u(m, 5) + u(m, nx - 1))
@@ -1884,9 +1884,9 @@ contains
         else
             if (any([BCS_ND, BCS_NN] == ibc)) then
                 if (any([BCS_DN, BCS_NN] == ibc)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   
                         ! r1(1) contains 4. upper-diagonal to allow for longer stencil at boundary
@@ -1905,9 +1905,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   
                         ! r1(1) contains 4. upper-diagonal to allow for longer stencil at boundary
@@ -1927,9 +1927,9 @@ contains
                 end if
             else
                 if (any([BCS_DN, BCS_NN] == ibc)) then
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   
                         ! r1(1) contains 4. upper-diagonal to allow for longer stencil at boundary
@@ -1947,9 +1947,9 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 else
-                    !$omp target teams distribute parallel do 
-                    !$omp& private(m,n) 
-                    !$omp& shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
                     do m = 1, my
                         f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   
                         ! r1(1) contains 4. upper-diagonal to allow for longer stencil at boundary

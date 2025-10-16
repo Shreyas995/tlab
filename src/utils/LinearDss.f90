@@ -63,9 +63,9 @@ contains
          if (len <= 0) then
             goto 999
         end if
-        !$omp target teams distribute parallel do collapse(2) 
-        !$omp& private(i, k, n) 
-        !$omp& shared(ilen,klen,len,nmmx,f,fdmi%lhs)
+        !$omp target teams distribute parallel do collapse(2) &
+        !$omp private(i, k, n) &
+        !$omp shared(ilen,klen,len,nmmx,f,fdmi%lhs)
         do i = 1, ilen
             do k = 1, klen
                 do l = 1, len
@@ -114,9 +114,9 @@ contains
         ! -----------------------------------------------------------------------
         ! Solve Ly=f, forward
         ! -----------------------------------------------------------------------
-        !$omp target teams distribute parallel do collapse(2) 
-        !$omp& private(i, k, n) 
-        !$omp& shared(ilen,klen,len,nmax,f,fdmi%lhs)
+        !$omp target teams distribute parallel do collapse(2) &
+        !$omp private(i, k, n) &
+        !$omp shared(ilen,klen,len,nmax,f,fdmi%lhs)
         do i = 1, ilen
             do k = 1, klen
                 do l = 1, len

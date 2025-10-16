@@ -355,9 +355,9 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
     ! -------------------------------------------------------------------
     ! Forward sweep
     ! -------------------------------------------------------------------
-    !$omp target teams distribute parallel do 
-    !$omp& private(l, n) 
-    !$omp& shared(srt,end,nmax,f,a,b,d,e,wrk)
+    !$omp target teams distribute parallel do &
+    !$omp private(l, n) &
+    !$omp shared(srt,end,nmax,f,a,b,d,e,wrk)
     do l = srt, end 
         f(l, 1) = f(l, 1)*b(1)
         wrk(l) = 0.0_wp

@@ -68,9 +68,9 @@ subroutine RHS_SCAL_GLOBAL_INCOMPRESSIBLE_1(is)
     call OPR_Partial_X(OPR_P2_P1, imax, jmax, kmax, bcs, g(1), s(:,is), tmp4, tmp1)
 
 #ifdef USE_APU
-    !$omp target teams distribute parallel do 
-    !$omp& private( ij ) 
-    !$omp& default( isize_field,hs,diff,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,u,v,w )
+    !$omp target teams distribute parallel do &
+    !$omp private( ij ) &
+    !$omp default( isize_field,hs,diff,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,u,v,w )
 #endif
     do ij = 1, isize_field
         hs(ij,is) = hs(ij,is) + diff*(tmp6(ij) + tmp5(ij) + tmp4(ij)) &

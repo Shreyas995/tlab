@@ -73,8 +73,8 @@ contains
 
                 dummy = buoyancy%vector(iq)
 #ifdef USE_APU
-                !$omp target teams distribute parallel do private(ij) 
-                !$omp& shared(srt,end,hq,dummy,tmp1)
+                !$omp target teams distribute parallel do private(ij) &
+                !$omp shared(srt,end,hq,dummy,tmp1)
                 do ij = srt, end ! offload to APU
                     hq(ij, iq) = hq(ij, iq) + dummy*tmp1(ij)
                 end do
@@ -98,8 +98,8 @@ contains
 
                 call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
-                !$omp target teams distribute parallel do private(ij) 
-                !$omp& shared(srt,end,hq,tmp1)
+                !$omp target teams distribute parallel do private(ij) &
+                !$omp shared(srt,end,hq,tmp1)
 #endif
                 do ij = srt, end
                     hq(ij, iq) = hq(ij, iq) + tmp1(ij)
@@ -117,8 +117,8 @@ contains
 
                 call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
-                !$omp target teams distribute parallel do private(ij) 
-                !$omp& shared(srt,end,hq,tmp1,iq)
+                !$omp target teams distribute parallel do private(ij) &
+                !$omp shared(srt,end,hq,tmp1,iq)
 #endif
                 do ij = srt, end
                     ! hq(ij, iq) = hq(ij, iq) + tmp1(ij)*forcingProps%vector(iq)
