@@ -73,11 +73,12 @@ contains
 
                 dummy = buoyancy%vector(iq)
 #ifdef USE_APU
-                !$omp parallel do default( shared ) private( ij )
+                !$omp target teams distribute parallel do private(ij) 
+                !$omp& shared(srt,end,hq,dummy,tmp1)
                 do ij = srt, end ! offload to APU
                     hq(ij, iq) = hq(ij, iq) + dummy*tmp1(ij)
                 end do
-                !$omp end parallel do
+                !$omp end target teams distribute parallel do
 #elif defined(USE_BLAS)
                 ILEN = siz
                 call DAXPY(ILEN, dummy, tmp1(srt), 1, hq(srt, iq), 1)
@@ -97,13 +98,14 @@ contains
 
                 call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
-                !$omp parallel do default( shared ) private( ij )
+                !$omp target teams distribute parallel do private(ij) 
+                !$omp& shared(srt,end,hq,tmp1)
 #endif
                 do ij = srt, end
                     hq(ij, iq) = hq(ij, iq) + tmp1(ij)
                 end do
 #ifdef USE_APU
-                !$omp end parallel do
+                !$omp end target teams distribute parallel do
 #endif
             end if
 
@@ -115,14 +117,15 @@ contains
 
                 call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
-                !$omp parallel do default( shared ) private( ij )
+                !$omp target teams distribute parallel do private(ij) 
+                !$omp& shared(srt,end,hq,tmp1,iq)
 #endif
                 do ij = srt, end
                     ! hq(ij, iq) = hq(ij, iq) + tmp1(ij)*forcingProps%vector(iq)
                     hq(ij, iq) = hq(ij, iq) + tmp1(ij)
                 end do
 #ifdef USE_APU
-                !$omp end parallel do
+                !$omp end target teams distribute parallel do
 #endif
             end if
         end do

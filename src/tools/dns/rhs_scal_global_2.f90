@@ -51,26 +51,35 @@ subroutine RHS_SCAL_GLOBAL_2(is)
 ! ###################################################################
 ! divergence terms
 ! ###################################################################
-! !$omp parallel default( shared ) private( i, dummy )
-! !$omp do
+#ifdef USE_APU
+    !$omp target teams distribute parallel do 
+    !$omp& private( ij, dummy) 
+    !$omp& default( imax,jmax,kmax,rho,tmp1,tmp2,tmp3,u,v,w )
+#endif
     do i = 1, imax*jmax*kmax
         dummy = 0.5_wp*rho(i)*s(i, is)
         tmp3(i) = dummy*w(i)
         tmp2(i) = dummy*v(i)
         tmp1(i) = dummy*u(i)
     end do
-! !$omp end do
-! !$omp end parallel
+#ifdef USE_APU
+    !$omp end target teams distribute parallel do
+#endif
     call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), tmp3, tmp4)
     call OPR_Partial_Y(OPR_P1, imax, jmax, kmax, bcs, g(2), tmp2, tmp3)
     call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp1, tmp2)
-! !$omp parallel default( shared ) private( i )
-! !$omp do
+
+#ifdef USE_APU
+    !$omp target teams distribute parallel do 
+    !$omp& private( i ) 
+    !$omp& default( imax,jmax,kmax,tmp2,tmp3,tmp4,hs )
+#endif
     do i = 1, imax*jmax*kmax
         hs(i, is) = hs(i, is) - (tmp2(i) + tmp3(i) + tmp4(i))
     end do
-! !$omp end do
-! !$omp end parallel
+#ifdef USE_APU
+    !$omp end target teams distribute parallel do
+#endif
 
 ! ###################################################################
 ! convective part + diffusion
@@ -79,14 +88,18 @@ subroutine RHS_SCAL_GLOBAL_2(is)
     call OPR_Partial_Y(OPR_P2_P1, imax, jmax, kmax, bcs_out(:, :, 2), g(2), s(:, is), tmp5, tmp2)
     call OPR_Partial_X(OPR_P2_P1, imax, jmax, kmax, bcs_out(:, :, 1), g(1), s(:, is), tmp4, tmp1)
 
-! !$omp parallel default( shared ) private( i )
-! !$omp do
+#ifdef USE_APU
+    !$omp target teams distribute parallel do 
+    !$omp& private( i ) 
+    !$omp& default( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,diff,hs,rho,u,v,w )
+#endif
     do i = 1, imax*jmax*kmax
         hs(i, is) = hs(i, is) - 0.5_wp*rho(i)*(u(i)*tmp1(i) + v(i)*tmp2(i) + w(i)*tmp3(i)) &
                     + diff*(tmp4(i) + tmp5(i) + tmp6(i))
     end do
-! !$omp end do
-! !$omp end parallel
+#ifdef USE_APU
+    !$omp end target teams distribute parallel do
+#endif
 
 ! -------------------------------------------------------------------
 ! enthalpy transport by diffusion velocities
@@ -104,13 +117,17 @@ subroutine RHS_SCAL_GLOBAL_2(is)
 ! factor (diff-cond) added now
             tmp4(i) = (diff - cond)*(tmp4(i)*T(i) + THERMO_AI(6, im, is) - THERMO_AI(6, im, NSP))
         end do
-! !$omp parallel default( shared ) private( i )
-! !$omp do
+#ifdef USE_APU
+    !$omp target teams distribute parallel do 
+    !$omp& private( i ) 
+    !$omp& default( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,hq )
+#endif
         do i = 1, imax*jmax*kmax
             hq(i, 4) = hq(i, 4) + tmp4(i)*(tmp1(i) + tmp2(i) + tmp3(i))
         end do
-! !$omp end do
-! !$omp end parallel
+#ifdef USE_APU
+    !$omp end target teams distribute parallel do
+#endif
 
 ! cross-gradients
         call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp4, tmp1)
@@ -119,13 +136,18 @@ subroutine RHS_SCAL_GLOBAL_2(is)
         call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), s(:, is), tmp4)
         call OPR_Partial_Y(OPR_P1, imax, jmax, kmax, bcs, g(2), s(:, is), tmp5)
         call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), s(:, is), tmp6)
-! !$omp parallel default( shared ) private( i )
-! !$omp do
+
+#ifdef USE_APU
+    !$omp target teams distribute parallel do 
+    !$omp& private( i ) 
+    !$omp& default( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,hq )
+#endif
         do i = 1, imax*jmax*kmax
             hq(i, 4) = hq(i, 4) + (tmp1(i)*tmp4(i) + tmp2(i)*tmp5(i) + tmp3(i)*tmp6(i))
         end do
-! !$omp end do
-! !$omp end parallel
+#ifdef USE_APU
+    !$omp end target teams distribute parallel do
+#endif
 
     end if
 

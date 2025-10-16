@@ -63,12 +63,13 @@ contains
          if (len <= 0) then
             goto 999
         end if
-        !$omp target teams distribute parallel do collapse(2) private(i, k)
+        !$omp target teams distribute parallel do collapse(2) 
+        !$omp& private(i, k, n) 
+        !$omp& shared(ilen,klen,len,nmmx,f,fdmi%lhs)
         do i = 1, ilen
             do k = 1, klen
-                do n = 3, nmax
-                    !$omp simd
-                    do l = 1, len
+                do l = 1, len
+                    do n = 3, nmax
                         f(l, n, k, i) = f(l, n, k, i) + fdmi%lhs(n, k, i ,1)*f(l, n-1, k, i)
                     end do
                 end do
@@ -76,14 +77,12 @@ contains
         ! Backward sweep
         ! -----------------------------------------------------------------------
                 n = nmax - 1
-                !$omp simd
                 do l = 1, len
                     f(l, nmax, k, i) = f(l, nmax, k, i)*fdmi%lhs(nmax, k, i, 2)
                 end do
 
-                do n = nmax - 2, 1, -1
-                    !$omp simd
-                    do l = 1, len
+                do l = 1, len
+                    do n = nmax - 2, 1, -1
                         f(l, n, k, i) = f(l, n, k, i) + fdmi%lhs(n, k, i, 3)*f(l, n+1, k, i)*fdmi%lhs(n, k, i, 2)
                     end do
                 end do
@@ -115,40 +114,25 @@ contains
         ! -----------------------------------------------------------------------
         ! Solve Ly=f, forward
         ! -----------------------------------------------------------------------
-        !$omp target teams distribute parallel do collapse(2) private(i, k)
+        !$omp target teams distribute parallel do collapse(2) 
+        !$omp& private(i, k, n) 
+        !$omp& shared(ilen,klen,len,nmax,f,fdmi%lhs)
         do i = 1, ilen
             do k = 1, klen
-                n = 3
-                !$omp simd
                 do l = 1, len
-                    f(l, n, k, i) = f(l, n, k, i) + f(l, n - 1, k, i)*fdmi%lhs(3, k, i, 2)
-                end do
-
-                do n = 4, nmax - 1
-                    !$omp simd
-                    do l = 1, len
+                    f(l, 3, k, i) = f(l, 3, k, i) + f(l, 3 - 1, k, i)*fdmi%lhs(3, k, i, 2)
+                    do n = 4, nmax - 1
                         f(l, n, k, i) = f(l, n, k, i) + f(l, n - 1, k, i)*fdmi%lhs(n, k, i, 2) + f(l, n - 2, k, i)*fdmi%lhs(n, k, i, 1)
                     end do
-                end do
+                ! end do
 
                 ! -----------------------------------------------------------------------
                 ! Solve Ux=y, backward
                 ! -----------------------------------------------------------------------
-                n = nmax - 1
-                !$omp simd
-                do l = 1, len
-                    f(l, n, k, i) = f(l, n, k, i)*fdmi%lhs(n, k, i, 3)
-                end do
-
-                n = nmax - 1 - 1
-                !$omp simd
-                do l = 1, len
-                    f(l, n, k, i) = (f(l, n, k, i) + f(l, n + 1, k, i)*fdmi%lhs(n, k, i, 4))*fdmi%lhs(n, k, i, 3)
-                end do
-
-                do n = nmax - 3, 2, -1
-                    !$omp simd
-                    do l = 1, len
+                ! do l = 1, len
+                    f(l, nmax - 1, k, i) = f(l, nmax - 1, k, i)*fdmi%lhs(nmax - 1, k, i, 3)
+                    f(l, nmax - 2, k, i) = (f(l, nmax - 2, k, i) + f(l, nmax - 2 + 1, k, i)*fdmi%lhs(nmax - 2, k, i, 4))*fdmi%lhs(nmax - 2, k, i, 3)
+                    do n = nmax - 3, 2, -1
                         f(l, n, k, i) = (f(l, n, k, i) + f(l, n + 1, k, i)*fdmi%lhs(n, k, i, 4) + f(l, n + 2, k, i)*fdmi%lhs(n, k, i, 5))*fdmi%lhs(n, k, i, 3)
                     end do
                 end do
@@ -179,10 +163,9 @@ contains
     ! -----------------------------------------------------------------------
     ! Solve Ly=frc, forward
     ! -----------------------------------------------------------------------
-        !$omp target teams distribute parallel do collapse(2) private(i, k)
+        !$omp target teams distribute parallel do collapse(2) private(i, k, n)
         do i = 1, ilen
             do k = 1, klen
-                !$omp simd
                 do ij = 1, len
                     frc(ij, 2, k, i) = frc(ij, 2, k, i)*fdmi%lhs(1, k, i, 3) ! Normalize first eqn. See HEPTADFS
                     frc(ij, 3, k, i) = frc(ij, 3, k, i) - frc(ij, 2, k, i)*fdmi%lhs(2, k, i, 3)
@@ -190,7 +173,6 @@ contains
                 end do
 
                 do n = 5, nmax-1
-                    !$omp simd
                     do ij = 1, len
                         frc(ij, n, k, i) = frc(ij, n, k, i) - frc(ij, n-1, k, i)*fdmi%lhs(n, k, i, 3) - frc(ij, n-2, k, i)*fdmi%lhs(n, k, i, 2) - frc(ij, n - 3, k, i)*fdmi%lhs(n, k, i, 1)
                     end do
@@ -199,7 +181,6 @@ contains
                 ! Solve Ux=y, backward
                 ! -----------------------------------------------------------------------
                 n = nmax - 1
-                !$omp simd
                 do ij = 1, len
                     frc(ij, n, k, i) = frc(ij, n, k, i)/fdmi%lhs(n, k, i, 4)
                     frc(ij, n-1, k, i) = (frc(ij, n-1, k, i) - frc(ij, n, k, i)*fdmi%lhs(n-1, k, i, 5))/fdmi%lhs(n-1, k, i, 4)

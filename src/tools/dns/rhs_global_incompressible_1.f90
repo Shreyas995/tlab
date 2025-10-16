@@ -105,13 +105,15 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
-    !$omp parallel do default( shared ) private( ij )
+    !$omp target teams distribute parallel do 
+    !$omp& private( ij ) 
+    !$omp& default( srt,end,hq,tmp1,tmp7,tmp8 )
 #endif
     do ij = srt, end ! offload to APU
         hq(ij, 1) = hq(ij, 1) + tmp1(ij) + tmp7(ij) + tmp8(ij)
     end do
 #ifdef USE_APU
-    !$omp end parallel do
+    !$omp end target teams distribute parallel do
 #endif
 
     ! Oy momentum equation
@@ -121,13 +123,15 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
 #ifdef USE_APU
-    !$omp parallel do default( shared ) private( ij )
+    !$omp target teams distribute parallel do 
+    !$omp& private( ij ) 
+    !$omp& default( srt,end,hq,tmp2,tmp7,tmp8 )
 #endif
     do ij = srt, end ! offload to APU
         hq(ij, 2) = hq(ij, 2) + tmp2(ij) + tmp7(ij) + tmp8(ij)
     end do
 #ifdef USE_APU
-    !$omp end parallel do
+    !$omp end target teams distribute parallel do
 #endif
 
     ! Oz momentum equation
@@ -137,13 +141,15 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
 #ifdef USE_APU
-    !$omp parallel do default( shared ) private( ij )
+    !$omp target teams distribute parallel do 
+    !$omp& private( ij ) 
+    !$omp& default( srt,end,hq,tmp2,tmp7,tmp8 )
 #endif
     do ij = srt, end ! offload to APU
         hq(ij, 3) = hq(ij, 3) + tmp3(ij) + tmp7(ij) + tmp8(ij)
     end do
 #ifdef USE_APU
-    !$omp end parallel do
+    !$omp end target teams distribute parallel do
 #endif
 
     ! IBM
@@ -164,13 +170,15 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
         call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
-!$omp parallel do default( shared ) private( ij )
+    !$omp target teams distribute parallel do 
+    !$omp& private( ij ) 
+    !$omp& default( srt,end,hs,tmp1,tmp2,tmp3 )
 #endif
         do ij = srt, end ! offload to APU
             hs(ij, is) = hs(ij, is) + tmp1(ij) + tmp2(ij) + tmp3(ij)
         end do
 #ifdef USE_APU
-    !$omp end parallel do
+    !$omp end target teams distribute parallel do
 #endif
 
     end do
@@ -194,13 +202,15 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         dummy = 1.0_wp/dte
 
 #ifdef USE_APU
-        !$omp parallel do default( shared ) private ( ij )
+        !$omp target teams distribute parallel do 
+        !$omp& private( ij ) 
+        !$omp& default( srt,end,tmp2,tmp3,tmp4,hq,u,v,w,dummy )
         do ij = srt, end ! offload to APU
             tmp2(ij) = hq(ij, 2) + v(ij)*dummy
             tmp3(ij) = hq(ij, 1) + u(ij)*dummy
             tmp4(ij) = hq(ij, 3) + w(ij)*dummy
         end do
-        !$omp end parallel do
+        !$omp end target teams distribute parallel do
 #elif defined(USE_ESSL)
         ilen = siz
         call DZAXPY(ilen, dummy, v(srt), 1, hq(srt, 2), 1, tmp2(srt), 1)
@@ -267,13 +277,15 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     ! -----------------------------------------------------------------------
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
-    !$omp parallel do default( shared ) private( ij )
+    !$omp target teams distribute parallel do 
+    !$omp& private( ij ) 
+    !$omp& default( srt,end,tmp1,tmp2,tmp3 )
 #endif
     do ij = srt, end ! offload to APU
         tmp1(ij) = tmp1(ij) + tmp2(ij) + tmp3(ij) ! forcing term in tmp1
     end do
 #ifdef USE_APU
-    !$omp end parallel do
+    !$omp end target teams distribute parallel do
 #endif
 
     ! -----------------------------------------------------------------------

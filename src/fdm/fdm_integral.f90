@@ -1258,11 +1258,9 @@ contains
 
         select case (ndr)
         case (3)
-            !$omp target exit data map(delete: wrk2d)
             call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:2*size(fdmi_int2%lhs, 1), 1:klines, 1:ilines), &
             result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(:, 1, :, :), bcs_t=wrk2d(:, 2, :, :))
         case (5)
-            !$omp target exit data map(delete: wrk2d)
             call MatMul_5d_APU(nlines, ilines, klines, nx, fdmi_int2, rhsi(:, 1:5), f(1:2*size(fdmi_int2%lhs, 1), 1:klines, 1:ilines), &
             result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(:, 1, :, :), bcs_t=wrk2d(:, 2, :, :))
         end select
@@ -1278,7 +1276,9 @@ contains
         end select
 
         CALL SYSTEM_CLOCK(clock_0,clock_cycle) 
-        !$omp target teams distribute parallel do 
+        !$omp target teams distribute parallel do collapse(2)
+        !$omp& private(i,j,k,bcs)
+        !$omp& shared(ilines,klines,nlines,fdmi_int2%bc,fdmi_int2%lhs,BCS_ND,BCS_NN,BCS_DN,result,wrk2d,nx,ndl)
         do i = 1, ilines
             do k = 1, klines
                 bcs = fdmi_int2%bc(k,i)

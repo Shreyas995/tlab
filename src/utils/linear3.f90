@@ -355,9 +355,9 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
     ! -------------------------------------------------------------------
     ! Forward sweep
     ! -------------------------------------------------------------------
-    !$omp target teams distribute parallel do                            &
-    !$omp&    default(shared) private(l, n)                              &
-    !$omp&    schedule(static)
+    !$omp target teams distribute parallel do 
+    !$omp& private(l, n) 
+    !$omp& shared(srt,end,nmax,f,a,b,d,e,wrk)
     do l = srt, end 
         f(l, 1) = f(l, 1)*b(1)
         wrk(l) = 0.0_wp
@@ -484,12 +484,12 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
     end if
 
 #ifdef USE_APU
-    !$omp target teams distribute parallel do                            &
-    !$omp&    default(shared) private(l, n)                              &
-    !$omp&    schedule(static)
+    !$omp target teams distribute parallel do 
+    !$omp& private(l, n) 
+    !$omp& shared(srt,end,nmax,wrk,f,a,b,c,d,e,g,h)
     do l = srt, end
         wrk(l) = 0.0_wp
-        f(l, 1) = f(l, 1)*dummy1
+        f(l, 1) = f(l, 1)*b(1)
         do n = 2, nmax - 1
             f(l, n) = f(l, n)*b(n) + a(n)*f(l, n - 1)
             wrk(l) = wrk(l) + d(n)*f(l, n)

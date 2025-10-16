@@ -61,7 +61,9 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
     call OPR_Burgers_X(OPR_B_SELF, 0, imax, jmax, kmax, bcs, u, u, tmp4, tmp1)
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-!$omp parallel do default( shared ) private( ij )
+    !$omp target teams distribute parallel do 
+    !$omp& private( ij ) 
+    !$omp& default( srt,end,hq,tmp2,tmp3,tmp4,tmp5,tmp6,visc,v,w )
     do ij = srt, end
         hq(:, 1) = hq(:, 1) + tmp4(ij) + visc*(tmp6(ij) + tmp5(ij)) &
                    - (w(ij)*tmp3(ij) + v(ij)*tmp2(ij))

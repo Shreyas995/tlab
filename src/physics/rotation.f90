@@ -132,14 +132,15 @@ contains
             dummy = locProps%vector(2)
             dtr3 = 0.0_wp; dtr1 = 0.0_wp
 #ifdef USE_APU
-        !$omp parallel do default( shared ) private( ii )
+        !$omp target teams distribute  parallel do private(ii) 
+        !$omp& shared(srt,end,r,u,dummy,geo_w,geo_u)
 #endif
             do ii = srt, end
                 r(ii, 1) = r(ii, 1) + dummy*(geo_w - u(ii, 3))
                 r(ii, 3) = r(ii, 3) + dummy*(u(ii, 1) - geo_u)
             end do
 #ifdef USE_APU
-        !$omp end parallel do
+        !$omp end target teams distribute parallel do
 #endif
         end select
 
