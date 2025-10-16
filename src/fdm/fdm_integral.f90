@@ -1278,7 +1278,7 @@ contains
         CALL SYSTEM_CLOCK(clock_0,clock_cycle) 
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i,j,k,bcs) &
-        !$omp shared(ilines,klines,nlines,fdmi_int2,BCS_ND,BCS_NN,BCS_DN,result,wrk2d,nx,ndl)
+        !$omp shared(ilines,klines,nlines,fdmi_int2,,result,wrk2d,nx,ndl)
         do i = 1, ilines
             do k = 1, klines
                 bcs = fdmi_int2%bc(k,i)
