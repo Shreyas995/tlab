@@ -107,7 +107,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
     !$omp private( ij ) &
-    !$omp default( srt,end,hq,tmp1,tmp7,tmp8 )
+    !$omp shared( srt,end,hq,tmp1,tmp7,tmp8 )
 #endif
     do ij = srt, end ! offload to APU
         hq(ij, 1) = hq(ij, 1) + tmp1(ij) + tmp7(ij) + tmp8(ij)
@@ -125,7 +125,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
     !$omp private( ij ) &
-    !$omp default( srt,end,hq,tmp2,tmp7,tmp8 )
+    !$omp shared( srt,end,hq,tmp2,tmp7,tmp8 )
 #endif
     do ij = srt, end ! offload to APU
         hq(ij, 2) = hq(ij, 2) + tmp2(ij) + tmp7(ij) + tmp8(ij)
@@ -143,7 +143,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
     !$omp private( ij ) &
-    !$omp default( srt,end,hq,tmp2,tmp7,tmp8 )
+    !$omp shared( srt,end,hq,tmp2,tmp7,tmp8 )
 #endif
     do ij = srt, end ! offload to APU
         hq(ij, 3) = hq(ij, 3) + tmp3(ij) + tmp7(ij) + tmp8(ij)
@@ -172,7 +172,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
     !$omp private( ij ) &
-    !$omp default( srt,end,hs,tmp1,tmp2,tmp3 )
+    !$omp shared( srt,end,hs,tmp1,tmp2,tmp3 )
 #endif
         do ij = srt, end ! offload to APU
             hs(ij, is) = hs(ij, is) + tmp1(ij) + tmp2(ij) + tmp3(ij)
@@ -204,7 +204,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
         !$omp target teams distribute parallel do &
         !$omp private( ij ) &
-        !$omp default( srt,end,tmp2,tmp3,tmp4,hq,u,v,w,dummy )
+        !$omp shared( srt,end,tmp2,tmp3,tmp4,hq,u,v,w,dummy )
         do ij = srt, end ! offload to APU
             tmp2(ij) = hq(ij, 2) + v(ij)*dummy
             tmp3(ij) = hq(ij, 1) + u(ij)*dummy
@@ -279,7 +279,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
     !$omp private( ij ) &
-    !$omp default( srt,end,tmp1,tmp2,tmp3 )
+    !$omp shared( srt,end,tmp1,tmp2,tmp3 )
 #endif
     do ij = srt, end ! offload to APU
         tmp1(ij) = tmp1(ij) + tmp2(ij) + tmp3(ij) ! forcing term in tmp1
