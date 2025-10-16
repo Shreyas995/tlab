@@ -181,7 +181,7 @@ contains
             if (any([BCS_MIN, BCS_BOTH] == ibc)) then
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_b) .and. present(bcs_t)) then
-                        !$omp target teams distribute parallel do collapse(2) &
+                        !$omp target teams distribute parallel do collapse(2) defaultmap(present) &
                         !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
                         !$omp shared(ilines,klines,nx,bcs_b,bcs_t,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi)
                         do i = 1, ilines
