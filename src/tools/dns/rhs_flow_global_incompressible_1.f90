@@ -68,7 +68,7 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
         hq(:, 1) = hq(:, 1) + tmp4(ij) + visc*(tmp6(ij) + tmp5(ij)) &
                    - (w(ij)*tmp3(ij) + v(ij)*tmp2(ij))
     end do
-!$omp end parallel do
+!$omp end target teams distribute parallel do
 
 ! #######################################################################
 ! Diffusion and convection terms in Oz momentum eqn
@@ -84,7 +84,7 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
             hq(:, 3) = hq(:, 3) + tmp6(ij) + visc*(tmp5(ij) + tmp4(ij)) &
                        - (v(ij)*tmp2(ij) + u(ij)*tmp1(ij))
         end do
-!$omp end parallel do
+!$omp end target teams distribute parallel do
 
     end if
 
