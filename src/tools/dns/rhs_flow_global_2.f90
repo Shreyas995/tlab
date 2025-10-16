@@ -250,7 +250,7 @@ subroutine RHS_FLOW_GLOBAL_2()
 #endif
 
 #ifdef USE_APU
-    !$omp target teams distribute parallel do collaspe (2) &
+    !$omp target teams distribute parallel do collapse(2) &
     !$omp private( i,is ) &
     !$omp shared( imax,jmax,kmax,inb_scal,hs,s,tmp6 )
 #endif
