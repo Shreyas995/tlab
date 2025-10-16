@@ -53,8 +53,8 @@ subroutine RHS_SCAL_GLOBAL_2(is)
 ! ###################################################################
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
-    !$omp private( ij, dummy) &
-    !$omp default( imax,jmax,kmax,rho,tmp1,tmp2,tmp3,u,v,w )
+    !$omp private( i, dummy) &
+    !$omp shared( imax,jmax,kmax,rho,tmp1,tmp2,tmp3,u,v,w )
 #endif
     do i = 1, imax*jmax*kmax
         dummy = 0.5_wp*rho(i)*s(i, is)
@@ -72,7 +72,7 @@ subroutine RHS_SCAL_GLOBAL_2(is)
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
     !$omp private( i ) &
-    !$omp default( imax,jmax,kmax,tmp2,tmp3,tmp4,hs )
+    !$omp shared( imax,jmax,kmax,tmp2,tmp3,tmp4,hs )
 #endif
     do i = 1, imax*jmax*kmax
         hs(i, is) = hs(i, is) - (tmp2(i) + tmp3(i) + tmp4(i))
@@ -91,7 +91,7 @@ subroutine RHS_SCAL_GLOBAL_2(is)
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
     !$omp private( i ) &
-    !$omp default( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,diff,hs,rho,u,v,w )
+    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,diff,hs,rho,u,v,w )
 #endif
     do i = 1, imax*jmax*kmax
         hs(i, is) = hs(i, is) - 0.5_wp*rho(i)*(u(i)*tmp1(i) + v(i)*tmp2(i) + w(i)*tmp3(i)) &
@@ -119,8 +119,8 @@ subroutine RHS_SCAL_GLOBAL_2(is)
         end do
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
-    !$omp default( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,hq ) &
-    !$omp private( i ) 
+    !$omp private( i ) &
+    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,hq ) 
 #endif
         do i = 1, imax*jmax*kmax
             hq(i, 4) = hq(i, 4) + tmp4(i)*(tmp1(i) + tmp2(i) + tmp3(i))
@@ -140,7 +140,7 @@ subroutine RHS_SCAL_GLOBAL_2(is)
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
     !$omp private( i ) &
-    !$omp default( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,hq )
+    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,hq )
 #endif
         do i = 1, imax*jmax*kmax
             hq(i, 4) = hq(i, 4) + (tmp1(i)*tmp4(i) + tmp2(i)*tmp5(i) + tmp3(i)*tmp6(i))
