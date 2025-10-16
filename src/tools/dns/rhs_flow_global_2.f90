@@ -129,7 +129,7 @@ subroutine RHS_FLOW_GLOBAL_2()
         tmp6(i) = tmp6(i) + tmp5(i)
     end do
 #ifdef USE_APU
-    !$omp end parallel do
+    !$omp end target teams distribute parallel do
 #endif
 
 ! -------------------------------------------------------------------
@@ -146,7 +146,7 @@ subroutine RHS_FLOW_GLOBAL_2()
         hq(i, 2) = hq(i, 2) - (tmp2(i) + tmp3(i) + tmp4(i)) + g2*rho(i)
     end do
 #ifdef USE_APU
-    !$omp end parallel do
+    !$omp end target teams distribute parallel do
 #endif
 ! ###################################################################
 ! Terms \rho w in mass, w-momentum equations
@@ -194,7 +194,7 @@ subroutine RHS_FLOW_GLOBAL_2()
         hq(i, 3) = hq(i, 3) - (tmp2(i) + tmp3(i) + tmp4(i)) + g3*rho(i)
     end do
 #ifdef USE_APU
-    !$omp end parallel do
+    !$omp end target teams distribute parallel do
 #endif
 ! ###################################################################
 ! Term \rho e in energy equation
