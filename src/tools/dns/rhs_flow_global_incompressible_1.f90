@@ -79,12 +79,14 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
         call OPR_Partial_X(OPR_P2_P1, imax, jmax, kmax, bcs, g(1), w, tmp4, tmp1)
 
         call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-!$omp parallel do default( shared ) private( ij )
+        !$omp target teams distribute parallel do &
+        !$omp private( ij ) &
+        !$omp shared( srt,end,hq,tmp1,tmp2,tmp4,tmp5,tmp6,visc,v,u )
         do ij = srt, end
             hq(:, 3) = hq(:, 3) + tmp6(ij) + visc*(tmp5(ij) + tmp4(ij)) &
                        - (v(ij)*tmp2(ij) + u(ij)*tmp1(ij))
         end do
-!$omp end target teams distribute parallel do
+        !$omp end target teams distribute parallel do
 
     end if
 
