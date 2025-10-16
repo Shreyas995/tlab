@@ -5,6 +5,7 @@ module Rotation
     use TLab_Constants, only: wp, wi, efile, lfile, MAX_VARS, MAX_PARS, MAX_PROF
     use NavierStokes, only: rossby
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
+    use TLab_Memory, only: inb_flow, inb_scal
     implicit none
     private
 
@@ -104,8 +105,8 @@ contains
         use TLab_OpenMP
         type(term_dt), intent(in) :: locProps
         integer(wi), intent(in) :: nx, ny, nz
-        real(wp), intent(in) :: u(nx*ny*nz, *)
-        real(wp), intent(out) :: r(nx*ny*nz, *)
+        real(wp), intent(in) :: u(nx*ny*nz, inb_flow)
+        real(wp), intent(out) :: r(nx*ny*nz, inb_scal)
 
         ! -----------------------------------------------------------------------
         integer(wi) siz, srt, end    !  Variables for OpenMP Partitioning
