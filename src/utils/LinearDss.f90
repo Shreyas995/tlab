@@ -65,7 +65,7 @@ contains
         end if
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i, k, n) &
-        !$omp shared(ilen,klen,len,nmmx,f,fdmi%lhs)
+        !$omp shared(ilen,klen,len,nmax,f,fdmi)
         do i = 1, ilen
             do k = 1, klen
                 do l = 1, len
