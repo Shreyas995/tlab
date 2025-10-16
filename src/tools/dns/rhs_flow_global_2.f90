@@ -221,7 +221,7 @@ subroutine RHS_FLOW_GLOBAL_2()
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
     !$omp private( i ) &
-    !$omp shared( imax,jmax,kmax,hq,tmp2,tmp3,2mp4)
+    !$omp shared( imax,jmax,kmax,hq,tmp2,tmp3,tmp4)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 4) = hq(i, 4) - (tmp2(i) + tmp3(i) + tmp4(i))
