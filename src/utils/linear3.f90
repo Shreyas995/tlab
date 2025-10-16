@@ -484,9 +484,9 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
     end if
 
 #ifdef USE_APU
-    !$omp target teams distribute parallel do 
-    !$omp& private(l, n) 
-    !$omp& shared(srt,end,nmax,wrk,f,a,b,c,d,e,g,h)
+    !$omp target teams distribute parallel do &
+    !$omp private(l, n) &
+    !$omp shared(srt,end,nmax,wrk,f,a,b,c,d,e,g,h)
     do l = srt, end
         wrk(l) = 0.0_wp
         f(l, 1) = f(l, 1)*b(1)
