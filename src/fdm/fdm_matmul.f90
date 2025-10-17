@@ -183,7 +183,7 @@ contains
                     if (present(bcs_b) .and. present(bcs_t)) then
                         !$omp target teams distribute parallel do collapse(2) default(shared) &
                         !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) 
-                        !$omp shared(ilines,klines,nx,bcs_b,bcs_t,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi)
+                        ! !$omp shared(ilines,klines,nx,bcs_b,bcs_t,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi)
                         do i = 1, ilines
                             do k = 1, klines
                                 bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
