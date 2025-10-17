@@ -1259,10 +1259,10 @@ contains
         select case (ndr)
         case (3)
             call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:2*size(fdmi_int2%lhs, 1), 1:klines, 1:ilines), &
-            result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(:, 1, :, :), bcs_t=wrk2d(:, 2, :, :))
+            result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(1:nlines, 1, 1:klines, 1:ilines), bcs_t=wrk2d(1:nlines, 2, 1:klines, 1:ilines))
         case (5)
             call MatMul_5d_APU(nlines, ilines, klines, nx, fdmi_int2, rhsi(:, 1:5), f(1:2*size(fdmi_int2%lhs, 1), 1:klines, 1:ilines), &
-            result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(:, 1, :, :), bcs_t=wrk2d(:, 2, :, :))
+            result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(1:nlines, 1, 1:klines, 1:ilines), bcs_t=wrk2d(1:nlines, 2, 1:klines, 1:ilines))
         end select
 
         ! Solve pentadiagonal linear system
