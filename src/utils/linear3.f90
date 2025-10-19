@@ -99,46 +99,89 @@ subroutine TRIDSS(nmax, len, a, b, c, f)
         goto 999
     end if
 
-#ifdef USE_BLAS
+#ifdef USE_APU
+    if (end > 1.5e4) then
+        !$omp target teams distribute parallel do &
+        !$omp& private(n) &
+        !$omp& shared(f, a, b, c, srt, end, nmax)
+        do l = srt, end ! end = 1
+            do n = 2, nmax !nx
+                f(l, n) = f(l, n) + a(n)*f(l, n - 1)
+            end do
+        ! end do
+        ! -----------------------------------------------------------------------
+        ! Backward sweep
+        ! -----------------------------------------------------------------------
+        ! do l = srt, end ! end = 1
+            f(l, nmax) = f(l, nmax)*b(nmax)
+            do n = nmax - 1, 1, -1 ! nmax = nx
+                f(l, n) = (f(l, n) + c(n)*f(l, n + 1))*b(n)
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+    else
+        do l = srt, end ! end = 1
+            do n = 2, nmax !nx
+                f(l, n) = f(l, n) + a(n)*f(l, n - 1)
+            end do
+        ! end do
+        ! -----------------------------------------------------------------------
+        ! Backward sweep
+        ! -----------------------------------------------------------------------
+        ! do l = srt, end ! end = 1
+            f(l, nmax) = f(l, nmax)*b(nmax)
+            do n = nmax - 1, 1, -1 ! nmax = nx
+                f(l, n) = (f(l, n) + c(n)*f(l, n + 1))*b(n)
+            end do
+        end do
+    end if
+#elif defined (USE_BLAS)
     ilen = siz
-#endif
-
     do n = 2, nmax !nx
         dummy1 = a(n)
-#ifdef USE_BLAS
         call AXPY_LOC(ilen, dummy1, f(srt, n - 1), 1, f(srt, n), 1)
-#else
-        do l = srt, end ! end = 1
-            f(l, n) = f(l, n) + dummy1*f(l, n - 1)
-        end do
-#endif
     end do
+    ! -----------------------------------------------------------------------
+    ! Backward sweep
+    ! -----------------------------------------------------------------------
+    dummy1 = b(nmax)
+    call SCAL_LOC(ilen, dummy1, f(srt, nmax), 1)
+    do n = nmax - 1, 1, -1 ! nmax = nx
+        dummy1 = c(n)
+        dummy2 = b(n)
+        call AXPY_LOC(ilen, dummy1, f(srt, n + 1), 1, f(srt, n), 1)
+        call SCAL_LOC(ilen, dummy2, f(srt, n), 1)
+    end do
+#else
+    do l = srt, end ! end = 1
+        do n = 2, nmax !nx
+            f(l, n) = f(l, n) + a(n)*f(l, n - 1)
+        end do
+    ! end do
+    ! -----------------------------------------------------------------------
+    ! Backward sweep
+    ! -----------------------------------------------------------------------
+    ! do l = srt, end ! end = 1
+        f(l, nmax) = f(l, nmax)*b(nmax)
+        do n = nmax - 1, 1, -1 ! nmax = nx
+            f(l, n) = (f(l, n) + c(n)*f(l, n + 1))*b(n)
+        end do
+    end do
+#endif
 
 ! -----------------------------------------------------------------------
 ! Backward sweep
 ! -----------------------------------------------------------------------
-    dummy1 = b(nmax)
-#ifdef USE_BLAS
-    call SCAL_LOC(ilen, dummy1, f(srt, nmax), 1)
-#else
-    do l = srt, end ! end = 1
-        f(l, nmax) = f(l, nmax)*dummy1
-    end do
-#endif
 
+
+#ifdef USE_BLAS
     do n = nmax - 1, 1, -1 ! nmax = nx
         dummy1 = c(n)
         dummy2 = b(n)
-#ifdef USE_BLAS
         call AXPY_LOC(ilen, dummy1, f(srt, n + 1), 1, f(srt, n), 1)
         call SCAL_LOC(ilen, dummy2, f(srt, n), 1)
-#else
-        do l = srt, end ! end = 1
-            f(l, n) = (f(l, n) + dummy1*f(l, n + 1))*dummy2
-        end do
-
-#endif
     end do
+#endif
 999 continue
 ! !$omp end parallel
     CALL SYSTEM_CLOCK(clock_1,clock_cycle) 
