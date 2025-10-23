@@ -28,7 +28,6 @@ module FDM_MatMul
     public MatMul_5d            ! Calculate f = B u, assuming B is pentadiagonal
     public MatMul_5d_APU        ! Calculate f = B u, assuming B is pentadiagonal, APU offloading
     public MatMul_5d_add        ! Calculate f = f + B u, assuming B is pentadiagonal
-    public MatMul_5d_add_APU
     ! special cases where coefficients are constant in the interior points
     public MatMul_5d_antisym    ! Calculate f = B u, assuming B is pentadiagonal, antisymmetric
     public MatMul_5d_antisym_APU
@@ -105,46 +104,196 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, m, my
 
         ! #######################################################################
         nx = size(rhs, 1)
+        my = size(f, 1)
         ! print *, nd = size(rhs, 2)    ! # diagonals, should be 3
         ! size(u,2) and size(f,2) should be nx
         ! size(u,1) and size(f,1) and size(bcs_b) and size(bcs_t) should be the same (number of equations to solve)
 
         ! -------------------------------------------------------------------
-        ! Boundary; the first 3/2+1+1=3 rows might be different
-        if (any([BCS_MIN, BCS_BOTH] == ibc)) then
-            if (present(bcs_b)) bcs_b(:) = f(:, 1)*r2_b(1) + u(:, 2)*r3_b(1) + u(:, 3)*r1_b(1) ! r1(1) contains extended stencil
-            ! f(1) contains the boundary condition
-            f(:, 2) = f(:, 1)*r1_b(2) + u(:, 2)*r2_b(2) + u(:, 3)*r3_b(2)
-            f(:, 3) = f(:, 1)*r0_b(3) + u(:, 2)*r1_b(3) + u(:, 3)*r2_b(3) + u(:, 4)*r3_b(3)
+#ifdef USE_APU
+        if (size(f) < 1.5e4) then
+#endif
+            ! Boundary; the first 3/2+1+1=3 rows might be different
+            if (any([BCS_MIN, BCS_BOTH] == ibc)) then
+                if (present(bcs_b)) bcs_b(:) = f(:, 1)*r2_b(1) + u(:, 2)*r3_b(1) + u(:, 3)*r1_b(1) ! r1(1) contains extended stencil
+                ! f(1) contains the boundary condition
+                f(:, 2) = f(:, 1)*r1_b(2) + u(:, 2)*r2_b(2) + u(:, 3)*r3_b(2)
+                f(:, 3) = f(:, 1)*r0_b(3) + u(:, 2)*r1_b(3) + u(:, 3)*r2_b(3) + u(:, 4)*r3_b(3)
+            else
+                f(:, 1) = u(:, 1)*r2_i(1) + u(:, 2)*r3_i(1) + u(:, 3)*r1_i(1)   ! r1(1) contains extended stencil
+                f(:, 2) = u(:, 1)*r1_i(2) + u(:, 2)*r2_i(2) + u(:, 3)*r3_i(2)
+                f(:, 3) = u(:, 2)*r1_i(3) + u(:, 3)*r2_i(3) + u(:, 4)*r3_i(3)
+            end if
+
+            ! -------------------------------------------------------------------
+            ! Interior points; accelerate
+            do n = 4, nx - 3
+                f(:, n) = u(:, n - 1)*r1_i(n) + u(:, n)*r2_i(n) + u(:, n + 1)
+            end do
+
+            ! -------------------------------------------------------------------
+            ! Boundary; the last 3/2+1+1=3 rows might be different
+            if (any([BCS_MAX, BCS_BOTH] == ibc)) then
+                ! f(nx) contains the boundary condition
+                f(:, nx - 2) = u(:, nx - 3)*r1_t(0) + u(:, nx - 2)*r2_t(0) + u(:, nx - 1)*r3_t(0) + f(:, nx)*r4_t(0)
+                f(:, nx - 1) = u(:, nx - 2)*r1_t(1) + u(:, nx - 1)*r2_t(1) + f(:, nx)*r3_t(1)
+                if (present(bcs_t)) bcs_t(:) = u(:, nx - 2)*r3_t(2) + u(:, nx - 1)*r1_t(2) + f(:, nx)*r2_t(2) ! r3(nx) contains extended stencil
+            else
+                f(:, nx - 2) = u(:, nx - 3)*r1_i(nx - 2) + u(:, nx - 2)*r2_i(nx - 2) + u(:, nx - 1)*r3_i(nx - 2)
+                f(:, nx - 1) = u(:, nx - 2)*r1_i(nx - 1) + u(:, nx - 1)*r2_i(nx - 1) + u(:, nx)*r3_i(nx - 1)
+                f(:, nx) = u(:, nx - 2)*r3_i(nx) + u(:, nx - 1)*r1_i(nx) + u(:, nx)*r2_i(nx) ! r3(nx) contains extended stencil
+            end if
+#ifdef USE_APU
         else
-            f(:, 1) = u(:, 1)*r2_i(1) + u(:, 2)*r3_i(1) + u(:, 3)*r1_i(1)   ! r1(1) contains extended stencil
-            f(:, 2) = u(:, 1)*r1_i(2) + u(:, 2)*r2_i(2) + u(:, 3)*r3_i(2)
-            f(:, 3) = u(:, 2)*r1_i(3) + u(:, 3)*r2_i(3) + u(:, 4)*r3_i(3)
+            if (any([BCS_MIN, BCS_BOTH] == ibc)) then
+                if (any([BCS_MAX, BCS_BOTH] == ibc)) then
+                    if (present(bcs_b) .and. present(bcs_t)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) 
+                        !$omp shared(nx,my,bcs_b,bcs_t,f,u,rhs_b,rhs_t,rhs)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r2_b(1) + u(m, 2)*r3_b(1) + u(m, 3)*r1_b(1) ! r1(1) contains extended stencil
+                            ! f(1) contains the boundary condition
+                            f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
+                            f(m, 3) = f(m, 1)*r0_b(3) + u(m, 2)*r1_b(3) + u(m, 3)*r2_b(3) + u(m, 4)*r3_b(3)
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n - 1)*r1_i(n) + u(m, n)*r2_i(n) + u(m, n + 1)
+                            end do
+                            ! f(nx) contains the boundary condition
+                            f(m, nx - 2) = u(m, nx - 3)*r1_t(0) + u(m, nx - 2)*r2_t(0) + u(m, nx - 1)*r3_t(0) + f(m, nx)*r4_t(0)
+                            f(m, nx - 1) = u(m, nx - 2)*r1_t(1) + u(m, nx - 1)*r2_t(1) + f(m, nx)*r3_t(1)
+                            bcs_t(m) = u(m, nx - 2)*r3_t(2) + u(m, nx - 1)*r1_t(2) + f(m, nx)*r2_t(2) ! r3(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else if (present(bcs_b)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) 
+                        !$omp shared(nx,my,bcs_b,f,u,rhs_b,rhs_t,rhs)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r2_b(1) + u(m, 2)*r3_b(1) + u(m, 3)*r1_b(1) ! r1(1) contains extended stencil
+                            ! f(1) contains the boundary condition
+                            f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
+                            f(m, 3) = f(m, 1)*r0_b(3) + u(m, 2)*r1_b(3) + u(m, 3)*r2_b(3) + u(m, 4)*r3_b(3)
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n - 1)*r1_i(n) + u(m, n)*r2_i(n) + u(m, n + 1)
+                            end do
+                            ! f(nx) contains the boundary condition
+                            f(m, nx - 2) = u(m, nx - 3)*r1_t(0) + u(m, nx - 2)*r2_t(0) + u(m, nx - 1)*r3_t(0) + f(m, nx)*r4_t(0)
+                            f(m, nx - 1) = u(m, nx - 2)*r1_t(1) + u(m, nx - 1)*r2_t(1) + f(m, nx)*r3_t(1)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) 
+                        !$omp shared(nx,my,bcs_t,f,u,rhs_b,rhs_t,rhs)
+                        do m = 1, my
+                            f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
+                            f(m, 3) = f(m, 1)*r0_b(3) + u(m, 2)*r1_b(3) + u(m, 3)*r2_b(3) + u(m, 4)*r3_b(3)
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n - 1)*r1_i(n) + u(m, n)*r2_i(n) + u(m, n + 1)
+                            end do
+                            ! f(nx) contains the boundary condition
+                            f(m, nx - 2) = u(m, nx - 3)*r1_t(0) + u(m, nx - 2)*r2_t(0) + u(m, nx - 1)*r3_t(0) + f(m, nx)*r4_t(0)
+                            f(m, nx - 1) = u(m, nx - 2)*r1_t(1) + u(m, nx - 1)*r2_t(1) + f(m, nx)*r3_t(1)
+                            bcs_t(m) = u(m, nx - 2)*r3_t(2) + u(m, nx - 1)*r1_t(2) + f(m, nx)*r2_t(2) ! r3(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                else
+                    if (present(bcs_b)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) 
+                        !$omp shared(nx,my,bcs_b,f,u,rhs_b,rhs)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r2_b(1) + u(m, 2)*r3_b(1) + u(m, 3)*r1_b(1) ! r1(1) contains extended stencil
+                            ! f(1) contains the boundary condition
+                            f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
+                            f(m, 3) = f(m, 1)*r0_b(3) + u(m, 2)*r1_b(3) + u(m, 3)*r2_b(3) + u(m, 4)*r3_b(3)
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n - 1)*r1_i(n) + u(m, n)*r2_i(n) + u(m, n + 1)
+                            end do
+                            f(m, nx - 2) = u(m, nx - 3)*r1_i(nx - 2) + u(m, nx - 2)*r2_i(nx - 2) + u(m, nx - 1)*r3_i(nx - 2)
+                            f(m, nx - 1) = u(m, nx - 2)*r1_i(nx - 1) + u(m, nx - 1)*r2_i(nx - 1) + u(m, nx)*r3_i(nx - 1)
+                            f(m, nx) = u(m, nx - 2)*r3_i(nx) + u(m, nx - 1)*r1_i(nx) + u(m, nx)*r2_i(nx) ! r3(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) 
+                        !$omp shared(nx,my,f,u,rhs_b,rhs)
+                        do m = 1, my
+                            ! f(1) contains the boundary condition
+                            f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
+                            f(m, 3) = f(m, 1)*r0_b(3) + u(m, 2)*r1_b(3) + u(m, 3)*r2_b(3) + u(m, 4)*r3_b(3)
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n - 1)*r1_i(n) + u(m, n)*r2_i(n) + u(m, n + 1)
+                            end do
+                            f(m, nx - 2) = u(m, nx - 3)*r1_i(nx - 2) + u(m, nx - 2)*r2_i(nx - 2) + u(m, nx - 1)*r3_i(nx - 2)
+                            f(m, nx - 1) = u(m, nx - 2)*r1_i(nx - 1) + u(m, nx - 1)*r2_i(nx - 1) + u(m, nx)*r3_i(nx - 1)
+                            f(m, nx) = u(m, nx - 2)*r3_i(nx) + u(m, nx - 1)*r1_i(nx) + u(m, nx)*r2_i(nx) ! r3(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end if
+            else
+                if (any([BCS_MAX, BCS_BOTH] == ibc)) then
+                    if (present(bcs_t))
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) 
+                        !$omp shared(nx,my,bcs_t,f,u,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1)   ! r1(1) contains extended stencil
+                            f(m, 2) = u(m, 1)*r1_i(2) + u(m, 2)*r2_i(2) + u(m, 3)*r3_i(2)
+                            f(m, 3) = u(m, 2)*r1_i(3) + u(m, 3)*r2_i(3) + u(m, 4)*r3_i(3)
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n - 1)*r1_i(n) + u(m, n)*r2_i(n) + u(m, n + 1)
+                            end do
+                            ! f(nx) contains the boundary condition
+                            f(m, nx - 2) = u(m, nx - 3)*r1_t(0) + u(m, nx - 2)*r2_t(0) + u(m, nx - 1)*r3_t(0) + f(m, nx)*r4_t(0)
+                            f(m, nx - 1) = u(m, nx - 2)*r1_t(1) + u(m, nx - 1)*r2_t(1) + f(m, nx)*r3_t(1)
+                            bcs_t(m) = u(m, nx - 2)*r3_t(2) + u(m, nx - 1)*r1_t(2) + f(m, nx)*r2_t(2) ! r3(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) 
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1)   ! r1(1) contains extended stencil
+                            f(m, 2) = u(m, 1)*r1_i(2) + u(m, 2)*r2_i(2) + u(m, 3)*r3_i(2)
+                            f(m, 3) = u(m, 2)*r1_i(3) + u(m, 3)*r2_i(3) + u(m, 4)*r3_i(3)
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n - 1)*r1_i(n) + u(m, n)*r2_i(n) + u(m, n + 1)
+                            end do
+                            ! f(nx) contains the boundary condition
+                            f(m, nx - 2) = u(m, nx - 3)*r1_t(0) + u(m, nx - 2)*r2_t(0) + u(m, nx - 1)*r3_t(0) + f(m, nx)*r4_t(0)
+                            f(m, nx - 1) = u(m, nx - 2)*r1_t(1) + u(m, nx - 1)*r2_t(1) + f(m, nx)*r3_t(1)
+                            bcs_t(m) = u(m, nx - 2)*r3_t(2) + u(m, nx - 1)*r1_t(2) + f(m, nx)*r2_t(2) ! r3(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                else
+                    !$omp target teams distribute parallel do default(shared) &
+                    !$omp private(m,n) 
+                    do m = 1, my
+                        f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1)   ! r1(1) contains extended stencil
+                        f(m, 2) = u(m, 1)*r1_i(2) + u(m, 2)*r2_i(2) + u(m, 3)*r3_i(2)
+                        f(m, 3) = u(m, 2)*r1_i(3) + u(m, 3)*r2_i(3) + u(m, 4)*r3_i(3)
+                        do n = 4, nx - 3
+                            f(m, n) = u(m, n - 1)*r1_i(n) + u(m, n)*r2_i(n) + u(m, n + 1)
+                        end do
+                        f(m, nx - 2) = u(m, nx - 3)*r1_i(nx - 2) + u(m, nx - 2)*r2_i(nx - 2) + u(m, nx - 1)*r3_i(nx - 2)
+                        f(m, nx - 1) = u(m, nx - 2)*r1_i(nx - 1) + u(m, nx - 1)*r2_i(nx - 1) + u(m, nx)*r3_i(nx - 1)
+                        f(m, nx) = u(m, nx - 2)*r3_i(nx) + u(m, nx - 1)*r1_i(nx) + u(m, nx)*r2_i(nx) ! r3(nx) contains extended stencil
+                    end do
+                    !$omp end target teams distribute parallel do
+                end if
+            end if
         end if
-
-        ! -------------------------------------------------------------------
-        ! Interior points; accelerate
-        do n = 4, nx - 3
-            f(:, n) = u(:, n - 1)*r1_i(n) + u(:, n)*r2_i(n) + u(:, n + 1)
-        end do
-
-        ! -------------------------------------------------------------------
-        ! Boundary; the last 3/2+1+1=3 rows might be different
-        if (any([BCS_MAX, BCS_BOTH] == ibc)) then
-            ! f(nx) contains the boundary condition
-            f(:, nx - 2) = u(:, nx - 3)*r1_t(0) + u(:, nx - 2)*r2_t(0) + u(:, nx - 1)*r3_t(0) + f(:, nx)*r4_t(0)
-            f(:, nx - 1) = u(:, nx - 2)*r1_t(1) + u(:, nx - 1)*r2_t(1) + f(:, nx)*r3_t(1)
-            if (present(bcs_t)) bcs_t(:) = u(:, nx - 2)*r3_t(2) + u(:, nx - 1)*r1_t(2) + f(:, nx)*r2_t(2) ! r3(nx) contains extended stencil
-        else
-            f(:, nx - 2) = u(:, nx - 3)*r1_i(nx - 2) + u(:, nx - 2)*r2_i(nx - 2) + u(:, nx - 1)*r3_i(nx - 2)
-            f(:, nx - 1) = u(:, nx - 2)*r1_i(nx - 1) + u(:, nx - 1)*r2_i(nx - 1) + u(:, nx)*r3_i(nx - 1)
-            f(:, nx) = u(:, nx - 2)*r3_i(nx) + u(:, nx - 1)*r1_i(nx) + u(:, nx)*r2_i(nx) ! r3(nx) contains extended stencil
-        end if
-
+#endif
         return
     end subroutine MatMul_3d
 
@@ -377,26 +526,51 @@ contains
         real(wp), intent(out) :: f(:, :)                                    ! vector f = B u
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, m, my
 
         ! -------------------------------------------------------------------
         nx = size(rhs, 1)
+        my = size(f, 1)
+        
+#ifdef USE_APU
+        if (size(f)<1.5e4) then
+#endif
+            ! Boundary
+            n = 1
+            f(:, n) = f(:, n) + u(:, n)*r2_i(n) + u(:, n + 1)*r3_i(n) + u(:, n + 2)*r1_i(n)   ! r1(1) contains extended stencil
 
-        ! Boundary
-        n = 1
-        f(:, n) = f(:, n) + u(:, n)*r2_i(n) + u(:, n + 1)*r3_i(n) + u(:, n + 2)*r1_i(n)   ! r1(1) contains extended stencil
+            ! -------------------------------------------------------------------
+            ! Interior points; accelerate
+            do n = 2, nx - 1
+                f(:, n) = f(:, n) + u(:, n - 1)*r1_i(n) + u(:, n)*r2_i(n) + u(:, n + 1)*r3_i(n)
+            end do
 
-        ! -------------------------------------------------------------------
-        ! Interior points; accelerate
-        do n = 2, nx - 1
-            f(:, n) = f(:, n) + u(:, n - 1)*r1_i(n) + u(:, n)*r2_i(n) + u(:, n + 1)*r3_i(n)
-        end do
-
-        ! -------------------------------------------------------------------
-        ! Boundary
-        n = nx
-        f(:, n) = f(:, n) + u(:, n - 2)*r3_i(n) + u(:, n - 1)*r1_i(n) + u(:, n)*r2_i(n)   ! r3(nx) contains extended stencil
-
+            ! -------------------------------------------------------------------
+            ! Boundary
+            n = nx
+            f(:, n) = f(:, n) + u(:, n - 2)*r3_i(n) + u(:, n - 1)*r1_i(n) + u(:, n)*r2_i(n)   ! r3(nx) contains extended stencil
+#ifdef USE_APU            
+        else
+            !$omp target teams distribute parallel do &
+            !$omp private(m,n) &
+            !$omp shared(my,nx,f,u,rhs)
+            do m = 1, my
+                ! Boundary
+                n = 1
+                f(m, n) = f(m, n) + u(m, n)*r2_i(n) + u(m, n + 1)*r3_i(n) + u(m, n + 2)*r1_i(n)   ! r1(1) contains extended stencil
+                ! -------------------------------------------------------------------
+                ! Interior points; accelerate
+                do n = 2, nx - 1
+                    f(m, n) = f(m, n) + u(m, n - 1)*r1_i(n) + u(m, n)*r2_i(n) + u(m, n + 1)*r3_i(n)
+                end do
+                ! -------------------------------------------------------------------
+                ! Boundary
+                n = nx
+                f(m, n) = f(m, n) + u(m, n - 2)*r3_i(n) + u(m, n - 1)*r1_i(n) + u(m, n)*r2_i(n)   ! r3(nx) contains extended stencil
+            end do
+            !$omp end target teams distribute parallel do
+        end if
+#endif
         return
     end subroutine MatMul_3d_add
 
@@ -591,51 +765,178 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, m, my
 
         ! -------------------------------------------------------------------
         nx = size(rhs, 1)
-
+        my = size(f, 1)
         ! -------------------------------------------------------------------
         ! Boundary
-        if (ibc == BCS_PERIODIC) then
-            f(:, 1) = u(:, 2) - u(:, nx)
-            f(:, 2) = u(:, 3) - u(:, 1)
+#ifdef USE_APU
+        if (size(f)<1.5e4) then
+#endif
+            if (ibc == BCS_PERIODIC) then
+                f(:, 1) = u(:, 2) - u(:, nx)
+                f(:, 2) = u(:, 3) - u(:, 1)
 
-        else if (any([BCS_ND, BCS_NN, BCS_MIN, BCS_BOTH] == ibc)) then
-            ! f(1) contains the boundary condition
-            if (present(bcs_b)) bcs_b(:) = f(:, 1)*r2_b(1) + u(:, 2)*r3_b(1) + u(:, 3)*r1_b(1) ! r1(1) contains extended stencil
-            f(:, 2) = f(:, 1)*r1_b(2) + u(:, 2)*r2_b(2) + u(:, 3)*r3_b(2)
+            else if (any([BCS_ND, BCS_NN, BCS_MIN, BCS_BOTH] == ibc)) then
+                ! f(1) contains the boundary condition
+                if (present(bcs_b)) bcs_b(:) = f(:, 1)*r2_b(1) + u(:, 2)*r3_b(1) + u(:, 3)*r1_b(1) ! r1(1) contains extended stencil
+                f(:, 2) = f(:, 1)*r1_b(2) + u(:, 2)*r2_b(2) + u(:, 3)*r3_b(2)
 
+            else
+                f(:, 1) = u(:, 1)*r2_i(1) + u(:, 2)*r3_i(1) + u(:, 3)*r1_i(1) ! r1(1) contains extended stencil
+                f(:, 2) = u(:, 1)*r1_i(2) + u(:, 2)*r2_i(2) + u(:, 3)*r3_i(2)
+
+            end if
+
+            ! -------------------------------------------------------------------
+            ! Interior points; accelerate
+            do n = 3, nx - 2
+                f(:, n) = u(:, n + 1) - u(:, n - 1)
+            end do
+
+            ! -------------------------------------------------------------------
+            ! Boundary
+            if (ibc == BCS_PERIODIC) then
+                f(:, nx - 1) = u(:, nx) - u(:, nx - 2)
+                f(:, nx) = u(:, 1) - u(:, nx - 1)
+
+            else if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
+                ! f(nx) contains the boundary condition
+                f(:, nx - 1) = u(:, nx - 2)*r1_t(1) + u(:, nx - 1)*r2_t(1) + f(:, nx)*r3_t(1)
+                if (present(bcs_t)) bcs_t(:) = u(:, nx - 2)*r3_t(2) + u(:, nx - 1)*r1_t(2) + f(:, nx)*r2_t(2) ! r3(nx) contains extended stencil
+
+            else
+                f(:, nx - 1) = u(:, nx - 2)*r1_i(nx - 1) + u(:, nx - 1)*r2_i(nx - 1) + u(:, nx)*r3_i(nx - 1)
+                f(:, nx) = u(:, nx - 2)*r3_i(nx) + u(:, nx - 1)*r1_i(nx) + u(:, nx)*r2_i(nx)  ! r3(nx) contains extended stencil
+            end if
+#ifdef USE_APU            
         else
-            f(:, 1) = u(:, 1)*r2_i(1) + u(:, 2)*r3_i(1) + u(:, 3)*r1_i(1) ! r1(1) contains extended stencil
-            f(:, 2) = u(:, 1)*r1_i(2) + u(:, 2)*r2_i(2) + u(:, 3)*r3_i(2)
-
+            ! -------------------------------------------------------------------
+            ! Boundary
+            if (ibc == BCS_PERIODIC) then
+                !$omp target teams distribute parallel do &
+                !$omp private(m,n) &
+                !$omp shared(my,nx,u,f)
+                do m = 1, my
+                    f(m, 1) = u(m, 2) - u(m, nx)
+                    f(m, 2) = u(m, 3) - u(m, 1)
+                    do n = 3, nx - 2
+                        f(m, n) = u(m, n + 1) - u(m, n - 1)
+                    end do
+                    f(m, nx - 1) = u(m, nx) - u(m, nx - 2)
+                    f(m, nx) = u(m, 1) - u(m, nx - 1)
+                end do
+                !$omp end target teams distribute parallel do
+            else if (any([BCS_ND, BCS_NN, BCS_MIN, BCS_BOTH] == ibc)) then
+                if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
+                    ! f(1) contains the boundary condition
+                    if (present(bcs_b)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,u,f,rhs_b,rhs_t,bcs_b,bcs_t)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r2_b(1) + u(m, 2)*r3_b(1) + u(m, 3)*r1_b(1) ! r1(1) contains extended stencil
+                            f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
+                            do n = 3, nx - 2
+                                f(m, n) = u(m, n + 1) - u(m, n - 1)
+                            end do
+                            f(m, nx - 1) = u(m, nx - 2)*r1_t(1) + u(m, nx - 1)*r2_t(1) + f(m, nx)*r3_t(1)
+                            bcs_t(m) = u(m, nx - 2)*r3_t(2) + u(m, nx - 1)*r1_t(2) + f(m, nx)*r2_t(2) ! r3(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,u,f,rhs_b,rhs_t)
+                        do m = 1, my
+                            f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
+                            do n = 3, nx - 2
+                                f(m, n) = u(m, n + 1) - u(m, n - 1)
+                            end do
+                            f(m, nx - 1) = u(m, nx - 2)*r1_t(1) + u(m, nx - 1)*r2_t(1) + f(m, nx)*r3_t(1)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                else
+                    if (present(bcs_b)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,u,f,rhs_b,rhs,bcs_b)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r2_b(1) + u(m, 2)*r3_b(1) + u(m, 3)*r1_b(1) ! r1(1) contains extended stencil
+                            f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
+                            do n = 3, nx - 2
+                                f(m, n) = u(m, n + 1) - u(m, n - 1)
+                            end do
+                            f(m, nx - 1) = u(m, nx - 2)*r1_i(nx - 1) + u(m, nx - 1)*r2_i(nx - 1) + u(m, nx)*r3_i(nx - 1)
+                            f(m, nx) = u(m, nx - 2)*r3_i(nx) + u(m, nx - 1)*r1_i(nx) + u(m, nx)*r2_i(nx)  ! r3(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,u,f,rhs_b,rhs)
+                        do m = 1, my
+                            f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
+                            do n = 3, nx - 2
+                                f(m, n) = u(m, n + 1) - u(m, n - 1)
+                            end do
+                            f(m, nx - 1) = u(m, nx - 2)*r1_i(nx - 1) + u(m, nx - 1)*r2_i(nx - 1) + u(m, nx)*r3_i(nx - 1)
+                            f(m, nx) = u(m, nx - 2)*r3_i(nx) + u(m, nx - 1)*r1_i(nx) + u(m, nx)*r2_i(nx)  ! r3(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end if
+            else
+                if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
+                    if (present(bcs_t)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,u,f,rhs_t,rhs,bcs_t)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
+                            f(m, 2) = u(m, 1)*r1_i(2) + u(m, 2)*r2_i(2) + u(m, 3)*r3_i(2)
+                            do n = 3, nx - 2
+                                f(m, n) = u(m, n + 1) - u(m, n - 1)
+                            end do
+                            f(m, nx - 1) = u(m, nx - 2)*r1_t(1) + u(m, nx - 1)*r2_t(1) + f(m, nx)*r3_t(1)
+                            bcs_t(m) = u(m, nx - 2)*r3_t(2) + u(m, nx - 1)*r1_t(2) + f(m, nx)*r2_t(2) ! r3(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,u,f,rhs_t,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
+                            f(m, 2) = u(m, 1)*r1_i(2) + u(m, 2)*r2_i(2) + u(m, 3)*r3_i(2)
+                            do n = 3, nx - 2
+                                f(m, n) = u(m, n + 1) - u(m, n - 1)
+                            end do
+                            f(m, nx - 1) = u(m, nx - 2)*r1_t(1) + u(m, nx - 1)*r2_t(1) + f(m, nx)*r3_t(1)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                else
+                    !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,u,f,rhs)
+                    do m = 1, my
+                        f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
+                        f(m, 2) = u(m, 1)*r1_i(2) + u(m, 2)*r2_i(2) + u(m, 3)*r3_i(2)
+                        do n = 3, nx - 2
+                            f(m, n) = u(m, n + 1) - u(m, n - 1)
+                        end do
+                        f(m, nx - 1) = u(m, nx - 2)*r1_i(nx - 1) + u(m, nx - 1)*r2_i(nx - 1) + u(m, nx)*r3_i(nx - 1)
+                        f(m, nx) = u(m, nx - 2)*r3_i(nx) + u(m, nx - 1)*r1_i(nx) + u(m, nx)*r2_i(nx)  ! r3(nx) contains extended stencil
+                    end do
+                    !$omp end target teams distribute parallel do
+                end if
+            end if
         end if
-
-        ! -------------------------------------------------------------------
-        ! Interior points; accelerate
-        do n = 3, nx - 2
-            f(:, n) = u(:, n + 1) - u(:, n - 1)
-        end do
-
-        ! -------------------------------------------------------------------
-        ! Boundary
-        if (ibc == BCS_PERIODIC) then
-            f(:, nx - 1) = u(:, nx) - u(:, nx - 2)
-            f(:, nx) = u(:, 1) - u(:, nx - 1)
-
-        else if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
-            ! f(nx) contains the boundary condition
-            f(:, nx - 1) = u(:, nx - 2)*r1_t(1) + u(:, nx - 1)*r2_t(1) + f(:, nx)*r3_t(1)
-            if (present(bcs_t)) bcs_t(:) = u(:, nx - 2)*r3_t(2) + u(:, nx - 1)*r1_t(2) + f(:, nx)*r2_t(2) ! r3(nx) contains extended stencil
-
-        else
-            f(:, nx - 1) = u(:, nx - 2)*r1_i(nx - 1) + u(:, nx - 1)*r2_i(nx - 1) + u(:, nx)*r3_i(nx - 1)
-            f(:, nx) = u(:, nx - 2)*r3_i(nx) + u(:, nx - 1)*r1_i(nx) + u(:, nx)*r2_i(nx)  ! r3(nx) contains extended stencil
-
-        end if
-
+#endif
         return
     end subroutine MatMul_3d_antisym
 
@@ -650,12 +951,15 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, m, my
 
         ! -------------------------------------------------------------------
         nx = size(rhs, 1)
-
+        my = size(f, 1)
         ! -------------------------------------------------------------------
+#ifdef USE_APU
+        if (size(f)<1.5e4) then
+#endif    
         ! Boundary
         if (ibc == BCS_PERIODIC) then
             f(:, 1) = u(:, 2) + u(:, nx) + u(:, 1)*r2_i(1)
@@ -684,7 +988,82 @@ contains
             if (any([BCS_DN, BCS_NN] == ibc)) f(:, nx) = 0.0_wp
 
         end if
-
+#ifdef USE_APU            
+        else
+            ! Boundary
+            if (ibc == BCS_PERIODIC) then
+                !$omp target teams distribute parallel do &
+                !$omp private(m,n) &
+                !$omp shared(my,nx,u,f,rhs)
+                do m = 1, my
+                    f(m, 1) = u(m, 2) + u(m, nx) + u(m, 1)*r2_i(1)
+                    do n = 2, nx - 1
+                        f(m, n) = u(m, n + 1) + u(m, n - 1) + u(m, n)*r2_i(n)
+                    end do
+                    f(m, nx) = u(m, 1) + u(m, nx - 1) + u(m, nx)*r2_i(nx)
+                end do
+                !$omp end target teams distribute parallel do
+            else
+                if (any([BCS_ND, BCS_NN] == ibc)) then
+                    if (any([BCS_DN, BCS_NN] == ibc)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,u,f,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
+                            f(m, 1) = 0.0_wp
+                            do n = 2, nx - 1
+                                f(m, n) = u(m, n + 1) + u(m, n - 1) + u(m, n)*r2_i(n)
+                            end do
+                            f(m, nx) = u(m, nx - 2)*r3_i(nx) + u(m, nx - 1)*r1_i(nx) + u(m, nx)*r2_i(nx) ! r3(nx) contains extended stencil
+                            f(m, nx) = 0.0_wp
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else 
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,u,f,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
+                            f(m, 1) = 0.0_wp
+                            do n = 2, nx - 1
+                                f(m, n) = u(m, n + 1) + u(m, n - 1) + u(m, n)*r2_i(n)
+                            end do
+                            f(m, nx) = u(m, nx - 2)*r3_i(nx) + u(m, nx - 1)*r1_i(nx) + u(m, nx)*r2_i(nx) ! r3(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                else
+                    if (any([BCS_DN, BCS_NN] == ibc)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,u,f,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
+                            do n = 2, nx - 1
+                                f(m, n) = u(m, n + 1) + u(m, n - 1) + u(m, n)*r2_i(n)
+                            end do
+                            f(m, nx) = u(m, nx - 2)*r3_i(nx) + u(m, nx - 1)*r1_i(nx) + u(m, nx)*r2_i(nx) ! r3(nx) contains extended stencil
+                            f(m, nx) = 0.0_wp
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,u,f,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1) ! r1(1) contains extended stencil
+                            do n = 2, nx - 1
+                                f(m, n) = u(m, n + 1) + u(m, n - 1) + u(m, n)*r2_i(n)
+                            end do
+                            f(m, nx) = u(m, nx - 2)*r3_i(nx) + u(m, nx - 1)*r1_i(nx) + u(m, nx)*r2_i(nx) ! r3(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end if
+            end if
+        end if
+#endif
         return
     end subroutine MatMul_3d_sym
 
@@ -923,50 +1302,209 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
-        real(wp) sum_f, sum_u
+        integer(wi) n, nx, m, my
 
         ! #######################################################################
         nx = size(rhs, 1)
+        my = size(f, 1)
         ! print *, nd = size(rhs, 2)    ! # diagonals, should be 5
         ! size(u,2) and size(f,2) should be nx
         ! size(u,1) and size(f,1) and size(bcs_b) and size(bcs_t) should be the same (number of equations to solve)
+#ifdef USE_APU
+        if (size(f) < 1.5e4) then
+#endif
+            ! -------------------------------------------------------------------
+            ! Boundary; the first 5/2+1+1=4 rows might be different
+            if (any([BCS_MIN, BCS_BOTH] == ibc)) then
+                ! f(1) contains the boundary condition
+                if (present(bcs_b)) bcs_b(:) = f(:, 1)*r3_b(1) + u(:, 2)*r4_b(1) + u(:, 3)*r5_b(1) + u(:, 4)*r1_b(1) ! r1(1) contains extended stencil
+                f(:, 2) = f(:, 1)*r2_b(2) + u(:, 2)*r3_b(2) + u(:, 3)*r4_b(2) + u(:, 4)*r5_b(2)
+                f(:, 3) = f(:, 1)*r1_b(3) + u(:, 2)*r2_b(3) + u(:, 3)*r3_b(3) + u(:, 4)*r4_b(3) + u(:, 5)*r5_b(3)
+                f(:, 4) = f(:, 1)*r0_b(4) + u(:, 2)*r1_b(4) + u(:, 3)*r2_b(4) + u(:, 4)*r3_b(4) + u(:, 5)*r4_b(4) + u(:, 6)*r5_b(4)
+            else
+                f(:, 1) = u(:, 1)*r3_i(1) + u(:, 2)*r4_i(1) + u(:, 3)*r5_i(1) + u(:, 4)*r1_i(1)   ! r1(1) contains extended stencil
+                f(:, 2) = u(:, 1)*r2_i(2) + u(:, 2)*r3_i(2) + u(:, 3)*r4_i(2) + u(:, 4)*r5_i(2)
+                f(:, 3) = u(:, 1)*r1_i(3) + u(:, 2)*r2_i(3) + u(:, 3)*r3_i(3) + u(:, 4)*r4_i(3) + u(:, 5)*r5_i(3)
+                f(:, 4) = u(:, 2)*r1_i(4) + u(:, 3)*r2_i(4) + u(:, 4)*r3_i(4) + u(:, 5)*r4_i(4) + u(:, 6)*r5_i(4)
+            end if
 
-        ! -------------------------------------------------------------------
-        ! Boundary; the first 5/2+1+1=4 rows might be different
-        if (any([BCS_MIN, BCS_BOTH] == ibc)) then
-            ! f(1) contains the boundary condition
-            if (present(bcs_b)) bcs_b(:) = f(:, 1)*r3_b(1) + u(:, 2)*r4_b(1) + u(:, 3)*r5_b(1) + u(:, 4)*r1_b(1) ! r1(1) contains extended stencil
-            f(:, 2) = f(:, 1)*r2_b(2) + u(:, 2)*r3_b(2) + u(:, 3)*r4_b(2) + u(:, 4)*r5_b(2)
-            f(:, 3) = f(:, 1)*r1_b(3) + u(:, 2)*r2_b(3) + u(:, 3)*r3_b(3) + u(:, 4)*r4_b(3) + u(:, 5)*r5_b(3)
-            f(:, 4) = f(:, 1)*r0_b(4) + u(:, 2)*r1_b(4) + u(:, 3)*r2_b(4) + u(:, 4)*r3_b(4) + u(:, 5)*r4_b(4) + u(:, 6)*r5_b(4)
-        else
-            f(:, 1) = u(:, 1)*r3_i(1) + u(:, 2)*r4_i(1) + u(:, 3)*r5_i(1) + u(:, 4)*r1_i(1)   ! r1(1) contains extended stencil
-            f(:, 2) = u(:, 1)*r2_i(2) + u(:, 2)*r3_i(2) + u(:, 3)*r4_i(2) + u(:, 4)*r5_i(2)
-            f(:, 3) = u(:, 1)*r1_i(3) + u(:, 2)*r2_i(3) + u(:, 3)*r3_i(3) + u(:, 4)*r4_i(3) + u(:, 5)*r5_i(3)
-            f(:, 4) = u(:, 2)*r1_i(4) + u(:, 3)*r2_i(4) + u(:, 4)*r3_i(4) + u(:, 5)*r4_i(4) + u(:, 6)*r5_i(4)
+            ! -------------------------------------------------------------------
+            ! Interior points; accelerate
+            do n = 5, nx - 4
+                f(:, n) = u(:, n - 2)*r1_i(n) + u(:, n - 1)*r2_i(n) + u(:, n)*r3_i(n) + u(:, n + 1) + u(:, n + 2)*r5_i(n)
+            end do
+
+            ! -------------------------------------------------------------------
+            ! Boundary; the last 5/2+1+1=4 rows might be different
+            if (any([BCS_MAX, BCS_BOTH] == ibc)) then
+                ! f(nx) contains the boundary condition
+                f(:, nx - 3) = u(:, nx - 5)*r1_t(0) + u(:, nx - 4)*r2_t(0) + u(:, nx - 3)*r3_t(0) + u(:, nx - 2)*r4_t(0) + u(:, nx - 1)*r5_t(0) + f(:, nx)*r6_t(0)
+                f(:, nx - 2) = u(:, nx - 4)*r1_t(1) + u(:, nx - 3)*r2_t(1) + u(:, nx - 2)*r3_t(1) + u(:, nx - 1)*r4_t(1) + f(:, nx)*r5_t(1)
+                f(:, nx - 1) = u(:, nx - 3)*r1_t(2) + u(:, nx - 2)*r2_t(2) + u(:, nx - 1)*r3_t(2) + f(:, nx)*r4_t(2)
+                if (present(bcs_t)) bcs_t(:) = u(:, nx - 3)*r5_t(3) + u(:, nx - 2)*r1_t(3) + u(:, nx - 1)*r2_t(3) + f(:, nx)*r3_t(3) ! r5(nx) contains extended stencil
+            else
+                f(:, nx - 3) = u(:, nx - 5)*r1_i(nx - 3) + u(:, nx - 4)*r2_i(nx - 3) + u(:, nx - 3)*r3_i(nx - 3) + u(:, nx - 2)*r4_i(nx - 3) + u(:, nx - 1)*r5_i(nx - 3)
+                f(:, nx - 2) = u(:, nx - 4)*r1_i(nx - 2) + u(:, nx - 3)*r2_i(nx - 2) + u(:, nx - 2)*r3_i(nx - 2) + u(:, nx - 1)*r4_i(nx - 2) + u(:, nx)*r5_i(nx - 2)
+                f(:, nx - 1) = u(:, nx - 3)*r1_i(nx - 1) + u(:, nx - 2)*r2_i(nx - 1) + u(:, nx - 1)*r3_i(nx - 1) + u(:, nx)*r4_i(nx - 1)
+                f(:, nx) = u(:, nx - 3)*r5_i(nx) + u(:, nx - 2)*r1_i(nx) + u(:, nx - 1)*r2_i(nx) + u(:, nx)*r3_i(nx) ! r5(nx) contains extended stencil
+            end if
+#ifdef USE_APU
+        else 
+            if (any([BCS_MIN, BCS_BOTH] == ibc)) then
+                if (any([BCS_MAX, BCS_BOTH] == ibc)) then
+                    ! f(1) contains the boundary condition
+                    if (present(bcs_b) .and. present(bcs_t)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(nx,my,bcs_b,bcs_t,f,u,rhs_b,rhs_t,rhs)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r3_b(1) + u(m, 2)*r4_b(1) + u(m, 3)*r5_b(1) + u(m, 4)*r1_b(1) ! r1(1) contains extended stencil
+                            f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
+                            f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
+                            f(m, 4) = f(m, 1)*r0_b(4) + u(m, 2)*r1_b(4) + u(m, 3)*r2_b(4) + u(m, 4)*r3_b(4) + u(m, 5)*r4_b(4) + u(m, 6)*r5_b(4)
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n - 2)*r1_i(n) + u(m, n - 1)*r2_i(n) + u(m, n)*r3_i(n) + u(m, n + 1) + u(m, n + 2)*r5_i(n)
+                            end do
+                            f(m, nx - 3) = u(m, nx - 5)*r1_t(0) + u(m, nx - 4)*r2_t(0) + u(m, nx - 3)*r3_t(0) + u(m, nx - 2)*r4_t(0) + u(m, nx - 1)*r5_t(0) + f(m, nx)*r6_t(0)
+                            f(m, nx - 2) = u(m, nx - 4)*r1_t(1) + u(m, nx - 3)*r2_t(1) + u(m, nx - 2)*r3_t(1) + u(m, nx - 1)*r4_t(1) + f(m, nx)*r5_t(1)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_t(2) + u(m, nx - 2)*r2_t(2) + u(m, nx - 1)*r3_t(2) + f(m, nx)*r4_t(2)
+                            bcs_t(m) = u(m, nx - 3)*r5_t(3) + u(m, nx - 2)*r1_t(3) + u(m, nx - 1)*r2_t(3) + f(m, nx)*r3_t(3) ! r5(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else if (present(bcs_t)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(nx,my,bcs_t,f,u,rhs_b,rhs_t,rhs)
+                        do m = 1, my
+                            f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
+                            f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
+                            f(m, 4) = f(m, 1)*r0_b(4) + u(m, 2)*r1_b(4) + u(m, 3)*r2_b(4) + u(m, 4)*r3_b(4) + u(m, 5)*r4_b(4) + u(m, 6)*r5_b(4)
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n - 2)*r1_i(n) + u(m, n - 1)*r2_i(n) + u(m, n)*r3_i(n) + u(m, n + 1) + u(m, n + 2)*r5_i(n)
+                            end do
+                            f(m, nx - 3) = u(m, nx - 5)*r1_t(0) + u(m, nx - 4)*r2_t(0) + u(m, nx - 3)*r3_t(0) + u(m, nx - 2)*r4_t(0) + u(m, nx - 1)*r5_t(0) + f(m, nx)*r6_t(0)
+                            f(m, nx - 2) = u(m, nx - 4)*r1_t(1) + u(m, nx - 3)*r2_t(1) + u(m, nx - 2)*r3_t(1) + u(m, nx - 1)*r4_t(1) + f(m, nx)*r5_t(1)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_t(2) + u(m, nx - 2)*r2_t(2) + u(m, nx - 1)*r3_t(2) + f(m, nx)*r4_t(2)
+                            bcs_t(m) = u(m, nx - 3)*r5_t(3) + u(m, nx - 2)*r1_t(3) + u(m, nx - 1)*r2_t(3) + f(m, nx)*r3_t(3) ! r5(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(nx,my,bcs_b,f,u,rhs_b,rhs_t,rhs)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r3_b(1) + u(m, 2)*r4_b(1) + u(m, 3)*r5_b(1) + u(m, 4)*r1_b(1) ! r1(1) contains extended stencil
+                            f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
+                            f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
+                            f(m, 4) = f(m, 1)*r0_b(4) + u(m, 2)*r1_b(4) + u(m, 3)*r2_b(4) + u(m, 4)*r3_b(4) + u(m, 5)*r4_b(4) + u(m, 6)*r5_b(4)
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n - 2)*r1_i(n) + u(m, n - 1)*r2_i(n) + u(m, n)*r3_i(n) + u(m, n + 1) + u(m, n + 2)*r5_i(n)
+                            end do
+                            f(m, nx - 3) = u(m, nx - 5)*r1_t(0) + u(m, nx - 4)*r2_t(0) + u(m, nx - 3)*r3_t(0) + u(m, nx - 2)*r4_t(0) + u(m, nx - 1)*r5_t(0) + f(m, nx)*r6_t(0)
+                            f(m, nx - 2) = u(m, nx - 4)*r1_t(1) + u(m, nx - 3)*r2_t(1) + u(m, nx - 2)*r3_t(1) + u(m, nx - 1)*r4_t(1) + f(m, nx)*r5_t(1)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_t(2) + u(m, nx - 2)*r2_t(2) + u(m, nx - 1)*r3_t(2) + f(m, nx)*r4_t(2)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                else
+                    if (present(bcs_b)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(nx,my,bcs_b,f,u,rhs_b,rhs_t,rhs)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r3_b(1) + u(m, 2)*r4_b(1) + u(m, 3)*r5_b(1) + u(m, 4)*r1_b(1) ! r1(1) contains extended stencil
+                            f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
+                            f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
+                            f(m, 4) = f(m, 1)*r0_b(4) + u(m, 2)*r1_b(4) + u(m, 3)*r2_b(4) + u(m, 4)*r3_b(4) + u(m, 5)*r4_b(4) + u(m, 6)*r5_b(4)
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n - 2)*r1_i(n) + u(m, n - 1)*r2_i(n) + u(m, n)*r3_i(n) + u(m, n + 1) + u(m, n + 2)*r5_i(n)
+                            end do
+                            f(m, nx - 3) = u(m, nx - 5)*r1_i(nx - 3) + u(m, nx - 4)*r2_i(nx - 3) + u(m, nx - 3)*r3_i(nx - 3) + u(m, nx - 2)*r4_i(nx - 3) + u(m, nx - 1)*r5_i(nx - 3)
+                            f(m, nx - 2) = u(m, nx - 4)*r1_i(nx - 2) + u(m, nx - 3)*r2_i(nx - 2) + u(m, nx - 2)*r3_i(nx - 2) + u(m, nx - 1)*r4_i(nx - 2) + u(m, nx)*r5_i(nx - 2)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_i(nx - 1) + u(m, nx - 2)*r2_i(nx - 1) + u(m, nx - 1)*r3_i(nx - 1) + u(m, nx)*r4_i(nx - 1)
+                            f(m, nx) = u(m, nx - 3)*r5_i(nx) + u(m, nx - 2)*r1_i(nx) + u(m, nx - 1)*r2_i(nx) + u(m, nx)*r3_i(nx) ! r5(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else 
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(nx,my,bcs_b,bcs_t,f,u,rhs_b,rhs_t,rhs)
+                        do m = 1, my
+                            f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
+                            f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
+                            f(m, 4) = f(m, 1)*r0_b(4) + u(m, 2)*r1_b(4) + u(m, 3)*r2_b(4) + u(m, 4)*r3_b(4) + u(m, 5)*r4_b(4) + u(m, 6)*r5_b(4)
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n - 2)*r1_i(n) + u(m, n - 1)*r2_i(n) + u(m, n)*r3_i(n) + u(m, n + 1) + u(m, n + 2)*r5_i(n)
+                            end do
+                            f(m, nx - 3) = u(m, nx - 5)*r1_i(nx - 3) + u(m, nx - 4)*r2_i(nx - 3) + u(m, nx - 3)*r3_i(nx - 3) + u(m, nx - 2)*r4_i(nx - 3) + u(m, nx - 1)*r5_i(nx - 3)
+                            f(m, nx - 2) = u(m, nx - 4)*r1_i(nx - 2) + u(m, nx - 3)*r2_i(nx - 2) + u(m, nx - 2)*r3_i(nx - 2) + u(m, nx - 1)*r4_i(nx - 2) + u(m, nx)*r5_i(nx - 2)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_i(nx - 1) + u(m, nx - 2)*r2_i(nx - 1) + u(m, nx - 1)*r3_i(nx - 1) + u(m, nx)*r4_i(nx - 1)
+                            f(m, nx) = u(m, nx - 3)*r5_i(nx) + u(m, nx - 2)*r1_i(nx) + u(m, nx - 1)*r2_i(nx) + u(m, nx)*r3_i(nx) ! r5(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end if
+            else
+                if (any([BCS_MAX, BCS_BOTH] == ibc)) then
+                    if (present(bcs_t)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(nx,my,bcs_t,f,u,rhs_b,rhs_t,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   ! r1(1) contains extended stencil
+                            f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
+                            f(m, 3) = u(m, 1)*r1_i(3) + u(m, 2)*r2_i(3) + u(m, 3)*r3_i(3) + u(m, 4)*r4_i(3) + u(m, 5)*r5_i(3)
+                            f(m, 4) = u(m, 2)*r1_i(4) + u(m, 3)*r2_i(4) + u(m, 4)*r3_i(4) + u(m, 5)*r4_i(4) + u(m, 6)*r5_i(4)
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n - 2)*r1_i(n) + u(m, n - 1)*r2_i(n) + u(m, n)*r3_i(n) + u(m, n + 1) + u(m, n + 2)*r5_i(n)
+                            end do
+                            f(m, nx - 3) = u(m, nx - 5)*r1_t(0) + u(m, nx - 4)*r2_t(0) + u(m, nx - 3)*r3_t(0) + u(m, nx - 2)*r4_t(0) + u(m, nx - 1)*r5_t(0) + f(m, nx)*r6_t(0)
+                            f(m, nx - 2) = u(m, nx - 4)*r1_t(1) + u(m, nx - 3)*r2_t(1) + u(m, nx - 2)*r3_t(1) + u(m, nx - 1)*r4_t(1) + f(m, nx)*r5_t(1)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_t(2) + u(m, nx - 2)*r2_t(2) + u(m, nx - 1)*r3_t(2) + f(m, nx)*r4_t(2)
+                            bcs_t(m) = u(m, nx - 3)*r5_t(3) + u(m, nx - 2)*r1_t(3) + u(m, nx - 1)*r2_t(3) + f(m, nx)*r3_t(3) ! r5(nx) contains extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(nx,my,f,u,rhs_b,rhs_t,rhs)
+                        do = 1, my
+                            f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   ! r1(1) contains extended stencil
+                            f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
+                            f(m, 3) = u(m, 1)*r1_i(3) + u(m, 2)*r2_i(3) + u(m, 3)*r3_i(3) + u(m, 4)*r4_i(3) + u(m, 5)*r5_i(3)
+                            f(m, 4) = u(m, 2)*r1_i(4) + u(m, 3)*r2_i(4) + u(m, 4)*r3_i(4) + u(m, 5)*r4_i(4) + u(m, 6)*r5_i(4)
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n - 2)*r1_i(n) + u(m, n - 1)*r2_i(n) + u(m, n)*r3_i(n) + u(m, n + 1) + u(m, n + 2)*r5_i(n)
+                            end do
+                            f(m, nx - 3) = u(m, nx - 5)*r1_t(0) + u(m, nx - 4)*r2_t(0) + u(m, nx - 3)*r3_t(0) + u(m, nx - 2)*r4_t(0) + u(m, nx - 1)*r5_t(0) + f(m, nx)*r6_t(0)
+                            f(m, nx - 2) = u(m, nx - 4)*r1_t(1) + u(m, nx - 3)*r2_t(1) + u(m, nx - 2)*r3_t(1) + u(m, nx - 1)*r4_t(1) + f(m, nx)*r5_t(1)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_t(2) + u(m, nx - 2)*r2_t(2) + u(m, nx - 1)*r3_t(2) + f(m, nx)*r4_t(2)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                else
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(nx,my,f,u,rhs_b,rhs_t,rhs)
+                    do m = 1, my
+                        f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   ! r1(1) contains extended stencil
+                        f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
+                        f(m, 3) = u(m, 1)*r1_i(3) + u(m, 2)*r2_i(3) + u(m, 3)*r3_i(3) + u(m, 4)*r4_i(3) + u(m, 5)*r5_i(3)
+                        f(m, 4) = u(m, 2)*r1_i(4) + u(m, 3)*r2_i(4) + u(m, 4)*r3_i(4) + u(m, 5)*r4_i(4) + u(m, 6)*r5_i(4)
+                        do n = 5, nx - 4
+                            f(m, n) = u(m, n - 2)*r1_i(n) + u(m, n - 1)*r2_i(n) + u(m, n)*r3_i(n) + u(m, n + 1) + u(m, n + 2)*r5_i(n)
+                        end do
+                        f(m, nx - 3) = u(m, nx - 5)*r1_i(nx - 3) + u(m, nx - 4)*r2_i(nx - 3) + u(m, nx - 3)*r3_i(nx - 3) + u(m, nx - 2)*r4_i(nx - 3) + u(m, nx - 1)*r5_i(nx - 3)
+                        f(m, nx - 2) = u(m, nx - 4)*r1_i(nx - 2) + u(m, nx - 3)*r2_i(nx - 2) + u(m, nx - 2)*r3_i(nx - 2) + u(m, nx - 1)*r4_i(nx - 2) + u(m, nx)*r5_i(nx - 2)
+                        f(m, nx - 1) = u(m, nx - 3)*r1_i(nx - 1) + u(m, nx - 2)*r2_i(nx - 1) + u(m, nx - 1)*r3_i(nx - 1) + u(m, nx)*r4_i(nx - 1)
+                        f(m, nx) = u(m, nx - 3)*r5_i(nx) + u(m, nx - 2)*r1_i(nx) + u(m, nx - 1)*r2_i(nx) + u(m, nx)*r3_i(nx) ! r5(nx) contains extended stencil
+                    end do
+                    !$omp end target teams distribute parallel do
+                end if
+            end if
         end if
+#endif
 
-        ! -------------------------------------------------------------------
-        ! Interior points; accelerate
-        do n = 5, nx - 4
-            f(:, n) = u(:, n - 2)*r1_i(n) + u(:, n - 1)*r2_i(n) + u(:, n)*r3_i(n) + u(:, n + 1) + u(:, n + 2)*r5_i(n)
-        end do
-
-        ! -------------------------------------------------------------------
-        ! Boundary; the last 5/2+1+1=4 rows might be different
-        if (any([BCS_MAX, BCS_BOTH] == ibc)) then
-            ! f(nx) contains the boundary condition
-            f(:, nx - 3) = u(:, nx - 5)*r1_t(0) + u(:, nx - 4)*r2_t(0) + u(:, nx - 3)*r3_t(0) + u(:, nx - 2)*r4_t(0) + u(:, nx - 1)*r5_t(0) + f(:, nx)*r6_t(0)
-            f(:, nx - 2) = u(:, nx - 4)*r1_t(1) + u(:, nx - 3)*r2_t(1) + u(:, nx - 2)*r3_t(1) + u(:, nx - 1)*r4_t(1) + f(:, nx)*r5_t(1)
-            f(:, nx - 1) = u(:, nx - 3)*r1_t(2) + u(:, nx - 2)*r2_t(2) + u(:, nx - 1)*r3_t(2) + f(:, nx)*r4_t(2)
-            if (present(bcs_t)) bcs_t(:) = u(:, nx - 3)*r5_t(3) + u(:, nx - 2)*r1_t(3) + u(:, nx - 1)*r2_t(3) + f(:, nx)*r3_t(3) ! r5(nx) contains extended stencil
-        else
-        f(:, nx - 3) = u(:, nx - 5)*r1_i(nx - 3) + u(:, nx - 4)*r2_i(nx - 3) + u(:, nx - 3)*r3_i(nx - 3) + u(:, nx - 2)*r4_i(nx - 3) + u(:, nx - 1)*r5_i(nx - 3)
-            f(:, nx - 2) = u(:, nx - 4)*r1_i(nx - 2) + u(:, nx - 3)*r2_i(nx - 2) + u(:, nx - 2)*r3_i(nx - 2) + u(:, nx - 1)*r4_i(nx - 2) + u(:, nx)*r5_i(nx - 2)
-            f(:, nx - 1) = u(:, nx - 3)*r1_i(nx - 1) + u(:, nx - 2)*r2_i(nx - 1) + u(:, nx - 1)*r3_i(nx - 1) + u(:, nx)*r4_i(nx - 1)
-            f(:, nx) = u(:, nx - 3)*r5_i(nx) + u(:, nx - 2)*r1_i(nx) + u(:, nx - 1)*r2_i(nx) + u(:, nx)*r3_i(nx) ! r5(nx) contains extended stencil
-        end if
         return
     end subroutine MatMul_5d
 
@@ -979,66 +1517,56 @@ contains
         real(wp), intent(out) :: f(:, :)                                    ! vector f = B u
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
-
-        ! #######################################################################
-        nx = size(rhs, 1)
-
-        ! -------------------------------------------------------------------
-        ! Boundary
-        f(:, 1) = f(:, 1) + u(:, 1)*r3_i(1) + u(:, 2)*r4_i(1) + u(:, 3)*r5_i(1) + u(:, 4)*r1_i(1)   ! r1(1) contains extended stencil
-        f(:, 2) = f(:, 2) + u(:, 1)*r2_i(2) + u(:, 2)*r3_i(2) + u(:, 3)*r4_i(2) + u(:, 4)*r5_i(2)
-
-        ! -------------------------------------------------------------------
-        ! Interior points; accelerate
-        do n = 3, nx - 2
-            f(:, n) = f(:, n) + u(:, n - 2)*r1_i(n) + u(:, n - 1)*r2_i(n) + u(:, n)*r3_i(n) + u(:, n + 1)*r4_i(n) + u(:, n + 2)*r5_i(n)
-        end do
-
-        ! -------------------------------------------------------------------
-        ! Boundary
-        f(:, nx - 1) = f(:, nx - 1) + u(:, nx - 3)*r1_i(nx - 1) + u(:, nx - 2)*r2_i(nx - 1) + u(:, nx - 1)*r3_i(nx - 1) + u(:, nx)*r4_i(nx - 1)
-        f(:, nx) = f(:, nx) + u(:, nx - 3)*r5_i(nx) + u(:, nx - 2)*r1_i(nx) + u(:, nx - 1)*r2_i(nx) + u(:, nx)*r3_i(nx) ! r5(nx) contains extended stencil
-
-        return
-    end subroutine MatMul_5d_add
-
-    ! #######################################################################
-    ! #######################################################################
-    ! Calculate f = f + B u, assuming B is pentadiagonal
-    subroutine MatMul_5d_add_APU(rhs, u, f)
-        real(wp), intent(in) :: rhs(:, :)                                   ! diagonals of B
-        real(wp), intent(in) :: u(:, :)                                     ! vector u
-        real(wp), intent(out) :: f(:, :)                                    ! vector f = B u
-
-        ! -------------------------------------------------------------------
         integer(wi) n, nx, m, my
+
         ! #######################################################################
         nx = size(rhs, 1)
         my = size(f, 1)
-        !$omp target teams distribute parallel do &
-        !$omp private(m,n) &
-        !$omp shared(my,nx,f,u,rhs)
-        do m = 1, my
+#ifdef USE_APU
+        if (size(f) < 1.5e4) then
+#endif
             ! -------------------------------------------------------------------
             ! Boundary
-            f(m, 1) = f(m, 1) + u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   ! r1(1) contains extended stencil
-            f(m, 2) = f(m, 2) + u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
+            f(:, 1) = f(:, 1) + u(:, 1)*r3_i(1) + u(:, 2)*r4_i(1) + u(:, 3)*r5_i(1) + u(:, 4)*r1_i(1)   ! r1(1) contains extended stencil
+            f(:, 2) = f(:, 2) + u(:, 1)*r2_i(2) + u(:, 2)*r3_i(2) + u(:, 3)*r4_i(2) + u(:, 4)*r5_i(2)
 
             ! -------------------------------------------------------------------
             ! Interior points; accelerate
             do n = 3, nx - 2
-                f(m, n) = f(m, n) + u(m, n - 2)*r1_i(n) + u(m, n - 1)*r2_i(n) + u(m, n)*r3_i(n) + u(m, n + 1)*r4_i(n) + u(m, n + 2)*r5_i(n)
+                f(:, n) = f(:, n) + u(:, n - 2)*r1_i(n) + u(:, n - 1)*r2_i(n) + u(:, n)*r3_i(n) + u(:, n + 1)*r4_i(n) + u(:, n + 2)*r5_i(n)
             end do
 
             ! -------------------------------------------------------------------
             ! Boundary
-            f(m, nx - 1) = f(m, nx - 1) + u(m, nx - 3)*r1_i(nx - 1) + u(m, nx - 2)*r2_i(nx - 1) + u(m, nx - 1)*r3_i(nx - 1) + u(m, nx)*r4_i(nx - 1)
-            f(m, nx) = f(m, nx) + u(m, nx - 3)*r5_i(nx) + u(m, nx - 2)*r1_i(nx) + u(m, nx - 1)*r2_i(nx) + u(m, nx)*r3_i(nx) ! r5(nx) contains extended stencil
-        end do
-        !$omp end target teams distribute parallel do
+            f(:, nx - 1) = f(:, nx - 1) + u(:, nx - 3)*r1_i(nx - 1) + u(:, nx - 2)*r2_i(nx - 1) + u(:, nx - 1)*r3_i(nx - 1) + u(:, nx)*r4_i(nx - 1)
+            f(:, nx) = f(:, nx) + u(:, nx - 3)*r5_i(nx) + u(:, nx - 2)*r1_i(nx) + u(:, nx - 1)*r2_i(nx) + u(:, nx)*r3_i(nx) ! r5(nx) contains extended stencil
+#ifdef USE_APU
+        else
+            !$omp target teams distribute parallel do &
+            !$omp private(m,n) &
+            !$omp shared(my,nx,f,u,rhs)
+            do m = 1, my
+                ! -------------------------------------------------------------------
+                ! Boundary
+                f(m, 1) = f(m, 1) + u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   ! r1(1) contains extended stencil
+                f(m, 2) = f(m, 2) + u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
+
+                ! -------------------------------------------------------------------
+                ! Interior points; accelerate
+                do n = 3, nx - 2
+                    f(m, n) = f(m, n) + u(m, n - 2)*r1_i(n) + u(m, n - 1)*r2_i(n) + u(m, n)*r3_i(n) + u(m, n + 1)*r4_i(n) + u(m, n + 2)*r5_i(n)
+                end do
+
+                ! -------------------------------------------------------------------
+                ! Boundary
+                f(m, nx - 1) = f(m, nx - 1) + u(m, nx - 3)*r1_i(nx - 1) + u(m, nx - 2)*r2_i(nx - 1) + u(m, nx - 1)*r3_i(nx - 1) + u(m, nx)*r4_i(nx - 1)
+                f(m, nx) = f(m, nx) + u(m, nx - 3)*r5_i(nx) + u(m, nx - 2)*r1_i(nx) + u(m, nx - 1)*r2_i(nx) + u(m, nx)*r3_i(nx) ! r5(nx) contains extended stencil
+            end do
+            !$omp end target teams distribute parallel do
+        end if
+#endif
         return
-    end subroutine MatMul_5d_add_APU
+    end subroutine MatMul_5d_add
 
     ! #######################################################################
     ! #######################################################################
@@ -1053,56 +1581,244 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, m, my
         real(wp) r5_loc     ! 2. upper-diagonal
 
         ! #######################################################################
         nx = size(rhs, 1)
+        my = size(f, 1)
         r5_loc = r5_i(4)      ! The first 3 equations, last 3 equations, can be normalized differently
 
-        ! -------------------------------------------------------------------
-        ! Boundary
-        if (ibc == BCS_PERIODIC) then
-            f(:, 1) = u(:, 2) - u(:, nx) + r5_loc*(u(:, 3) - u(:, nx - 1))
-            f(:, 2) = u(:, 3) - u(:, 1) + r5_loc*(u(:, 4) - u(:, nx))
-            f(:, 3) = u(:, 4) - u(:, 2) + r5_loc*(u(:, 5) - u(:, 1))
+#ifdef USE_APU
+        if (size(f) < 1.5e4) then
+#endif
+            ! -------------------------------------------------------------------
+            ! Boundary
+            if (ibc == BCS_PERIODIC) then
+                f(:, 1) = u(:, 2) - u(:, nx) + r5_loc*(u(:, 3) - u(:, nx - 1))
+                f(:, 2) = u(:, 3) - u(:, 1) + r5_loc*(u(:, 4) - u(:, nx))
+                f(:, 3) = u(:, 4) - u(:, 2) + r5_loc*(u(:, 5) - u(:, 1))
 
-        else if (any([BCS_ND, BCS_NN, BCS_MIN, BCS_BOTH] == ibc)) then
-            ! f(1) contains boundary condition
-            if (present(bcs_b)) bcs_b(:) = f(:, 1)*r3_b(1) + u(:, 2)*r4_b(1) + u(:, 3)*r5_b(1) + u(:, 4)*r1_b(1) ! r1(1) with extended stencil
-            f(:, 2) = f(:, 1)*r2_b(2) + u(:, 2)*r3_b(2) + u(:, 3)*r4_b(2) + u(:, 4)*r5_b(2)
-            f(:, 3) = f(:, 1)*r1_b(3) + u(:, 2)*r2_b(3) + u(:, 3)*r3_b(3) + u(:, 4)*r4_b(3) + u(:, 5)*r5_b(3)
+            else if (any([BCS_ND, BCS_NN, BCS_MIN, BCS_BOTH] == ibc)) then
+                ! f(1) contains boundary condition
+                if (present(bcs_b)) bcs_b(:) = f(:, 1)*r3_b(1) + u(:, 2)*r4_b(1) + u(:, 3)*r5_b(1) + u(:, 4)*r1_b(1) ! r1(1) with extended stencil
+                f(:, 2) = f(:, 1)*r2_b(2) + u(:, 2)*r3_b(2) + u(:, 3)*r4_b(2) + u(:, 4)*r5_b(2)
+                f(:, 3) = f(:, 1)*r1_b(3) + u(:, 2)*r2_b(3) + u(:, 3)*r3_b(3) + u(:, 4)*r4_b(3) + u(:, 5)*r5_b(3)
 
+            else
+                f(:, 1) = u(:, 1)*r3_i(1) + u(:, 2)*r4_i(1) + u(:, 3)*r5_i(1) + u(:, 4)*r1_i(1)   ! r1(1) with extended stencil
+                f(:, 2) = u(:, 1)*r2_i(2) + u(:, 2)*r3_i(2) + u(:, 3)*r4_i(2) + u(:, 4)*r5_i(2)
+                f(:, 3) = u(:, 1)*r1_i(3) + u(:, 2)*r2_i(3) + u(:, 3)*r3_i(3) + u(:, 4)*r4_i(3) + u(:, 5)*r5_i(3)
+
+            end if
+
+            ! Interior points
+            do n = 4, nx - 3
+                f(:, n) = u(:, n + 1) - u(:, n - 1) + r5_loc*(u(:, n + 2) - u(:, n - 2))
+            end do
+
+            ! Boundary
+            if (ibc == BCS_PERIODIC) then
+                f(:, nx - 2) = u(:, nx - 1) - u(:, nx - 3) + r5_loc*(u(:, nx) - u(:, nx - 4))
+                f(:, nx - 1) = u(:, nx) - u(:, nx - 2) + r5_loc*(u(:, 1) - u(:, nx - 3))
+                f(:, nx) = u(:, 1) - u(:, nx - 1) + r5_loc*(u(:, 2) - u(:, nx - 2))
+
+            else if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
+                ! f(n) contains boundary condition
+                f(:, nx - 2) = u(:, nx - 4)*r1_t(1) + u(:, nx - 3)*r2_t(1) + u(:, nx - 2)*r3_t(1) + u(:, nx - 1)*r4_t(1) + f(:, nx)*r5_t(1)
+                f(:, nx - 1) = u(:, nx - 3)*r1_t(2) + u(:, nx - 2)*r2_t(2) + u(:, nx - 1)*r3_t(2) + f(:, nx)*r4_t(2)
+                if (present(bcs_b)) bcs_t(:) = u(:, nx - 3)*r5_t(3) + u(:, nx - 2)*r1_t(3) + u(:, nx - 1)*r2_t(3) + f(:, nx)*r3_t(3) ! r5(nx) with extended stencil
+
+            else
+                f(:, nx - 2) = u(:, nx - 4)*r1_i(nx - 2) + u(:, nx - 3)*r2_i(nx - 2) + u(:, nx - 2)*r3_i(nx - 2) + u(:, nx - 1)*r4_i(nx - 2) + u(:, nx)*r5_i(nx - 2)
+                f(:, nx - 1) = u(:, nx - 3)*r1_i(nx - 1) + u(:, nx - 2)*r2_i(nx - 1) + u(:, nx - 1)*r3_i(nx - 1) + u(:, nx)*r4_i(nx - 1)
+                f(:, nx) = u(:, nx - 3)*r5_i(nx) + u(:, nx - 2)*r1_i(nx) + u(:, nx - 1)*r2_i(nx) + u(:, nx)*r3_i(nx)! r5(nx) with extended stencil
+            end if
+#ifdef USE_APU
         else
-            f(:, 1) = u(:, 1)*r3_i(1) + u(:, 2)*r4_i(1) + u(:, 3)*r5_i(1) + u(:, 4)*r1_i(1)   ! r1(1) with extended stencil
-            f(:, 2) = u(:, 1)*r2_i(2) + u(:, 2)*r3_i(2) + u(:, 3)*r4_i(2) + u(:, 4)*r5_i(2)
-            f(:, 3) = u(:, 1)*r1_i(3) + u(:, 2)*r2_i(3) + u(:, 3)*r3_i(3) + u(:, 4)*r4_i(3) + u(:, 5)*r5_i(3)
-
+            ! -------------------------------------------------------------------
+            ! Boundary
+            if (ibc == BCS_PERIODIC) then
+                !$omp target teams distribute parallel do &
+                !$omp private(m,n) &
+                !$omp shared(my,nx,r5_loc,f,u)
+                do m = 1, my
+                    f(m, 1) = u(m, 2) - u(m, nx) + r5_loc*(u(m, 3) - u(m, nx - 1))
+                    f(m, 2) = u(m, 3) - u(m, 1) + r5_loc*(u(m, 4) - u(m, nx))
+                    f(m, 3) = u(m, 4) - u(m, 2) + r5_loc*(u(m, 5) - u(m, 1))
+                    ! Interior points
+                    do n = 4, nx - 3
+                        f(m, n) = u(m, n + 1) - u(m, n - 1) + r5_loc*(u(m, n + 2) - u(m, n - 2))
+                    end do
+                    f(m, nx - 2) = u(m, nx - 1) - u(m, nx - 3) + r5_loc*(u(m, nx) - u(m, nx - 4))
+                    f(m, nx - 1) = u(m, nx) - u(m, nx - 2) + r5_loc*(u(m, 1) - u(m, nx - 3))
+                    f(m, nx) = u(m, 1) - u(m, nx - 1) + r5_loc*(u(m, 2) - u(m, nx - 2))
+                end do
+                !$omp end target teams distribute parallel do
+            else if (any([BCS_ND, BCS_NN, BCS_MIN, BCS_BOTH] == ibc)) then
+                if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
+                    ! f(1) contains boundary condition
+                    if (present(bcs_b) .and. present(bcs_t)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,rhs_b,rhs_t,f,u,bcs_b,bcs_t,r5_loc)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r3_b(1) + u(m, 2)*r4_b(1) + u(m, 3)*r5_b(1) + u(m, 4)*r1_b(1) ! r1(1) with extended stencil
+                            f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
+                            f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
+                            ! Interior points
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r5_loc*(u(m, n + 2) - u(m, n - 2))
+                            end do
+                            f(m, nx - 2) = u(m, nx - 4)*r1_t(1) + u(m, nx - 3)*r2_t(1) + u(m, nx - 2)*r3_t(1) + u(m, nx - 1)*r4_t(1) + f(m, nx)*r5_t(1)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_t(2) + u(m, nx - 2)*r2_t(2) + u(m, nx - 1)*r3_t(2) + f(m, nx)*r4_t(2)
+                            bcs_t(m) = u(m, nx - 3)*r5_t(3) + u(m, nx - 2)*r1_t(3) + u(m, nx - 1)*r2_t(3) + f(m, nx)*r3_t(3) ! r5(nx) with extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else if (present(bcs_b)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,rhs_b,rhs_t,f,u,bcs_b,r5_loc)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r3_b(1) + u(m, 2)*r4_b(1) + u(m, 3)*r5_b(1) + u(m, 4)*r1_b(1) ! r1(1) with extended stencil
+                            f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
+                            f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
+                            ! Interior points
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r5_loc*(u(m, n + 2) - u(m, n - 2))
+                            end do
+                            f(m, nx - 2) = u(m, nx - 4)*r1_t(1) + u(m, nx - 3)*r2_t(1) + u(m, nx - 2)*r3_t(1) + u(m, nx - 1)*r4_t(1) + f(m, nx)*r5_t(1)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_t(2) + u(m, nx - 2)*r2_t(2) + u(m, nx - 1)*r3_t(2) + f(m, nx)*r4_t(2)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else if (present(bcs_t)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,rhs_b,rhs_t,f,u,r5_loc)
+                        do m = 1, my
+                            f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
+                            f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
+                            ! Interior points
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r5_loc*(u(m, n + 2) - u(m, n - 2))
+                            end do
+                            f(m, nx - 2) = u(m, nx - 4)*r1_t(1) + u(m, nx - 3)*r2_t(1) + u(m, nx - 2)*r3_t(1) + u(m, nx - 1)*r4_t(1) + f(m, nx)*r5_t(1)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_t(2) + u(m, nx - 2)*r2_t(2) + u(m, nx - 1)*r3_t(2) + f(m, nx)*r4_t(2)
+                            bcs_t(m) = u(m, nx - 3)*r5_t(3) + u(m, nx - 2)*r1_t(3) + u(m, nx - 1)*r2_t(3) + f(m, nx)*r3_t(3) ! r5(nx) with extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,rhs_b,rhs_t,f,u,r5_loc)
+                        do m = 1, my
+                            f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
+                            f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
+                            ! Interior points
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r5_loc*(u(m, n + 2) - u(m, n - 2))
+                            end do
+                            f(m, nx - 2) = u(m, nx - 4)*r1_t(1) + u(m, nx - 3)*r2_t(1) + u(m, nx - 2)*r3_t(1) + u(m, nx - 1)*r4_t(1) + f(m, nx)*r5_t(1)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_t(2) + u(m, nx - 2)*r2_t(2) + u(m, nx - 1)*r3_t(2) + f(m, nx)*r4_t(2)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if 
+                else
+                    if (present(bcs_b)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,rhs_b,rhs_t,f,u,bcs_b,r5_loc)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r3_b(1) + u(m, 2)*r4_b(1) + u(m, 3)*r5_b(1) + u(m, 4)*r1_b(1) ! r1(1) with extended stencil
+                            f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
+                            f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
+                            ! Interior points
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r5_loc*(u(m, n + 2) - u(m, n - 2))
+                            end do
+                            ! top Boundary
+                            f(m, nx - 2) = u(m, nx - 4)*r1_i(nx - 2) + u(m, nx - 3)*r2_i(nx - 2) + u(m, nx - 2)*r3_i(nx - 2) + u(m, nx - 1)*r4_i(nx - 2) + u(m, nx)*r5_i(nx - 2)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_i(nx - 1) + u(m, nx - 2)*r2_i(nx - 1) + u(m, nx - 1)*r3_i(nx - 1) + u(m, nx)*r4_i(nx - 1)
+                            f(m, nx) = u(m, nx - 3)*r5_i(nx) + u(m, nx - 2)*r1_i(nx) + u(m, nx - 1)*r2_i(nx) + u(m, nx)*r3_i(nx)! r5(nx) with extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,rhs_b,rhs,f,u,r5_loc)
+                        do m = 1, my
+                            f(m, 2) = f(m, 1)*r2_b(2) + u(m, 2)*r3_b(2) + u(m, 3)*r4_b(2) + u(m, 4)*r5_b(2)
+                            f(m, 3) = f(m, 1)*r1_b(3) + u(m, 2)*r2_b(3) + u(m, 3)*r3_b(3) + u(m, 4)*r4_b(3) + u(m, 5)*r5_b(3)
+                            ! Interior points
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r5_loc*(u(m, n + 2) - u(m, n - 2))
+                            end do
+                            ! top Boundary
+                            f(m, nx - 2) = u(m, nx - 4)*r1_i(nx - 2) + u(m, nx - 3)*r2_i(nx - 2) + u(m, nx - 2)*r3_i(nx - 2) + u(m, nx - 1)*r4_i(nx - 2) + u(m, nx)*r5_i(nx - 2)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_i(nx - 1) + u(m, nx - 2)*r2_i(nx - 1) + u(m, nx - 1)*r3_i(nx - 1) + u(m, nx)*r4_i(nx - 1)
+                            f(m, nx) = u(m, nx - 3)*r5_i(nx) + u(m, nx - 2)*r1_i(nx) + u(m, nx - 1)*r2_i(nx) + u(m, nx)*r3_i(nx)! r5(nx) with extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end if
+            else
+                if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
+                    if (present(bcs_t)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,rhs,rhs_t,f,u,bcs_t,r5_loc)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   ! r1(1) with extended stencil
+                            f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
+                            f(m, 3) = u(m, 1)*r1_i(3) + u(m, 2)*r2_i(3) + u(m, 3)*r3_i(3) + u(m, 4)*r4_i(3) + u(m, 5)*r5_i(3)
+                            ! Interior points
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r5_loc*(u(m, n + 2) - u(m, n - 2))
+                            end do
+                            f(m, nx - 2) = u(m, nx - 4)*r1_t(1) + u(m, nx - 3)*r2_t(1) + u(m, nx - 2)*r3_t(1) + u(m, nx - 1)*r4_t(1) + f(m, nx)*r5_t(1)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_t(2) + u(m, nx - 2)*r2_t(2) + u(m, nx - 1)*r3_t(2) + f(m, nx)*r4_t(2)
+                            bcs_t(m) = u(m, nx - 3)*r5_t(3) + u(m, nx - 2)*r1_t(3) + u(m, nx - 1)*r2_t(3) + f(m, nx)*r3_t(3) ! r5(nx) with extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,rhs,rhs_t,f,u,r5_loc)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   ! r1(1) with extended stencil
+                            f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
+                            f(m, 3) = u(m, 1)*r1_i(3) + u(m, 2)*r2_i(3) + u(m, 3)*r3_i(3) + u(m, 4)*r4_i(3) + u(m, 5)*r5_i(3)
+                            ! Interior points
+                            do n = 4, nx - 3
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r5_loc*(u(m, n + 2) - u(m, n - 2))
+                            end do
+                            f(m, nx - 2) = u(m, nx - 4)*r1_t(1) + u(m, nx - 3)*r2_t(1) + u(m, nx - 2)*r3_t(1) + u(m, nx - 1)*r4_t(1) + f(m, nx)*r5_t(1)
+                            f(m, nx - 1) = u(m, nx - 3)*r1_t(2) + u(m, nx - 2)*r2_t(2) + u(m, nx - 1)*r3_t(2) + f(m, nx)*r4_t(2)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                else
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,rhs,f,u,bcs_b,r5_loc)
+                    do m = 1, my
+                        f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   ! r1(1) with extended stencil
+                        f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
+                        f(m, 3) = u(m, 1)*r1_i(3) + u(m, 2)*r2_i(3) + u(m, 3)*r3_i(3) + u(m, 4)*r4_i(3) + u(m, 5)*r5_i(3)
+                        ! Interior points
+                        do n = 4, nx - 3
+                            f(m, n) = u(m, n + 1) - u(m, n - 1) + r5_loc*(u(m, n + 2) - u(m, n - 2))
+                        end do
+                        ! top Boundary
+                        f(m, nx - 2) = u(m, nx - 4)*r1_i(nx - 2) + u(m, nx - 3)*r2_i(nx - 2) + u(m, nx - 2)*r3_i(nx - 2) + u(m, nx - 1)*r4_i(nx - 2) + u(m, nx)*r5_i(nx - 2)
+                        f(m, nx - 1) = u(m, nx - 3)*r1_i(nx - 1) + u(m, nx - 2)*r2_i(nx - 1) + u(m, nx - 1)*r3_i(nx - 1) + u(m, nx)*r4_i(nx - 1)
+                        f(m, nx) = u(m, nx - 3)*r5_i(nx) + u(m, nx - 2)*r1_i(nx) + u(m, nx - 1)*r2_i(nx) + u(m, nx)*r3_i(nx)! r5(nx) with extended stencil
+                    end do
+                    !$omp end target teams distribute parallel do
+                end if
+            end if
         end if
-
-        ! Interior points
-        do n = 4, nx - 3
-            f(:, n) = u(:, n + 1) - u(:, n - 1) + r5_loc*(u(:, n + 2) - u(:, n - 2))
-        end do
-
-        ! Boundary
-        if (ibc == BCS_PERIODIC) then
-            f(:, nx - 2) = u(:, nx - 1) - u(:, nx - 3) + r5_loc*(u(:, nx) - u(:, nx - 4))
-            f(:, nx - 1) = u(:, nx) - u(:, nx - 2) + r5_loc*(u(:, 1) - u(:, nx - 3))
-            f(:, nx) = u(:, 1) - u(:, nx - 1) + r5_loc*(u(:, 2) - u(:, nx - 2))
-
-        else if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
-            ! f(n) contains boundary condition
-            f(:, nx - 2) = u(:, nx - 4)*r1_t(1) + u(:, nx - 3)*r2_t(1) + u(:, nx - 2)*r3_t(1) + u(:, nx - 1)*r4_t(1) + f(:, nx)*r5_t(1)
-            f(:, nx - 1) = u(:, nx - 3)*r1_t(2) + u(:, nx - 2)*r2_t(2) + u(:, nx - 1)*r3_t(2) + f(:, nx)*r4_t(2)
-            if (present(bcs_b)) bcs_t(:) = u(:, nx - 3)*r5_t(3) + u(:, nx - 2)*r1_t(3) + u(:, nx - 1)*r2_t(3) + f(:, nx)*r3_t(3) ! r5(nx) with extended stencil
-
-        else
-            f(:, nx - 2) = u(:, nx - 4)*r1_i(nx - 2) + u(:, nx - 3)*r2_i(nx - 2) + u(:, nx - 2)*r3_i(nx - 2) + u(:, nx - 1)*r4_i(nx - 2) + u(:, nx)*r5_i(nx - 2)
-            f(:, nx - 1) = u(:, nx - 3)*r1_i(nx - 1) + u(:, nx - 2)*r2_i(nx - 1) + u(:, nx - 1)*r3_i(nx - 1) + u(:, nx)*r4_i(nx - 1)
-            f(:, nx) = u(:, nx - 3)*r5_i(nx) + u(:, nx - 2)*r1_i(nx) + u(:, nx - 1)*r2_i(nx) + u(:, nx)*r3_i(nx)! r5(nx) with extended stencil
-        end if
-
+#endif
         return
     end subroutine MatMul_5d_antisym
 
@@ -1321,15 +2037,18 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, m, my
         real(wp) r3_loc     ! center diagonal
         real(wp) r5_loc     ! 2. upper-diagonal
 
         ! #######################################################################
         nx = size(rhs, 1)
+        my = size(f, 1)
         r5_loc = r5_i(3)      ! The first 2 equations, last 2 equations, are normalized differently
         r3_loc = r3_i(3)
-
+#ifdef USE_APU
+        if (size(f)<1.5e4) then
+#endif
         ! Boundary
         if (ibc == BCS_PERIODIC) then
             f(:, 1) = r3_loc*u(:, 1) + u(:, 2) + u(:, nx) &
@@ -1372,7 +2091,101 @@ contains
             if (any([BCS_DN, BCS_NN] == ibc)) f(:, nx) = 0.0_wp
 
         end if
-
+#ifdef USE_APU            
+        else
+            ! Boundary
+            !$omp target exit data map(delete: bcs_b, bcs_t)
+            if (ibc == BCS_PERIODIC) then
+                !$omp target teams distribute parallel do &
+                !$omp private(m,n) &
+                !$omp shared(my,nx,f,u,r5_loc,r3_loc)
+                do m = 1, my
+                    f(m, 1) = r3_loc*u(m, 1) + u(m, 2) + u(m, nx) + r5_loc*(u(m, 3) + u(m, nx - 1))
+                    f(m, 2) = r3_loc*u(m, 2) + u(m, 3) + u(m, 1) + r5_loc*(u(m, 4) + u(m, nx))
+                    do n = 3, nx - 2
+                        f(m, n) = r3_loc*u(m, n) + u(m, n + 1) + u(m, n - 1) + r5_loc*(u(m, n + 2) + u(m, n - 2))
+                    end do
+                    f(m, nx - 1) = r3_loc*u(m, nx - 1) + u(m, nx) + u(m, nx - 2) + r5_loc*(u(m, 1) + u(m, nx - 3))
+                    f(m, nx) = r3_loc*u(m, nx) + u(m, 1) + u(m, nx - 1) + r5_loc*(u(m, 2) + u(m, nx - 2))
+                end do
+                !$omp end target teams distribute parallel do
+            else
+                if (any([BCS_ND, BCS_NN] == ibc)) then
+                    if (any([BCS_DN, BCS_NN] == ibc)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r5_loc,r3_loc,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   
+                            ! r1(1) contains 3. upper-diagonal to allow for longer stencil at boundary
+                            f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
+                            f(m, 1) = 0.0_wp
+                            do n = 3, nx - 2
+                                f(m, n) = r3_loc*u(m, n) + u(m, n + 1) + u(m, n - 1) + r5_loc*(u(m, n + 2) + u(m, n - 2))
+                            end do
+                            f(m, nx - 1) = u(m, nx - 3)*r1_i(nx - 1) + u(m, nx - 2)*r2_i(nx - 1) + u(m, nx - 1)*r3_i(nx - 1) + u(m, nx)*r4_i(nx - 1)
+                            f(m, nx) = u(m, nx - 3)*r5_i(nx) + u(m, nx - 2)*r1_i(nx) + u(m, nx - 1)*r2_i(nx) + u(m, nx)*r3_i(nx)
+                            ! r5(nx) contains 3. subdiagonal to allow for longer stencil at boundary
+                            f(m, nx) = 0.0_wp
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r5_loc,r3_loc,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   
+                            ! r1(1) contains 3. upper-diagonal to allow for longer stencil at boundary
+                            f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
+                            f(m, 1) = 0.0_wp
+                            do n = 3, nx - 2
+                                f(m, n) = r3_loc*u(m, n) + u(m, n + 1) + u(m, n - 1) + r5_loc*(u(m, n + 2) + u(m, n - 2))
+                            end do
+                            f(m, nx - 1) = u(m, nx - 3)*r1_i(nx - 1) + u(m, nx - 2)*r2_i(nx - 1) + u(m, nx - 1)*r3_i(nx - 1) + u(m, nx)*r4_i(nx - 1)
+                            f(m, nx) = u(m, nx - 3)*r5_i(nx) + u(m, nx - 2)*r1_i(nx) + u(m, nx - 1)*r2_i(nx) + u(m, nx)*r3_i(nx)
+                            ! r5(nx) contains 3. subdiagonal to allow for longer stencil at boundary
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                else
+                    if (any([BCS_DN, BCS_NN] == ibc)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r5_loc,r3_loc,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   
+                            ! r1(1) contains 3. upper-diagonal to allow for longer stencil at boundary
+                            f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
+                            do n = 3, nx - 2
+                                f(m, n) = r3_loc*u(m, n) + u(m, n + 1) + u(m, n - 1) + r5_loc*(u(m, n + 2) + u(m, n - 2))
+                            end do
+                            f(m, nx - 1) = u(m, nx - 3)*r1_i(nx - 1) + u(m, nx - 2)*r2_i(nx - 1) + u(m, nx - 1)*r3_i(nx - 1) + u(m, nx)*r4_i(nx - 1)
+                            f(m, nx) = u(m, nx - 3)*r5_i(nx) + u(m, nx - 2)*r1_i(nx) + u(m, nx - 1)*r2_i(nx) + u(m, nx)*r3_i(nx)
+                            ! r5(nx) contains 3. subdiagonal to allow for longer stencil at boundary
+                            f(m, nx) = 0.0_wp
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r5_loc,r3_loc,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   
+                            ! r1(1) contains 3. upper-diagonal to allow for longer stencil at boundary
+                            f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
+                            do n = 3, nx - 2
+                                f(m, n) = r3_loc*u(m, n) + u(m, n + 1) + u(m, n - 1) + r5_loc*(u(m, n + 2) + u(m, n - 2))
+                            end do
+                            f(m, nx - 1) = u(m, nx - 3)*r1_i(nx - 1) + u(m, nx - 2)*r2_i(nx - 1) + u(m, nx - 1)*r3_i(nx - 1) + u(m, nx)*r4_i(nx - 1)
+                            f(m, nx) = u(m, nx - 3)*r5_i(nx) + u(m, nx - 2)*r1_i(nx) + u(m, nx - 1)*r2_i(nx) + u(m, nx)*r3_i(nx)
+                            ! r5(nx) contains 3. subdiagonal to allow for longer stencil at boundary
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end if
+            end if
+        end if
+#endif
         return
     end subroutine MatMul_5d_sym
 
@@ -1506,15 +2319,19 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, m, my
         real(wp) r6_loc, r7_loc     ! 2. and 3. upper-diagonal
 
         ! #######################################################################
         nx = size(rhs, 1)
+        my = size(f, 1)
         r6_loc = r6_i(5)      ! The first 4 equations, last 4 equations, can be normalized differently
         r7_loc = r7_i(5)
 
         ! -------------------------------------------------------------------
+#ifdef USE_APU
+        if (size(f)<1.5e4) then
+#endif
         ! Boundary
         if (ibc == BCS_PERIODIC) then
             f(:, 1) = u(:, 2) - u(:, nx) + r6_loc*(u(:, 3) - u(:, nx - 1)) + r7_loc*(u(:, 4) - u(:, nx - 2))
@@ -1562,7 +2379,177 @@ contains
             f(:, nx - 1) = u(:, nx - 4)*r1_i(nx - 1) + u(:, nx - 3)*r2_i(nx - 1) + u(:, nx - 2)*r3_i(nx - 1) + u(:, nx - 1)*r4_i(nx - 1) + u(:, nx)*r5_i(nx - 1)
             f(:, nx) = u(:, nx - 4)*r7_i(nx) + u(:, nx - 3)*r1_i(nx) + u(:, nx - 2)*r2_i(nx) + u(:, nx - 1)*r3_i(nx) + u(:, nx)*r4_i(nx) ! r7(nx) with extended stencil
         end if
-
+#ifdef USE_APU            
+        else
+            ! Boundary
+            !$omp target exit data map(delete: bcs_b, bcs_t)
+            if (ibc == BCS_PERIODIC) then
+                !$omp target teams distribute parallel do & 
+                !$omp private(m,n) &
+                !$omp shared(my,nx,f,u,r6_loc,r7_loc)
+                do m = 1, my
+                    f(m, 1) = u(m, 2) - u(m, nx) + r6_loc*(u(m, 3) - u(m, nx - 1)) + r7_loc*(u(m, 4) - u(m, nx - 2))
+                    f(m, 2) = u(m, 3) - u(m, 1) + r6_loc*(u(m, 4) - u(m, nx)) + r7_loc*(u(m, 5) - u(m, nx - 1))
+                    f(m, 3) = u(m, 4) - u(m, 2) + r6_loc*(u(m, 5) - u(m, 1)) + r7_loc*(u(m, 6) - u(m, nx))
+                    f(m, 4) = u(m, 5) - u(m, 3) + r6_loc*(u(m, 6) - u(m, 2)) + r7_loc*(u(m, 7) - u(m, 1))
+                    ! Interior points
+                    do n = 5, nx - 4
+                        f(m, n) = u(m, n + 1) - u(m, n - 1) + r6_loc*(u(m, n + 2) - u(m, n - 2)) + r7_loc*(u(m, n + 3) - u(m, n - 3))
+                    end do
+                    ! Boundary
+                    f(m, nx - 3) = u(m, nx - 2) - u(m, nx - 4) + r6_loc*(u(m, nx - 1) - u(m, nx - 5)) + r7_loc*(u(m, nx) - u(m, nx - 6))
+                    f(m, nx - 2) = u(m, nx - 1) - u(m, nx - 3) + r6_loc*(u(m, nx) - u(m, nx - 4)) + r7_loc*(u(m, 1) - u(m, nx - 5))
+                    f(m, nx - 1) = u(m, nx) - u(m, nx - 2) + r6_loc*(u(m, 1) - u(m, nx - 3)) + r7_loc*(u(m, 2) - u(m, nx - 4))
+                    f(m, nx) = u(m, 1) - u(m, nx - 1) + r6_loc*(u(m, 2) - u(m, nx - 2)) + r7_loc*(u(m, 3) - u(m, nx - 3))
+                end do
+                !$omp end target teams distribute parallel do
+            else if (any([BCS_ND, BCS_NN, BCS_MIN, BCS_BOTH] == ibc)) then
+                if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
+                    ! f(1) contains boundary condition
+                    if (present(bcs_b)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs_b,rhs_t,bcs_b,bcs_t)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r4_b(1) + u(m, 2)*r5_b(1) + u(m, 3)*r6_b(1) + u(m, 4)*r7_b(1) + u(m, 5)*r1_b(1)   ! r1(1) with extended stencil
+                            f(m, 2) = f(m, 1)*r3_b(2) + u(m, 2)*r4_b(2) + u(m, 3)*r5_b(2) + u(m, 4)*r6_b(2) + u(m, 5)*r7_b(2)
+                            f(m, 3) = f(m, 1)*r2_b(3) + u(m, 2)*r3_b(3) + u(m, 3)*r4_b(3) + u(m, 4)*r5_b(3) + u(m, 5)*r6_b(3) + u(m, 6)*r7_b(3)
+                            f(m, 4) = f(m, 1)*r1_b(4) + u(m, 2)*r2_b(4) + u(m, 3)*r3_b(4) + u(m, 4)*r4_b(4) + u(m, 5)*r5_b(4) + u(m, 6)*r6_b(4) + u(m, 7)*r7_b(4)
+                            ! Interior points
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r6_loc*(u(m, n + 2) - u(m, n - 2)) + r7_loc*(u(m, n + 3) - u(m, n - 3))
+                            end do
+                            ! f(nx) contains boundary condition
+                            f(m, nx - 3) = u(m, nx - 6)*r1_t(1) + u(m, nx - 5)*r2_t(1) + u(m, nx - 4)*r3_t(1) + u(m, nx - 3)*r4_t(1) + u(m, nx - 2)*r5_t(1) + u(m, nx - 1)*r6_t(1)+ f(m, nx)*r7_t(1)
+                            f(m, nx - 2) = u(m, nx - 5)*r1_t(2) + u(m, nx - 4)*r2_t(2) + u(m, nx - 3)*r3_t(2) + u(m, nx - 2)*r4_t(2) + u(m, nx - 1)*r5_t(2) + f(m, nx)*r6_t(2)
+                            f(m, nx - 1) = u(m, nx - 4)*r1_t(3) + u(m, nx - 3)*r2_t(3) + u(m, nx - 2)*r3_t(3) + u(m, nx - 1)*r4_t(3) + f(m, nx)*r5_t(3)
+                            bcs_t(m) = u(m, nx - 4)*r7_t(4) + u(m, nx - 3)*r1_t(4) + u(m, nx - 2)*r2_t(4) + u(m, nx - 1)*r3_t(4) + f(m, nx)*r4_t(4) ! r7(nx) with extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs_b,rhs_t)
+                        do m = 1, my
+                            f(m, 2) = f(m, 1)*r3_b(2) + u(m, 2)*r4_b(2) + u(m, 3)*r5_b(2) + u(m, 4)*r6_b(2) + u(m, 5)*r7_b(2)
+                            f(m, 3) = f(m, 1)*r2_b(3) + u(m, 2)*r3_b(3) + u(m, 3)*r4_b(3) + u(m, 4)*r5_b(3) + u(m, 5)*r6_b(3) + u(m, 6)*r7_b(3)
+                            f(m, 4) = f(m, 1)*r1_b(4) + u(m, 2)*r2_b(4) + u(m, 3)*r3_b(4) + u(m, 4)*r4_b(4) + u(m, 5)*r5_b(4) + u(m, 6)*r6_b(4) + u(m, 7)*r7_b(4)
+                            ! Interior points
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r6_loc*(u(m, n + 2) - u(m, n - 2)) + r7_loc*(u(m, n + 3) - u(m, n - 3))
+                            end do
+                            ! f(nx) contains boundary condition
+                            f(m, nx - 3) = u(m, nx - 6)*r1_t(1) + u(m, nx - 5)*r2_t(1) + u(m, nx - 4)*r3_t(1) + u(m, nx - 3)*r4_t(1) + u(m, nx - 2)*r5_t(1) + u(m, nx - 1)*r6_t(1)+ f(m, nx)*r7_t(1)
+                            f(m, nx - 2) = u(m, nx - 5)*r1_t(2) + u(m, nx - 4)*r2_t(2) + u(m, nx - 3)*r3_t(2) + u(m, nx - 2)*r4_t(2) + u(m, nx - 1)*r5_t(2) + f(m, nx)*r6_t(2)
+                            f(m, nx - 1) = u(m, nx - 4)*r1_t(3) + u(m, nx - 3)*r2_t(3) + u(m, nx - 2)*r3_t(3) + u(m, nx - 1)*r4_t(3) + f(m, nx)*r5_t(3)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                else
+                    if (present(bcs_b)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs_b,rhs,bcs_b)
+                        do m = 1, my
+                            bcs_b(m) = f(m, 1)*r4_b(1) + u(m, 2)*r5_b(1) + u(m, 3)*r6_b(1) + u(m, 4)*r7_b(1) + u(m, 5)*r1_b(1)   ! r1(1) with extended stencil
+                            f(m, 2) = f(m, 1)*r3_b(2) + u(m, 2)*r4_b(2) + u(m, 3)*r5_b(2) + u(m, 4)*r6_b(2) + u(m, 5)*r7_b(2)
+                            f(m, 3) = f(m, 1)*r2_b(3) + u(m, 2)*r3_b(3) + u(m, 3)*r4_b(3) + u(m, 4)*r5_b(3) + u(m, 5)*r6_b(3) + u(m, 6)*r7_b(3)
+                            f(m, 4) = f(m, 1)*r1_b(4) + u(m, 2)*r2_b(4) + u(m, 3)*r3_b(4) + u(m, 4)*r4_b(4) + u(m, 5)*r5_b(4) + u(m, 6)*r6_b(4) + u(m, 7)*r7_b(4)
+                            ! Interior points
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r6_loc*(u(m, n + 2) - u(m, n - 2)) + r7_loc*(u(m, n + 3) - u(m, n - 3))
+                            end do
+                            f(m, nx - 3) = u(m, nx - 6)*r1_i(nx - 3) + u(m, nx - 5)*r2_i(nx - 3) + u(m, nx - 4)*r3_i(nx - 3) + u(m, nx - 3)*r4_i(nx - 3) + u(m, nx - 2)*r5_i(nx - 3) + u(m, nx - 1)*r6_i(nx - 3)+ u(m, nx)*r7_i(nx - 3)
+                            f(m, nx - 2) = u(m, nx - 5)*r1_i(nx - 2) + u(m, nx - 4)*r2_i(nx - 2) + u(m, nx - 3)*r3_i(nx - 2) + u(m, nx - 2)*r4_i(nx - 2) + u(m, nx - 1)*r5_i(nx - 2) + u(m, nx)*r6_i(nx - 2)
+                            f(m, nx - 1) = u(m, nx - 4)*r1_i(nx - 1) + u(m, nx - 3)*r2_i(nx - 1) + u(m, nx - 2)*r3_i(nx - 1) + u(m, nx - 1)*r4_i(nx - 1) + u(m, nx)*r5_i(nx - 1)
+                            f(m, nx) = u(m, nx - 4)*r7_i(nx) + u(m, nx - 3)*r1_i(nx) + u(m, nx - 2)*r2_i(nx) + u(m, nx - 1)*r3_i(nx) + u(m, nx)*r4_i(nx) ! r7(nx) with extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs_b,rhs)
+                        do m = 1, my
+                            f(m, 2) = f(m, 1)*r3_b(2) + u(m, 2)*r4_b(2) + u(m, 3)*r5_b(2) + u(m, 4)*r6_b(2) + u(m, 5)*r7_b(2)
+                            f(m, 3) = f(m, 1)*r2_b(3) + u(m, 2)*r3_b(3) + u(m, 3)*r4_b(3) + u(m, 4)*r5_b(3) + u(m, 5)*r6_b(3) + u(m, 6)*r7_b(3)
+                            f(m, 4) = f(m, 1)*r1_b(4) + u(m, 2)*r2_b(4) + u(m, 3)*r3_b(4) + u(m, 4)*r4_b(4) + u(m, 5)*r5_b(4) + u(m, 6)*r6_b(4) + u(m, 7)*r7_b(4)
+                            ! Interior points
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r6_loc*(u(m, n + 2) - u(m, n - 2)) + r7_loc*(u(m, n + 3) - u(m, n - 3))
+                            end do
+                            f(m, nx - 3) = u(m, nx - 6)*r1_i(nx - 3) + u(m, nx - 5)*r2_i(nx - 3) + u(m, nx - 4)*r3_i(nx - 3) + u(m, nx - 3)*r4_i(nx - 3) + u(m, nx - 2)*r5_i(nx - 3) + u(m, nx - 1)*r6_i(nx - 3)+ u(m, nx)*r7_i(nx - 3)
+                            f(m, nx - 2) = u(m, nx - 5)*r1_i(nx - 2) + u(m, nx - 4)*r2_i(nx - 2) + u(m, nx - 3)*r3_i(nx - 2) + u(m, nx - 2)*r4_i(nx - 2) + u(m, nx - 1)*r5_i(nx - 2) + u(m, nx)*r6_i(nx - 2)
+                            f(m, nx - 1) = u(m, nx - 4)*r1_i(nx - 1) + u(m, nx - 3)*r2_i(nx - 1) + u(m, nx - 2)*r3_i(nx - 1) + u(m, nx - 1)*r4_i(nx - 1) + u(m, nx)*r5_i(nx - 1)
+                            f(m, nx) = u(m, nx - 4)*r7_i(nx) + u(m, nx - 3)*r1_i(nx) + u(m, nx - 2)*r2_i(nx) + u(m, nx - 1)*r3_i(nx) + u(m, nx)*r4_i(nx) ! r7(nx) with extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end if
+            else
+                if (any([BCS_DN, BCS_NN, BCS_MAX, BCS_BOTH] == ibc)) then
+                    if (present(bcs_t)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs,rhs_t,bcs_t)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   ! r1(1) with extended stencil
+                            f(m, 2) = u(m, 1)*r3_i(2) + u(m, 2)*r4_i(2) + u(m, 3)*r5_i(2) + u(m, 4)*r6_i(2) + u(m, 5)*r7_i(2)
+                            f(m, 3) = u(m, 1)*r2_i(3) + u(m, 2)*r3_i(3) + u(m, 3)*r4_i(3) + u(m, 4)*r5_i(3) + u(m, 5)*r6_i(3) + u(m, 6)*r7_i(3)
+                            f(m, 4) = u(m, 1)*r1_i(4) + u(m, 2)*r2_i(4) + u(m, 3)*r3_i(4) + u(m, 4)*r4_i(4) + u(m, 5)*r5_i(4) + u(m, 6)*r6_i(4) + u(m, 7)*r7_i(4)
+                            ! Interior points
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r6_loc*(u(m, n + 2) - u(m, n - 2)) + r7_loc*(u(m, n + 3) - u(m, n - 3))
+                            end do
+                            ! f(nx) contains boundary condition
+                            f(m, nx - 3) = u(m, nx - 6)*r1_t(1) + u(m, nx - 5)*r2_t(1) + u(m, nx - 4)*r3_t(1) + u(m, nx - 3)*r4_t(1) + u(m, nx - 2)*r5_t(1) + u(m, nx - 1)*r6_t(1)+ f(m, nx)*r7_t(1)
+                            f(m, nx - 2) = u(m, nx - 5)*r1_t(2) + u(m, nx - 4)*r2_t(2) + u(m, nx - 3)*r3_t(2) + u(m, nx - 2)*r4_t(2) + u(m, nx - 1)*r5_t(2) + f(m, nx)*r6_t(2)
+                            f(m, nx - 1) = u(m, nx - 4)*r1_t(3) + u(m, nx - 3)*r2_t(3) + u(m, nx - 2)*r3_t(3) + u(m, nx - 1)*r4_t(3) + f(m, nx)*r5_t(3)
+                            bcs_t(m) = u(m, nx - 4)*r7_t(4) + u(m, nx - 3)*r1_t(4) + u(m, nx - 2)*r2_t(4) + u(m, nx - 1)*r3_t(4) + f(m, nx)*r4_t(4) ! r7(nx) with extended stencil
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs,rhs_t)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   ! r1(1) with extended stencil
+                            f(m, 2) = u(m, 1)*r3_i(2) + u(m, 2)*r4_i(2) + u(m, 3)*r5_i(2) + u(m, 4)*r6_i(2) + u(m, 5)*r7_i(2)
+                            f(m, 3) = u(m, 1)*r2_i(3) + u(m, 2)*r3_i(3) + u(m, 3)*r4_i(3) + u(m, 4)*r5_i(3) + u(m, 5)*r6_i(3) + u(m, 6)*r7_i(3)
+                            f(m, 4) = u(m, 1)*r1_i(4) + u(m, 2)*r2_i(4) + u(m, 3)*r3_i(4) + u(m, 4)*r4_i(4) + u(m, 5)*r5_i(4) + u(m, 6)*r6_i(4) + u(m, 7)*r7_i(4)
+                            ! Interior points
+                            do n = 5, nx - 4
+                                f(m, n) = u(m, n + 1) - u(m, n - 1) + r6_loc*(u(m, n + 2) - u(m, n - 2)) + r7_loc*(u(m, n + 3) - u(m, n - 3))
+                            end do
+                            ! f(nx) contains boundary condition
+                            f(m, nx - 3) = u(m, nx - 6)*r1_t(1) + u(m, nx - 5)*r2_t(1) + u(m, nx - 4)*r3_t(1) + u(m, nx - 3)*r4_t(1) + u(m, nx - 2)*r5_t(1) + u(m, nx - 1)*r6_t(1)+ f(m, nx)*r7_t(1)
+                            f(m, nx - 2) = u(m, nx - 5)*r1_t(2) + u(m, nx - 4)*r2_t(2) + u(m, nx - 3)*r3_t(2) + u(m, nx - 2)*r4_t(2) + u(m, nx - 1)*r5_t(2) + f(m, nx)*r6_t(2)
+                            f(m, nx - 1) = u(m, nx - 4)*r1_t(3) + u(m, nx - 3)*r2_t(3) + u(m, nx - 2)*r3_t(3) + u(m, nx - 1)*r4_t(3) + f(m, nx)*r5_t(3)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                else
+                    !$omp target teams distribute parallel do &
+                    !$omp private(m,n) &
+                    !$omp shared(my,nx,f,u,r6_loc,r7_loc,rhs)
+                    do m = 1, my
+                        f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   ! r1(1) with extended stencil
+                        f(m, 2) = u(m, 1)*r3_i(2) + u(m, 2)*r4_i(2) + u(m, 3)*r5_i(2) + u(m, 4)*r6_i(2) + u(m, 5)*r7_i(2)
+                        f(m, 3) = u(m, 1)*r2_i(3) + u(m, 2)*r3_i(3) + u(m, 3)*r4_i(3) + u(m, 4)*r5_i(3) + u(m, 5)*r6_i(3) + u(m, 6)*r7_i(3)
+                        f(m, 4) = u(m, 1)*r1_i(4) + u(m, 2)*r2_i(4) + u(m, 3)*r3_i(4) + u(m, 4)*r4_i(4) + u(m, 5)*r5_i(4) + u(m, 6)*r6_i(4) + u(m, 7)*r7_i(4)
+                        ! Interior points
+                        do n = 5, nx - 4
+                            f(m, n) = u(m, n + 1) - u(m, n - 1) + r6_loc*(u(m, n + 2) - u(m, n - 2)) + r7_loc*(u(m, n + 3) - u(m, n - 3))
+                        end do
+                        f(m, nx - 3) = u(m, nx - 6)*r1_i(nx - 3) + u(m, nx - 5)*r2_i(nx - 3) + u(m, nx - 4)*r3_i(nx - 3) + u(m, nx - 3)*r4_i(nx - 3) + u(m, nx - 2)*r5_i(nx - 3) + u(m, nx - 1)*r6_i(nx - 3)+ u(m, nx)*r7_i(nx - 3)
+                        f(m, nx - 2) = u(m, nx - 5)*r1_i(nx - 2) + u(m, nx - 4)*r2_i(nx - 2) + u(m, nx - 3)*r3_i(nx - 2) + u(m, nx - 2)*r4_i(nx - 2) + u(m, nx - 1)*r5_i(nx - 2) + u(m, nx)*r6_i(nx - 2)
+                        f(m, nx - 1) = u(m, nx - 4)*r1_i(nx - 1) + u(m, nx - 3)*r2_i(nx - 1) + u(m, nx - 2)*r3_i(nx - 1) + u(m, nx - 1)*r4_i(nx - 1) + u(m, nx)*r5_i(nx - 1)
+                        f(m, nx) = u(m, nx - 4)*r7_i(nx) + u(m, nx - 3)*r1_i(nx) + u(m, nx - 2)*r2_i(nx) + u(m, nx - 1)*r3_i(nx) + u(m, nx)*r4_i(nx) ! r7(nx) with extended stencil
+                    end do
+                    !$omp end target teams distribute parallel do
+                end if
+            end if
+        end if
+#endif
         return
     end subroutine MatMul_7d_antisym
 
@@ -1769,17 +2756,21 @@ contains
         real(wp), intent(out), optional :: bcs_b(:), bcs_t(:)
 
         ! -------------------------------------------------------------------
-        integer(wi) n, nx
+        integer(wi) n, nx, m, my
         real(wp) r4_loc     ! center diagonal
         real(wp) r6_loc     ! 2. upper-diagonal
         real(wp) r7_loc     ! 3. upper-diagonal
 
         ! #######################################################################
         nx = size(rhs, 1)
+        my = size(f, 1)
         r7_loc = r7_i(4)
         r6_loc = r6_i(4)      ! The first 3 equations, last 3 equations, are normalized differently
         r4_loc = r4_i(4)
-
+        ! -----------------------------------------------------------------------
+#ifdef USE_APU
+        if (size(f)<1.5e4) then
+#endif
         ! Boundary
         if (ibc == BCS_PERIODIC) then
             f(:, 1) = r4_loc*u(:, 1) + u(:, 2) + u(:, nx) &
@@ -1826,8 +2817,8 @@ contains
                        + r6_loc*(u(:, 2) + u(:, nx - 2)) &
                        + r7_loc*(u(:, 3) + u(:, nx - 3))
         else
-      f(:, nx - 2) = u(:, nx - 5)*r1_i(nx - 2) + u(:, nx - 4)*r2_i(nx - 2) + u(:, nx - 3)*r3_i(nx - 2) + u(:, nx - 2)*r4_i(nx - 2) + u(:, nx - 1)*r5_i(nx - 2) &
-                           + u(:, nx)*r6_i(nx - 2)
+            f(:, nx - 2) = u(:, nx - 5)*r1_i(nx - 2) + u(:, nx - 4)*r2_i(nx - 2) + u(:, nx - 3)*r3_i(nx - 2) + 
+                           u(:, nx - 2)*r4_i(nx - 2) + u(:, nx - 1)*r5_i(nx - 2) + u(:, nx)*r6_i(nx - 2)
 
             f(:, nx - 1) = u(:, nx - 4)*r1_i(nx - 1) + u(:, nx - 3)*r2_i(nx - 1) + u(:, nx - 2)*r3_i(nx - 1) + u(:, nx - 1)*r4_i(nx - 1) &
                            + u(:, nx)*r5_i(nx - 1)
@@ -1838,7 +2829,116 @@ contains
             if (any([BCS_DN, BCS_NN] == ibc)) f(:, nx) = 0.0_wp
 
         end if
+#ifdef USE_APU            
+        else
+            ! Boundary
+            if (ibc == BCS_PERIODIC) then
+                !$omp target teams distribute parallel do &
+                !$omp private(m,n) &
+                !$omp shared(my,nx,f,u,r4_loc,r6_loc,r7_loc)
+                do m = 1, my
+                    f(m, 1) = r4_loc*u(m, 1) + u(m, 2) + u(m, nx) + r6_loc*(u(m, 3) + u(m, nx - 1)) + r7_loc*(u(m, 4) + u(m, nx - 2))
+                    f(m, 2) = r4_loc*u(m, 2) + u(m, 3) + u(m, 1) + r6_loc*(u(m, 4) + u(m, nx)) + r7_loc*(u(m, 5) + u(m, nx - 1))
+                    f(m, 3) = r4_loc*u(m, 3) + u(m, 4) + u(m, 2) + r6_loc*(u(m, 5) + u(m, 1)) + r7_loc*(u(m, 6) + u(m, nx))
+                    do n = 4, nx - 3
+                        f(m, n) = r4_loc*u(m, n) + u(m, n + 1) + u(m, n - 1) + r6_loc*(u(m, n + 2) + u(m, n - 2)) + r7_loc*(u(m, n + 3) + u(m, n - 3))
+                    end do
+                    f(m, nx - 2) = r4_loc*u(m, nx - 2) + u(m, nx - 1) + u(m, nx - 3) + r6_loc*(u(m, nx) + u(m, nx - 4)) + r7_loc*(u(m, 1) + u(m, nx - 5))
+                    f(m, nx - 1) = r4_loc*u(m, nx - 1) + u(m, nx) + u(m, nx - 2) + r6_loc*(u(m, 1) + u(m, nx - 3)) + r7_loc*(u(m, 2) + u(m, nx - 4))
+                    f(m, nx) = r4_loc*u(m, nx) + u(m, 1) + u(m, nx - 1) + r6_loc*(u(m, 2) + u(m, nx - 2)) + r7_loc*(u(m, 3) + u(m, nx - 3))
+                end do
+                !$omp end target teams distribute parallel do
+            else
+                if (any([BCS_ND, BCS_NN] == ibc)) then
+                    if (any([BCS_DN, BCS_NN] == ibc)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   
+                            ! r1(1) contains 4. upper-diagonal to allow for longer stencil at boundary
+                            f(m, 2) = u(m, 1)*r3_i(2) + u(m, 2)*r4_i(2) + u(m, 3)*r5_i(2) + u(m, 4)*r6_i(2) + u(m, 5)*r7_i(2)
+                            f(m, 3) = u(m, 1)*r2_i(3) + u(m, 2)*r3_i(3) + u(m, 3)*r4_i(3) + u(m, 4)*r5_i(3) + u(m, 5)*r6_i(3) + u(m, 6)*r7_i(3)
+                            f(m, 1) = 0.0_wp
+                            ! Interior points
+                            do n = 4, nx - 3
+                                f(m, n) = r4_loc*u(m, n) + u(m, n + 1) + u(m, n - 1) + r6_loc*(u(m, n + 2) + u(m, n - 2)) + r7_loc*(u(m, n + 3) + u(m, n - 3))
+                            end do
+                            f(m, nx - 2) = u(m, nx - 5)*r1_i(nx - 2) + u(m, nx - 4)*r2_i(nx - 2) + u(m, nx - 3)*r3_i(nx - 2) + u(m, nx - 2)*r4_i(nx - 2) + u(m, nx - 1)*r5_i(nx - 2) + u(m, nx)*r6_i(nx - 2)
+                            f(m, nx - 1) = u(m, nx - 4)*r1_i(nx - 1) + u(m, nx - 3)*r2_i(nx - 1) + u(m, nx - 2)*r3_i(nx - 1) + u(m, nx - 1)*r4_i(nx - 1) + u(m, nx)*r5_i(nx - 1)
+                            f(m, nx) = u(m, nx - 4)*r7_i(nx) + u(m, nx - 3)*r1_i(nx) + u(m, nx - 2)*r2_i(nx) + u(m, nx - 1)*r3_i(nx) + u(m, nx)*r4_i(nx)
+                            ! r7(nx) contains 4. subdiagonal to allow for longer stencil at boundary
+                            f(m, nx) = 0.0_wp   
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   
+                            ! r1(1) contains 4. upper-diagonal to allow for longer stencil at boundary
+                            f(m, 2) = u(m, 1)*r3_i(2) + u(m, 2)*r4_i(2) + u(m, 3)*r5_i(2) + u(m, 4)*r6_i(2) + u(m, 5)*r7_i(2)
+                            f(m, 3) = u(m, 1)*r2_i(3) + u(m, 2)*r3_i(3) + u(m, 3)*r4_i(3) + u(m, 4)*r5_i(3) + u(m, 5)*r6_i(3) + u(m, 6)*r7_i(3)
+                            if (any([BCS_ND, BCS_NN] == ibc)) f(m, 1) = 0.0_wp
+                            ! Interior points
+                            do n = 4, nx - 3
+                                f(m, n) = r4_loc*u(m, n) + u(m, n + 1) + u(m, n - 1) + r6_loc*(u(m, n + 2) + u(m, n - 2)) + r7_loc*(u(m, n + 3) + u(m, n - 3))
+                            end do
+                            f(m, nx - 2) = u(m, nx - 5)*r1_i(nx - 2) + u(m, nx - 4)*r2_i(nx - 2) + u(m, nx - 3)*r3_i(nx - 2) + u(m, nx - 2)*r4_i(nx - 2) + u(m, nx - 1)*r5_i(nx - 2) + u(m, nx)*r6_i(nx - 2)
+                            f(m, nx - 1) = u(m, nx - 4)*r1_i(nx - 1) + u(m, nx - 3)*r2_i(nx - 1) + u(m, nx - 2)*r3_i(nx - 1) + u(m, nx - 1)*r4_i(nx - 1) + u(m, nx)*r5_i(nx - 1)
+                            f(m, nx) = u(m, nx - 4)*r7_i(nx) + u(m, nx - 3)*r1_i(nx) + u(m, nx - 2)*r2_i(nx) + u(m, nx - 1)*r3_i(nx) + u(m, nx)*r4_i(nx)
+                            ! r7(nx) contains 4. subdiagonal to allow for longer stencil at boundary
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                else
+                    if (any([BCS_DN, BCS_NN] == ibc)) then
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   
+                            ! r1(1) contains 4. upper-diagonal to allow for longer stencil at boundary
+                            f(m, 2) = u(m, 1)*r3_i(2) + u(m, 2)*r4_i(2) + u(m, 3)*r5_i(2) + u(m, 4)*r6_i(2) + u(m, 5)*r7_i(2)
+                            f(m, 3) = u(m, 1)*r2_i(3) + u(m, 2)*r3_i(3) + u(m, 3)*r4_i(3) + u(m, 4)*r5_i(3) + u(m, 5)*r6_i(3) + u(m, 6)*r7_i(3)
+                            ! Interior points
+                            do n = 4, nx - 3
+                                f(m, n) = r4_loc*u(m, n) + u(m, n + 1) + u(m, n - 1) + r6_loc*(u(m, n + 2) + u(m, n - 2)) + r7_loc*(u(m, n + 3) + u(m, n - 3))
+                            end do
+                            f(m, nx - 2) = u(m, nx - 5)*r1_i(nx - 2) + u(m, nx - 4)*r2_i(nx - 2) + u(m, nx - 3)*r3_i(nx - 2) + u(m, nx - 2)*r4_i(nx - 2) + u(m, nx - 1)*r5_i(nx - 2) + u(m, nx)*r6_i(nx - 2)
+                            f(m, nx - 1) = u(m, nx - 4)*r1_i(nx - 1) + u(m, nx - 3)*r2_i(nx - 1) + u(m, nx - 2)*r3_i(nx - 1) + u(m, nx - 1)*r4_i(nx - 1) + u(m, nx)*r5_i(nx - 1)
+                            f(m, nx) = u(m, nx - 4)*r7_i(nx) + u(m, nx - 3)*r1_i(nx) + u(m, nx - 2)*r2_i(nx) + u(m, nx - 1)*r3_i(nx) + u(m, nx)*r4_i(nx)
+                            ! r7(nx) contains 4. subdiagonal to allow for longer stencil at boundary
+                            f(m, nx) = 0.0_wp
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do &
+                        !$omp private(m,n) &
+                        !$omp shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
+                        do m = 1, my
+                            f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   
+                            ! r1(1) contains 4. upper-diagonal to allow for longer stencil at boundary
+                            f(m, 2) = u(m, 1)*r3_i(2) + u(m, 2)*r4_i(2) + u(m, 3)*r5_i(2) + u(m, 4)*r6_i(2) + u(m, 5)*r7_i(2)
+                            f(m, 3) = u(m, 1)*r2_i(3) + u(m, 2)*r3_i(3) + u(m, 3)*r4_i(3) + u(m, 4)*r5_i(3) + u(m, 5)*r6_i(3) + u(m, 6)*r7_i(3)
+                            ! Interior points
+                            do n = 4, nx - 3
+                                f(m, n) = r4_loc*u(m, n) + u(m, n + 1) + u(m, n - 1) + r6_loc*(u(m, n + 2) + u(m, n - 2)) + r7_loc*(u(m, n + 3) + u(m, n - 3))
+                            end do
+                            f(m, nx - 2) = u(m, nx - 5)*r1_i(nx - 2) + u(m, nx - 4)*r2_i(nx - 2) + u(m, nx - 3)*r3_i(nx - 2) + u(m, nx - 2)*r4_i(nx - 2) + u(m, nx - 1)*r5_i(nx - 2) + u(m, nx)*r6_i(nx - 2)
+                            f(m, nx - 1) = u(m, nx - 4)*r1_i(nx - 1) + u(m, nx - 3)*r2_i(nx - 1) + u(m, nx - 2)*r3_i(nx - 1) + u(m, nx - 1)*r4_i(nx - 1) + u(m, nx)*r5_i(nx - 1)
+                            f(m, nx) = u(m, nx - 4)*r7_i(nx) + u(m, nx - 3)*r1_i(nx) + u(m, nx - 2)*r2_i(nx) + u(m, nx - 1)*r3_i(nx) + u(m, nx)*r4_i(nx)
+                            ! r7(nx) contains 4. subdiagonal to allow for longer stencil at boundary
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end if
 
+            end if
+
+        end if
+#endif
         return
     end subroutine MatMul_7d_sym
 

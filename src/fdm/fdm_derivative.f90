@@ -129,24 +129,12 @@ contains
             end select
         else
             select case (g%nb_diag(2))
-            case (3)
-#ifndef USE_APU            
+            case (3)   
                 g%matmul => MatMul_3d_antisym
-#else                
-                g%matmul => MatMul_3d_antisym_APU
-#endif                
             case (5)
-#ifndef USE_APU  
                 g%matmul => MatMul_5d_antisym
-#else
-                g%matmul => MatMul_5d_antisym_APU
-#endif
             case (7)
-#ifndef USE_APU            
                 g%matmul => MatMul_7d_antisym
-#else                
-                g%matmul => MatMul_7d_antisym_APU
-#endif
             end select
         end if
 
@@ -448,11 +436,7 @@ contains
         call g%matmul(g%rhs, u, result, ibc)
         if (g%need_1der) then           ! add Jacobian correction A_2 dx2 du
             ip = g%nb_diag(2)           ! so far, only tridiagonal systems
-#ifdef USE_APU
-            call MatMul_3d_add_APU(g%rhs(:, ip + 1:ip + 3), du, result)
-#else
             call MatMul_3d_add(g%rhs(:, ip + 1:ip + 3), du, result)
-#endif            
         end if
 
         ! -------------------------------------------------------------------

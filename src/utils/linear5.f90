@@ -214,31 +214,60 @@ subroutine PENTADSS2(nmax, len, a, b, c, d, e, f)
     real(wp), dimension(len, nmax), intent(INOUT) :: f
 
     ! -----------------------------------------------------------------------
-    integer(wi) n
+    integer(wi) n, l
 
     ! #######################################################################
-    ! -----------------------------------------------------------------------
-    ! Solve Ly=f, forward
-    ! -----------------------------------------------------------------------
-    n = nmax - 1
-    f(:, n) = f(:, n) - f(:, n + 1)*d(n)
+#ifdef USE_APU
+    if (size(f) < 1.5e4) then ! problem is to small for APU, no performance benefit
+#endif
+        ! -----------------------------------------------------------------------
+        ! Solve Ly=f, forward
+        ! -----------------------------------------------------------------------
+        n = nmax - 1
+        f(:, n) = f(:, n) - f(:, n + 1)*d(n)
 
-    do n = nmax - 2, 1, -1
-        f(:, n) = f(:, n) - f(:, n + 1)*d(n) - f(:, n + 2)*e(n)
-    end do
+        do n = nmax - 2, 1, -1
+            f(:, n) = f(:, n) - f(:, n + 1)*d(n) - f(:, n + 2)*e(n)
+        end do
 
-    ! -----------------------------------------------------------------------
-    ! Solve Ux=y, backward
-    ! -----------------------------------------------------------------------
-    n = 1
-    f(:, n) = f(:, n)/c(n)
+        ! -----------------------------------------------------------------------
+        ! Solve Ux=y, backward
+        ! -----------------------------------------------------------------------
+        n = 1
+        f(:, n) = f(:, n)/c(n)
 
-    n = 2
-    f(:, n) = (f(:, n) - f(:, n - 1)*b(n))/c(n)
+        n = 2
+        f(:, n) = (f(:, n) - f(:, n - 1)*b(n))/c(n)
 
-    do n = 3, nmax
-        f(:, n) = (f(:, n) - f(:, n - 1)*b(n) - f(:, n - 2)*a(n))/c(n)
-    end do
+        do n = 3, nmax
+            f(:, n) = (f(:, n) - f(:, n - 1)*b(n) - f(:, n - 2)*a(n))/c(n)
+        end do
+#ifdef USE_APU
+    else
+        !$omp target teams distribute parallel do private(n, l) default(shared)
+        do l = 1, len
+            ! -----------------------------------------------------------------------
+            ! Solve Ly=f, forward
+            ! -----------------------------------------------------------------------
+            f(l, nmax - 1) = f(l, nmax - 1) - f(l, nmax - 1 + 1)*d(nmax - 1)    ! n = nmax - 1
+
+            do n = nmax - 2, 1, -1
+                f(l, n) = f(l, n) - f(l, n + 1)*d(n) - f(l, n + 2)*e(n)
+            end do
+            ! -----------------------------------------------------------------------
+            ! Solve Ux=y, backward
+            ! -----------------------------------------------------------------------
+            f(l, 1) = f(l, 1)/c(1) ! n = 1 
+            f(l, 2) = (f(l, 2) - f(l, 2 - 1)*b(2))/c(2) ! n = 2
+
+            do n = 3, nmax
+                f(l, n) = (f(l, n) - f(l, n - 1)*b(n) - f(l, n - 2)*a(n))/c(n)
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+    end if
+#endif
+
 
     return
 end subroutine PENTADSS2
@@ -385,27 +414,55 @@ subroutine PENTADPSS(nmax, len, a, b, c, d, e, f, g, frc)
     d22 = di*(m1*a(1) - m3*b(1))
     d23 = di*m3*a(1)
     d24 = di*m1*e(nmax)
-
-    ! Solve
-    do n = 3, nmax - 3, 1 ! Main loop
+#ifdef USE_APU
+    if ((nmax*len) < 1.5e4) then
+#endif
+        ! Solve
         do l = 1, len, 1
+            do n = 3, nmax - 3, 1 ! Main loop
+                dummy1 = d11*frc(l, 1) + d12*frc(l, nmax) + d13*frc(l, nmax - 1) - d14*frc(l, 2)
+                dummy2 = d21*frc(l, 1) + d22*frc(l, nmax) - d23*frc(l, nmax - 1) + d24*frc(l, 2)
+                !
+                frc(l, n) = frc(l, n) - dummy1*f(n) - dummy2*g(n)
+            end do
+        ! end do
+        ! !
+        ! do l = 1, len, 1     ! Boundaries
             dummy1 = d11*frc(l, 1) + d12*frc(l, nmax) + d13*frc(l, nmax - 1) - d14*frc(l, 2)
             dummy2 = d21*frc(l, 1) + d22*frc(l, nmax) - d23*frc(l, nmax - 1) + d24*frc(l, 2)
-            !
-            frc(l, n) = frc(l, n) - dummy1*f(n) - dummy2*g(n)
+            do n = 1, 2, 1
+                frc(l, n) = frc(l, n) - dummy1*f(n) - dummy2*g(n)
+            end do
+            do n = nmax - 2, nmax, 1
+                frc(l, n) = frc(l, n) - dummy1*f(n) - dummy2*g(n)
+            end do
         end do
-    end do
-    !
-    do l = 1, len, 1     ! Boundaries
-        dummy1 = d11*frc(l, 1) + d12*frc(l, nmax) + d13*frc(l, nmax - 1) - d14*frc(l, 2)
-        dummy2 = d21*frc(l, 1) + d22*frc(l, nmax) - d23*frc(l, nmax - 1) + d24*frc(l, 2)
-        do n = 1, 2, 1
-            frc(l, n) = frc(l, n) - dummy1*f(n) - dummy2*g(n)
+#ifdef USE_APU
+    else
+        ! Solve
+        !$omp target teams distribute parallel do&
+        !$omp private(l, n, dummy1, dummy2) &
+        !$omp default(shared)
+        do l = 1, len, 1
+            do n = 3, nmax - 3, 1 ! Main loop
+                dummy1 = d11*frc(l, 1) + d12*frc(l, nmax) + d13*frc(l, nmax - 1) - d14*frc(l, 2)
+                dummy2 = d21*frc(l, 1) + d22*frc(l, nmax) - d23*frc(l, nmax - 1) + d24*frc(l, 2)
+                !
+                frc(l, n) = frc(l, n) - dummy1*f(n) - dummy2*g(n)
+            end do
+            ! Boundaries
+            dummy1 = d11*frc(l, 1) + d12*frc(l, nmax) + d13*frc(l, nmax - 1) - d14*frc(l, 2)
+            dummy2 = d21*frc(l, 1) + d22*frc(l, nmax) - d23*frc(l, nmax - 1) + d24*frc(l, 2)
+            do n = 1, 2, 1
+                frc(l, n) = frc(l, n) - dummy1*f(n) - dummy2*g(n)
+            end do
+            do n = nmax - 2, nmax, 1
+                frc(l, n) = frc(l, n) - dummy1*f(n) - dummy2*g(n)
+            end do
         end do
-        do n = nmax - 2, nmax, 1
-            frc(l, n) = frc(l, n) - dummy1*f(n) - dummy2*g(n)
-        end do
-    end do
+        !$omp end target teams distribute parallel do
+    end if
+#endif
 
     return
 end subroutine PENTADPSS
