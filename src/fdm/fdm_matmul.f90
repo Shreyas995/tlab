@@ -2817,7 +2817,7 @@ contains
                        + r6_loc*(u(:, 2) + u(:, nx - 2)) &
                        + r7_loc*(u(:, 3) + u(:, nx - 3))
         else
-            f(:, nx - 2) = u(:, nx - 5)*r1_i(nx - 2) + u(:, nx - 4)*r2_i(nx - 2) + u(:, nx - 3)*r3_i(nx - 2) + 
+            f(:, nx - 2) = u(:, nx - 5)*r1_i(nx - 2) + u(:, nx - 4)*r2_i(nx - 2) + u(:, nx - 3)*r3_i(nx - 2) + &
                            u(:, nx - 2)*r4_i(nx - 2) + u(:, nx - 1)*r5_i(nx - 2) + u(:, nx)*r6_i(nx - 2)
 
             f(:, nx - 1) = u(:, nx - 4)*r1_i(nx - 1) + u(:, nx - 3)*r2_i(nx - 1) + u(:, nx - 2)*r3_i(nx - 1) + u(:, nx - 1)*r4_i(nx - 1) &
