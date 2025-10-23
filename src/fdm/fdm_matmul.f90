@@ -153,7 +153,7 @@ contains
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_b) .and. present(bcs_t)) then
                         !$omp target teams distribute parallel do &
-                        !$omp private(m,n) 
+                        !$omp private(m,n) &
                         !$omp shared(nx,my,bcs_b,bcs_t,f,u,rhs_b,rhs_t,rhs)
                         do m = 1, my
                             bcs_b(m) = f(m, 1)*r2_b(1) + u(m, 2)*r3_b(1) + u(m, 3)*r1_b(1) ! r1(1) contains extended stencil
@@ -171,7 +171,7 @@ contains
                         !$omp end target teams distribute parallel do
                     else if (present(bcs_b)) then
                         !$omp target teams distribute parallel do &
-                        !$omp private(m,n) 
+                        !$omp private(m,n) &
                         !$omp shared(nx,my,bcs_b,f,u,rhs_b,rhs_t,rhs)
                         do m = 1, my
                             bcs_b(m) = f(m, 1)*r2_b(1) + u(m, 2)*r3_b(1) + u(m, 3)*r1_b(1) ! r1(1) contains extended stencil
@@ -188,7 +188,7 @@ contains
                         !$omp end target teams distribute parallel do
                     else
                         !$omp target teams distribute parallel do &
-                        !$omp private(m,n) 
+                        !$omp private(m,n) &
                         !$omp shared(nx,my,bcs_t,f,u,rhs_b,rhs_t,rhs)
                         do m = 1, my
                             f(m, 2) = f(m, 1)*r1_b(2) + u(m, 2)*r2_b(2) + u(m, 3)*r3_b(2)
@@ -206,7 +206,7 @@ contains
                 else
                     if (present(bcs_b)) then
                         !$omp target teams distribute parallel do &
-                        !$omp private(m,n) 
+                        !$omp private(m,n) &
                         !$omp shared(nx,my,bcs_b,f,u,rhs_b,rhs)
                         do m = 1, my
                             bcs_b(m) = f(m, 1)*r2_b(1) + u(m, 2)*r3_b(1) + u(m, 3)*r1_b(1) ! r1(1) contains extended stencil
@@ -223,7 +223,7 @@ contains
                         !$omp end target teams distribute parallel do
                     else
                         !$omp target teams distribute parallel do &
-                        !$omp private(m,n) 
+                        !$omp private(m,n) &
                         !$omp shared(nx,my,f,u,rhs_b,rhs)
                         do m = 1, my
                             ! f(1) contains the boundary condition
@@ -243,7 +243,7 @@ contains
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_t))
                         !$omp target teams distribute parallel do &
-                        !$omp private(m,n) 
+                        !$omp private(m,n) &
                         !$omp shared(nx,my,bcs_t,f,u,rhs)
                         do m = 1, my
                             f(m, 1) = u(m, 1)*r2_i(1) + u(m, 2)*r3_i(1) + u(m, 3)*r1_i(1)   ! r1(1) contains extended stencil
@@ -351,7 +351,7 @@ contains
                         !$omp end target teams distribute parallel do
                     else if (present(bcs_b)) then
                         !$omp target teams distribute parallel do collapse(2) default(shared) &
-                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) 
                         ! !$omp shared(ilines,klines,nx,bcs_b,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi)
                         do i = 1, ilines
                             do k = 1, klines
@@ -371,7 +371,7 @@ contains
                     else if (present(bcs_t)) then
                         ! f(1) contains the boundary condition
                         !$omp target teams distribute parallel do collapse(2) default(shared) &
-                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) 
                         ! !$omp shared(ilines,klines,nx,bcs_t,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi)
                         do i = 1, ilines
                             do k = 1, klines
@@ -389,7 +389,7 @@ contains
                         !$omp end target teams distribute parallel do
                     else
                         !$omp target teams distribute parallel do collapse(2) default(shared) &
-                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) 
                         ! !$omp shared(ilines,klines,nx,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi)
                         do i = 1, ilines
                             do k = 1, klines
@@ -409,7 +409,7 @@ contains
                 else
                     if (present(bcs_b)) then
                         !$omp target teams distribute parallel do collapse(2) default(shared) &
-                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) 
                         ! !$omp shared(ilines,klines,nx,bcs_b,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi)
                         do i = 1, ilines
                             do k = 1, klines
@@ -429,7 +429,7 @@ contains
                         !$omp end target teams distribute parallel do
                     else
                         !$omp target teams distribute parallel do collapse(2) default(shared) &
-                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) 
                         ! !$omp shared(ilines,klines,nx,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,rhs,fdmi)
                         do i = 1, ilines
                             do k = 1, klines
@@ -452,7 +452,7 @@ contains
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
                     if (present(bcs_t)) then
                         !$omp target teams distribute parallel do collapse(2) default(shared) &
-                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) 
                         ! !$omp shared(ilines,klines,nx,bcs_t,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,rhs,fdmi)
                         do i = 1, ilines
                             do k = 1, klines
@@ -471,7 +471,7 @@ contains
                         !$omp end target teams distribute parallel do
                     else
                         !$omp target teams distribute parallel do collapse(2) default(shared) &
-                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                        !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) 
                         ! !$omp shared(ilines,klines,rhs,nx,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6,lp7,fdmi)
                         do i = 1, ilines
                             do k = 1, klines
@@ -490,7 +490,7 @@ contains
                     end if
                 else
                     !$omp target teams distribute parallel do collapse(2) default(shared) &
-                    !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
+                    !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) 
                     ! !$omp shared(ilines,klines,rhs,nx,f,u,lp0,lp1,lp2,lp3,lp4,lp5,lp6)
                     do i = 1, ilines
                         do k = 1, klines

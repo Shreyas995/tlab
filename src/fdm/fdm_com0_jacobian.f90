@@ -96,7 +96,7 @@ contains
         c0115 = 1.0_wp/15.0_wp
         imm1 = imax - 1
 #ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(2) private(im1, ip1, ip2,i,jk) default(shared)
+        !$omp target teams distribute parallel do collapse(2) private(im1, ip1, im2,i,jk) default(shared)
 #endif
         do i = 1, imax
             im1 = i - 1; im1 = im1 + imm1; im1 = mod(im1, imax) + 1
