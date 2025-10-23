@@ -1468,7 +1468,7 @@ contains
                         !$omp target teams distribute parallel do &
                         !$omp private(m,n) &
                         !$omp shared(nx,my,f,u,rhs_b,rhs_t,rhs)
-                        do = 1, my
+                        do m = 1, my
                             f(m, 1) = u(m, 1)*r3_i(1) + u(m, 2)*r4_i(1) + u(m, 3)*r5_i(1) + u(m, 4)*r1_i(1)   ! r1(1) contains extended stencil
                             f(m, 2) = u(m, 1)*r2_i(2) + u(m, 2)*r3_i(2) + u(m, 3)*r4_i(2) + u(m, 4)*r5_i(2)
                             f(m, 3) = u(m, 1)*r1_i(3) + u(m, 2)*r2_i(3) + u(m, 3)*r3_i(3) + u(m, 4)*r4_i(3) + u(m, 5)*r5_i(3)
