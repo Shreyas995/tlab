@@ -280,12 +280,18 @@ contains
 
         ! ###################################################################
         avg = 0.0_wp
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(2) private(k,i) default(shared)
+#endif
         do k = 1, nz
             do i = 1, nx
+                !$omp atomic
                 avg = avg + a(i, j, k)
             end do
         end do
-
+#ifdef USE_APU
+        !$omp end target teams distribute parallel do
+#endif
         avg = avg/real(nx*nz, wp)
 #ifdef USE_MPI
         call MPI_ALLREDUCE(avg, sum_mpi, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ims_err)
@@ -309,14 +315,20 @@ contains
 
         ! ###################################################################
         avg = 0.0_wp
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(3) private(i,j,k) default(shared)
+#endif
         do k = 1, nz
             do j = 1, ny
                 do i = 1, nx
+                    !$omp atomic
                     avg(j) = avg(j) + a(i, j, k)
                 end do
             end do
         end do
-
+#ifdef USE_APU
+        !$omp end target teams distribute parallel do
+#endif
         avg = avg/real(nx*nz, wp)
 #ifdef USE_MPI
         call MPI_ALLREDUCE(avg, wrk, ny, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ims_err)
