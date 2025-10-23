@@ -241,7 +241,7 @@ contains
                 end if
             else
                 if (any([BCS_MAX, BCS_BOTH] == ibc)) then
-                    if (present(bcs_t))
+                    if (present(bcs_t)) then
                         !$omp target teams distribute parallel do &
                         !$omp private(m,n) &
                         !$omp shared(nx,my,bcs_t,f,u,rhs)
