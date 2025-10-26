@@ -283,9 +283,9 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     end if
 #ifdef USE_APU
     !$omp target teams distribute parallel do default(shared) private (ii,jj)
-    do ii = 1, nv
-        do jj = 1, jmax
-            mean2d(jj,ii) = 0.0_wp
+    do i = 1, nv
+        do j = 1, jmax
+            mean2d(j, i) = 0.0_wp
         end do
     end do
     !$omp end target teams distribute parallel do
@@ -557,10 +557,10 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'7' 'tmp1: ', sum(tmp1)
-    print *,'7' 'dsdx: ', sum(dsdx)
-    print *,'7' 'dsdy: ', sum(dsdy)
-    print *,'7' 'dsdz: ', sum(dsdz)
+    print *,'7', 'tmp1: ', sum(tmp1)
+    print *,'7', 'dsdx: ', sum(dsdx)
+    print *,'7', 'dsdy: ', sum(dsdy)
+    print *,'7', 'dsdz: ', sum(dsdz)
 #else
     do j = 1, jmax
         tmp1(:, j, :) = (p_loc(:, j, :) - rP(j))*(s_local(:, j, :) - fS(j))
@@ -707,7 +707,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     do j = 1, jmax
         do i = 1, imax
             do k = 1, kmax
-                tmp1(i, j, k) = (s_local(i, j, kss) - fS(j))*p_wrk3d(i, j, k)
+                tmp1(i, j, k) = (s_local(i, j, k) - fS(j))*p_wrk3d(i, j, k)
                 dsdx(i, j, k) = (u(i, j, k) - fU(j))*p_wrk3d(i, j, k)
                 dsdy(i, j, k) = (v(i, j, k) - fV(j))*p_wrk3d(i, j, k)
                 dsdz(i, j, k) = (w(i, j, k) - fW(j))*p_wrk3d(i, j, k)
