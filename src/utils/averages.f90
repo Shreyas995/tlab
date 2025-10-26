@@ -316,7 +316,7 @@ contains
         ! ###################################################################
         avg = 0.0_wp
 #ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(3) private(i,j,k) default(shared)
+       !$omp target teams distribute parallel do collapse(3) private(i,j,k) default(shared)
 #endif
         do k = 1, nz
             do j = 1, ny
