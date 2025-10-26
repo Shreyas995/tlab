@@ -282,13 +282,13 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         call TLab_Stop(DNS_ERROR_AVGTMP)
     end if
 #ifdef USE_APU
-    !$omp target teams distribute parallel do default(shared) private (i,j)
+    ! !$omp target teams distribute parallel do default(shared) private (i,j)
     do i = 1, nv
         do j = 1, jmax
             mean2d(j, i) = 0.0_wp
         end do
     end do
-    !$omp end target teams distribute parallel do
+    ! !$omp end target teams distribute parallel do
     
     print *,'1', 'mean2d: ', sum(mean2d)
 #else
@@ -384,7 +384,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! -----------------------------------------------------------------------
     ! Moments
 #ifdef USE_APU
-    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
+    ! !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do j = 1, jmax !offload
         do i = 1, imax
             do k = 1, kmax
@@ -392,7 +392,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
             end do
         end do
     end do
-    !$omp end target teams distribute parallel do
+    ! !$omp end target teams distribute parallel do
     print *,'2', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax !offload
@@ -414,7 +414,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
 
     else
 #ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
+        ! !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
         do j = 1, jmax
             do i = 1, imax
                 do k = 1, kmax
@@ -422,7 +422,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
                 end do
             end do
         end do
-        !$omp end target teams distribute parallel do
+        ! !$omp end target teams distribute parallel do
         print *,'3', 'p_wrk3d: ', sum(p_wrk3d)
 #else
         do j = 1, jmax
@@ -447,7 +447,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! -----------------------------------------------------------------------
     ! Cross terms
 #ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
+        ! !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
         do j = 1, jmax
             do i = 1, imax
                 do k = 1, kmax
@@ -455,7 +455,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
                 end do
             end do
         end do
-        !$omp end target teams distribute parallel do
+        ! !$omp end target teams distribute parallel do
         print *,'4', 'p_wrk3d: ', sum(p_wrk3d)
 #else
         do j = 1, jmax !offload
@@ -466,7 +466,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     if (any([DNS_EQNS_TOTAL, DNS_EQNS_INTERNAL] == nse_eqns)) p_wrk3d = p_wrk3d*rho
 
 #ifdef USE_APU
-    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
+    ! !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do j = 1, jmax !offload
         do i = 1, imax
             do k = 1, kmax
@@ -476,7 +476,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
             end do
         end do
     end do
-    !$omp end target teams distribute parallel do
+    ! !$omp end target teams distribute parallel do
     print *,'5', 'dsdx: ', sum(dsdx)
     print *,'5', 'dsdy: ', sum(dsdy)
     print *,'5', 'dsdz: ', sum(dsdz)
@@ -504,7 +504,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! -----------------------------------------------------------------------
     ! turbulent transport terms
 #ifdef USE_APU
-    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
+    ! !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do j = 1, jmax !offload
         do i = 1, imax
             do k = 1, kmax
@@ -515,7 +515,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
             end do
         end do
     end do
-    !$omp end target teams distribute parallel do
+    ! !$omp end target teams distribute parallel do
     print *,'6', 'tmp1: ', sum(tmp1)
     print *,'6', 'dsdx: ', sum(dsdx)
     print *,'6', 'dsdy: ', sum(dsdy)
@@ -545,7 +545,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     call OPR_Partial_Y(OPR_P1, imax, jmax, kmax, bcs, g(2), s_local, dsdy)
     call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), s_local, dsdz)
 #ifdef USE_APU
-    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
+    ! !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do j = 1, jmax
         do i = 1, imax
             do k = 1,kmax
@@ -556,7 +556,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
             end do
         end do
     end do
-    !$omp end target teams distribute parallel do
+    ! !$omp end target teams distribute parallel do
     print *,'7', 'tmp1: ', sum(tmp1)
     print *,'7', 'dsdx: ', sum(dsdx)
     print *,'7', 'dsdy: ', sum(dsdy)
@@ -703,7 +703,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     fQ(:) = fQ(:)/rR(:)
 
 #ifdef USE_APU
-    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
+    ! !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do j = 1, jmax
         do i = 1, imax
             do k = 1, kmax
@@ -714,7 +714,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
             end do
         end do
     end do
-    !$omp end target teams distribute parallel do
+    ! !$omp end target teams distribute parallel do
     print *,'8', 'tmp1: ', sum(tmp1)
     print *,'8', 'dsdx: ', sum(dsdx)
     print *,'8', 'dsdy: ', sum(dsdy)
@@ -853,7 +853,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! -----------------------------------------------------------------------
     ! Moments
 #ifdef USE_APU
-    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
+    ! !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do j = 1, jmax !offload
         do i = 1, imax
             do k = 1, kmax
@@ -861,7 +861,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
             end do
         end do
     end do
-    !$omp end target teams distribute parallel do
+    ! !$omp end target teams distribute parallel do
     print *,'9', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
@@ -897,7 +897,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
 
     ! Contribution to turbulent transport
 #ifdef USE_APU
-    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
+    ! !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do j = 1, jmax
         do i = 1, imax
             do k = 1, kmax
@@ -908,7 +908,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
             end do
         end do
     end do
-    !$omp end target teams distribute parallel do
+    ! !$omp end target teams distribute parallel do
     print *,'10', 'p_wrk3d: ', sum(p_wrk3d)
     print *,'10', 'tmp1: ', sum(tmp1)
     print *,'10', 'tmp2: ', sum(tmp2)
