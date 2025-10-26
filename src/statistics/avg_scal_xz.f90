@@ -282,7 +282,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         call TLab_Stop(DNS_ERROR_AVGTMP)
     end if
 #ifdef USE_APU
-    !$omp target teams distribute parallel do default(shared) private (ii,jj)
+    !$omp target teams distribute parallel do default(shared) private (i,j)
     do i = 1, nv
         do j = 1, jmax
             mean2d(j, i) = 0.0_wp
