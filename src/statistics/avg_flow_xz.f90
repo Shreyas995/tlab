@@ -522,18 +522,12 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'11', 'dwdx: ', sum(dwdx)
-    print *,'11', 'dwdy: ', sum(dwdy)
-    print *,'11', 'dwdz: ', sum(dwdz)
 #else
     do j = 1, jmax
         dwdx(:, j, :) = u(:, j, :) - fU(j)
         dwdy(:, j, :) = v(:, j, :) - fV(j)
         dwdz(:, j, :) = w(:, j, :) - fW(j)
     end do
-    print *,'11', 'dwdx: ', sum(dwdx)
-    print *,'11', 'dwdy: ', sum(dwdy)
-    print *,'11', 'dwdz: ', sum(dwdz)
 #endif
 
     if (any([DNS_EQNS_INCOMPRESSIBLE, DNS_EQNS_ANELASTIC] == nse_eqns)) then
@@ -609,18 +603,12 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
             end do
         end do
         !$omp end target teams distribute parallel do
-        print *,'12', 'dvdx: ', sum(dvdx)
-        print *,'12', 'dvdy: ', sum(dvdy)
-        print *,'12', 'dvdz: ', sum(dvdz)
 #else
         do j = 1, jmax
             dvdx(:, j, :) = u(:, j, :) - rU(j)
             dvdy(:, j, :) = v(:, j, :) - rV(j)
             dvdz(:, j, :) = w(:, j, :) - rW(j)
         end do
-        print *,'12', 'dvdx: ', sum(dvdx)
-        print *,'12', 'dvdy: ', sum(dvdy)
-        print *,'12', 'dvdz: ', sum(dvdz)
 #endif
         dvdx = dvdx*dudx
         dvdy = dvdy*dudx
@@ -686,12 +674,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'13', 'dvdz: ', sum(dvdz)
 #else
     do j = 1, jmax
         dvdz(:, j, :) = p_loc(:, j, :) - rP(j)
     end do
-    print *,'13', 'dvdz: ', sum(dvdz)
 #endif
     p_wrk3d = dvdz*dvdz
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, rP2(1), wrk1d)
@@ -873,12 +859,6 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'14', 'dudy: ', sum(dudy)
-    print *,'14', 'dudz: ', sum(dudz)
-    print *,'14', 'dvdx: ', sum(dvdx)
-    print *,'14', 'dvdy: ', sum(dvdy)
-    print *,'14', 'dvdz: ', sum(dvdz)
-    print *,'14', 'p_wrk3d: ', sum(p_wrk3d)
 #else
         do j = 1, jmax
             dudy(:, j, :) = (S_LOC(:, j, :) - rs(j))**2
@@ -888,12 +868,6 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
             dvdz(:, j, :) = (rho(:, j, :) - rR(j))*(T(:, j, :) - fT(j))
             p_wrk3d(:, j, :) = (rho(:, j, :) - rR(j))*(p_loc(:, j, :) - rP(j))
         end do
-        print *,'14', 'dudy: ', sum(dudy)
-        print *,'14', 'dudz: ', sum(dudz)
-        print *,'14', 'dvdx: ', sum(dvdx)
-        print *,'14', 'dvdy: ', sum(dvdy)
-        print *,'14', 'dvdz: ', sum(dvdz)
-        print *,'14', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
         call AVG_IK_V(imax, jmax, kmax, dudy, rs2(1), wrk1d)
         call AVG_IK_V(imax, jmax, kmax, dudz, fs2(1), wrk1d)
@@ -915,15 +889,11 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'15', 'dudy: ', sum(dudy)
-    print *,'15', 'dudz: ', sum(dudz)
 #else
     do j = 1, jmax
         dudy(:, j, :) = (e(:, j, :) - re(j))**2
         dudz(:, j, :) = rho(:, j, :)*(e(:, j, :) - fe(j))**2
     end do
-    print *,'15', 'dudy: ', sum(dudy)
-    print *,'15', 'dudz: ', sum(dudz)
 #endif
         call AVG_IK_V(imax, jmax, kmax, dudy, re2(1), wrk1d)
         call AVG_IK_V(imax, jmax, kmax, dudz, fe2(1), wrk1d)
@@ -941,15 +911,11 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'16', 'dudy: ', sum(dudy)
-    print *,'16', 'dudz: ', sum(dudz)
 #else        
     do j = 1, jmax
         dudy(:, j, :) = (p_wrk3d(:, j, :) - rh(j))**2
         dudz(:, j, :) = rho(:, j, :)*(p_wrk3d(:, j, :) - fh(j))**2
     end do
-    print *,'16', 'dudy: ', sum(dudy)
-    print *,'16', 'dudz: ', sum(dudz)
 #endif
         call AVG_IK_V(imax, jmax, kmax, dudy, rh2(1), wrk1d)
         call AVG_IK_V(imax, jmax, kmax, dudz, fh2(1), wrk1d)
@@ -970,11 +936,6 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'17', 'dudy: ', sum(dudy)
-    print *,'17', 'dudz: ', sum(dudz)
-    print *,'17', 'dvdx: ', sum(dvdx)
-    print *,'17', 'dvdy: ', sum(dvdy)
-    print *,'17', 'dvdz: ', sum(dvdz)
 #else
     do j = 1, jmax
         dudy(:, j, :) = p_loc(:, j, :) - rP(j)                 ! pprime
@@ -983,11 +944,6 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         dvdy(:, j, :) = (dudy(:, j, :)/rP(j) - dudz(:, j, :)/rR(j))*fT(j) ! T_ac
         dvdz(:, j, :) = T(:, j, :) - fT(j) - dvdy(:, j, :)               ! T_en = Tprime - T_ac
     end do
-    print *,'17', 'dudy: ', sum(dudy)
-    print *,'17', 'dudz: ', sum(dudz)
-    print *,'17', 'dvdx: ', sum(dvdx)
-    print *,'17', 'dvdy: ', sum(dvdy)
-    print *,'17', 'dvdz: ', sum(dvdz)
 #endif
         dudz = dudz*dudz
         dvdx = dvdx*dvdx
@@ -1018,18 +974,12 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'18', 'dudy: ', sum(dudy)
-    print *,'18', 'dvdx: ', sum(dvdx)
-    print *,'18', 'dvdy: ', sum(dvdy)
 #else
     do j = 1, jmax
         dudy(:, j, :) = dwdy(:, j, :)/p_loc(:, j, :)/GAMMA_LOC(:, j, :) - dvdy(:, j, :)/rho(:, j, :)
         dvdx(:, j, :) = 1.0_wp/dvdx(:, j, :)
         dvdy(:, j, :) = T(:, j, :)*((p_loc(:, j, :)/PREF_1000)**(1.0_wp/GAMMA_LOC(:, j, :) - 1.0_wp))
     end do
-    print *,'18', 'dudy: ', sum(dudy)
-    print *,'18', 'dvdx: ', sum(dvdx)
-    print *,'18', 'dvdy: ', sum(dvdy)
 #endif
         call AVG_IK_V(imax, jmax, kmax, dudy, bfreq_fr(1), wrk1d)
         call AVG_IK_V(imax, jmax, kmax, dvdx, lapse_fr(1), wrk1d)
@@ -1097,9 +1047,6 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'19', 'dvdx: ', sum(dvdx)
-    print *,'19', 'dvdy: ', sum(dvdy)
-    print *,'19', 'dvdz: ', sum(dvdz)
 #else
             do j = 1, jmax
                 dvdx(:, j, :) = (u(:, j, :) - rU(j))*(dudx(:, j, :) - rB(j))
@@ -1215,12 +1162,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'20', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = (dvdy(:, j, :) - rV_y(j))*(dvdy(:, j, :) - rV_y(j))
     end do
-    print *,'20', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, V_y2(1), wrk1d)
 #ifdef USE_APU
@@ -1233,12 +1178,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'21', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = p_wrk3d(:, j, :)*(dvdy(:, j, :) - rV_y(j))
     end do
-    print *,'21', 'p_wrk3d: ', sum(p_wrk3d)
 #endif    
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, V_y3(1), wrk1d)
 #ifdef USE_APU
@@ -1251,12 +1194,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'22', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = p_wrk3d(:, j, :)*(dvdy(:, j, :) - rV_y(j))
     end do
-    print *,'22', 'p_wrk3d: ', sum(p_wrk3d)
 #endif   
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, V_y4(1), wrk1d)
 
@@ -1279,12 +1220,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'23', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = (dudy(:, j, :) - rU_y(j))*(dudy(:, j, :) - rU_y(j))
     end do
-    print *,'23', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, U_y2(1), wrk1d)
@@ -1298,12 +1237,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'24', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = p_wrk3d(:, j, :)*(dudy(:, j, :) - rU_y(j))
     end do
-    print *,'24', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, U_y3(1), wrk1d)
@@ -1317,12 +1254,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'25', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = p_wrk3d(:, j, :)*(dudy(:, j, :) - rU_y(j))
     end do
-    print *,'25', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, U_y4(1), wrk1d)
@@ -1369,12 +1304,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'26', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = (dwdy(:, j, :) - rW_y(j))*(dwdy(:, j, :) - rW_y(j))
     end do
-    print *,'26', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, W_y2(1), wrk1d)
@@ -1388,12 +1321,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'27', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = p_wrk3d(:, j, :)*(dwdy(:, j, :) - rW_y(j))
     end do
-    print *,'27', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, W_y3(1), wrk1d)
@@ -1407,12 +1338,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'28', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = p_wrk3d(:, j, :)*(dwdy(:, j, :) - rW_y(j))
     end do
-    print *,'28', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, W_y4(1), wrk1d)
 
@@ -1429,12 +1358,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'29', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = (p_wrk3d(:, j, :) - rV_y(j))*(p_wrk3d(:, j, :) - rV_y(j))
     end do
-    print *,'29', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, U_ii2(1), wrk1d)
 
@@ -1453,12 +1380,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
             end do
         end do
         !$omp end target teams distribute parallel do
-        print *,'30', 'p_wrk3d: ', sum(p_wrk3d)
 #else
         do j = 1, jmax
             p_wrk3d(:, j, :) = (p_wrk3d(:, j, :) - rV_y(j))*(rho(:, j, :) - rR(j))
         end do
-        print *,'30', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
         
         call AVG_IK_V(imax, jmax, kmax, p_wrk3d, rR2_dil1(1), wrk1d)
@@ -1473,12 +1398,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
             end do
         end do
         !$omp end target teams distribute parallel do
-        print *,'31', 'p_wrk3d: ', sum(p_wrk3d)
 #else
         do j = 1, jmax
             p_wrk3d(:, j, :) = p_wrk3d(:, j, :)*(rho(:, j, :) - rR(j))
         end do
-        print *,'31', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
         call AVG_IK_V(imax, jmax, kmax, p_wrk3d, rR2_dil2(1), wrk1d)
 
@@ -1545,12 +1468,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'32', 'dvdy: ', sum(dvdy)
 #else
     do j = 1, jmax ! fluctuation tau22'
         dvdy(:, j, :) = (p_wrk3d(:, j, :) - Tau_yy(j))*c23
     end do
-    print *,'32', 'dvdy: ', sum(dvdy)
 #endif
     Tau_yy(:) = Tau_yy(:)*visc*c23
 
@@ -1567,12 +1488,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'33', 'dudy: ', sum(dudy)
 #else
     do j = 1, jmax ! fluctuation tau12'
         dudy(:, j, :) = p_wrk3d(:, j, :) - Tau_xy(j)
     end do
-    print *,'33', 'dudy: ', sum(dudy)
 #endif
     Tau_xy(:) = Tau_xy(:)*visc
 
@@ -1589,12 +1508,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'34', 'dwdy: ', sum(dwdy)
 #else
     do j = 1, jmax ! fluctuation tau23'
         dwdy(:, j, :) = p_wrk3d(:, j, :) - Tau_yz(j)
     end do
-    print *,'34', 'dwdy: ', sum(dwdy)
 #endif
     Tau_yz(:) = Tau_yz(:)*visc
 
@@ -1614,12 +1531,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'35', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = dudy(:, j, :)*(u(:, j, :) - fU(j)) ! -2*u'*tau12'
     end do
-    print *,'35', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, wrk1d(1, 2), wrk1d)
     Txxy(:) = Txxy(:) - wrk1d(1:jmax, 2)*visc*2.0_wp
@@ -1635,12 +1550,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'36', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = dvdy(:, j, :)*(v(:, j, :) - fV(j)) ! -2*v'*tau22'
     end do
-    print *,'36', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, wrk1d(1, 2), wrk1d)
     Tyyy(:) = Tyyy(:) - wrk1d(1:jmax, 2)*visc*2.0_wp
@@ -1656,12 +1569,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'37', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = dwdy(:, j, :)*(w(:, j, :) - fW(j)) ! -2*w'*tau23'
     end do
-    print *,'37', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, wrk1d(1, 2), wrk1d)
     Tzzy(:) = Tzzy(:) - wrk1d(1:jmax, 2)*visc*2.0_wp
@@ -1677,12 +1588,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'38', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = dvdy(:, j, :)*(u(:, j, :) - fU(j)) + dudy(:, j, :)*(v(:, j, :) - fV(j))! -u'*tau22' -v'*tau12'
     end do
-    print *,'38', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, wrk1d(1, 2), wrk1d)
     Txyy(:) = Txyy(:) - wrk1d(1:jmax, 2)*visc
@@ -1697,12 +1606,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'39', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = dwdy(:, j, :)*(u(:, j, :) - fU(j)) + dudy(:, j, :)*(w(:, j, :) - fW(j))! -u'*tau23' -w'*tau12'
     end do
-    print *,'39', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, wrk1d(1, 2), wrk1d)
     Txzy(:) = Txzy(:) - wrk1d(1:jmax, 2)*visc
@@ -1717,12 +1624,10 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'40', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = dwdy(:, j, :)*(v(:, j, :) - fV(j)) + dvdy(:, j, :)*(w(:, j, :) - fW(j))! -v'*tau23' -w'*tau22'
     end do
-    print *,'40', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, wrk1d(1, 2), wrk1d)
     Tyzy(:) = Tyzy(:) - wrk1d(1:jmax, 2)*visc
