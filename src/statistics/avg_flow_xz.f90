@@ -510,7 +510,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     ! #######################################################################
     ! Main covariances (do not overwrite dudz; it contains p for incompressible case)
     ! #######################################################################
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax
@@ -597,7 +597,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         call OPR_Partial_Y(OPR_P1, 1, jmax, 1, bcs, g(2), rR2(1), rR2_y(1))
 !$omp
         ! Density Fluctuations Budget
-#ifndef USE_APU    
+#ifdef USE_APU    
         !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
         do k = 1, kmax
             do j = 1, jmax
@@ -676,7 +676,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     call AVG_IK_V(imax, jmax, kmax, dvdz, Tyzy(1), wrk1d)
 
     ! Pressure
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -858,7 +858,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         M_t(:) = sqrt((Rxx(:) + Ryy(:) + Rzz(:))/c2(:))
 
         ! Covariances
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -904,7 +904,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         fs2(:) = fs2(:)/rR(:)
         fT2(:) = fT2(:)/rR(:)
 
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -930,7 +930,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         fe2(:) = fe2(:)/rR(:)
 
         p_wrk3d = e + CRATIO_INV*p_loc/rho
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -956,7 +956,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         fh2(:) = fh2(:)/rR(:)
 
         ! Acoustic and entropic density and temperature fluctuations
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1006,7 +1006,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         call Thermo_Psat_Polynomial(imax*jmax*kmax, T, dvdz)
         call THERMO_CP(imax*jmax*kmax, s, GAMMA_LOC(:, :, :), dvdx)
 
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1085,7 +1085,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
             end if
 
             call AVG_IK_V(imax, jmax, kmax, dudx, rB(1), wrk1d)
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1205,7 +1205,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     p_wrk3d = p_wrk3d*dudx
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, U_x4(1), wrk1d)
 
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1223,7 +1223,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     print *,'20', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, V_y2(1), wrk1d)
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1241,7 +1241,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     print *,'21', 'p_wrk3d: ', sum(p_wrk3d)
 #endif    
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, V_y3(1), wrk1d)
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1269,7 +1269,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 
     ! -------------------------------------------------------------------
     ! Lateral terms U
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1288,7 +1288,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 #endif
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, U_y2(1), wrk1d)
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1307,7 +1307,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 #endif
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, U_y3(1), wrk1d)
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1359,7 +1359,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     p_wrk3d = p_wrk3d*dwdx
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, W_x4(1), wrk1d)
 
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1378,7 +1378,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 #endif
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, W_y2(1), wrk1d)
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1397,7 +1397,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 #endif
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, W_y3(1), wrk1d)
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1419,7 +1419,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     ! -------------------------------------------------------------------
     ! Dilatation fluctuation
     p_wrk3d = dudx + dvdy + dwdz
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1443,7 +1443,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     ! ###################################################################
     if (nse_eqns == DNS_EQNS_INTERNAL .or. nse_eqns == DNS_EQNS_TOTAL) then
         p_wrk3d = dudx + dvdy + dwdz
-#ifndef USE_APU
+#ifdef USE_APU
         !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
         do k = 1, kmax
             do j = 1, jmax !offload
@@ -1463,7 +1463,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         
         call AVG_IK_V(imax, jmax, kmax, p_wrk3d, rR2_dil1(1), wrk1d)
 
-#ifndef USE_APU
+#ifdef USE_APU
         !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
         do k = 1, kmax
             do j = 1, jmax !offload
@@ -1535,7 +1535,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     p_wrk3d = dvdy*2.0_wp - dudx - dwdz
     if (itransport == EQNS_TRANS_POWERLAW) p_wrk3d = p_wrk3d*vis
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, Tau_yy(1), wrk1d)
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1557,7 +1557,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     p_wrk3d = dudy + dvdx
     if (itransport == EQNS_TRANS_POWERLAW) p_wrk3d = p_wrk3d*vis
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, Tau_xy(1), wrk1d)
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1579,7 +1579,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     p_wrk3d = dvdz + dwdy
     if (itransport == EQNS_TRANS_POWERLAW) p_wrk3d = p_wrk3d*vis
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, Tau_yz(1), wrk1d)
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1604,7 +1604,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 
     ! -------------------------------------------------------------------
     ! Contribution to turbulent transport terms
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1625,7 +1625,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     Txxy(:) = Txxy(:) - wrk1d(1:jmax, 2)*visc*2.0_wp
     Ty3(:) = Ty3(:) - wrk1d(1:jmax, 2)*visc
 
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1646,7 +1646,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     Tyyy(:) = Tyyy(:) - wrk1d(1:jmax, 2)*visc*2.0_wp
     Ty3(:) = Ty3(:) - wrk1d(1:jmax, 2)*visc
 
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1667,7 +1667,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     Tzzy(:) = Tzzy(:) - wrk1d(1:jmax, 2)*visc*2.0_wp
     Ty3(:) = Ty3(:) - wrk1d(1:jmax, 2)*visc
 
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1687,7 +1687,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, wrk1d(1, 2), wrk1d)
     Txyy(:) = Txyy(:) - wrk1d(1:jmax, 2)*visc
 
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -1707,7 +1707,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, wrk1d(1, 2), wrk1d)
     Txzy(:) = Txzy(:) - wrk1d(1:jmax, 2)*visc
 
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload

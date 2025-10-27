@@ -281,7 +281,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         call TLab_Write_ASCII(efile, 'AVG_SCAL_XZ. Not enough space in local arrays.')
         call TLab_Stop(DNS_ERROR_AVGTMP)
     end if
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do default(shared) private (i,j)
     do i = 1, nv
         do j = 1, jmax
@@ -383,7 +383,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
 
     ! -----------------------------------------------------------------------
     ! Moments
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax 
@@ -413,7 +413,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         fS4(:) = rS4(:)
 
     else
-#ifndef USE_APU
+#ifdef USE_APU
         !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
         do k = 1, kmax
             do j = 1, jmax
@@ -446,7 +446,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
 
     ! -----------------------------------------------------------------------
     ! Cross terms
-#ifndef USE_APU
+#ifdef USE_APU
         !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
         do k = 1, kmax
             do j = 1, jmax
@@ -465,7 +465,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
 #endif
     if (any([DNS_EQNS_TOTAL, DNS_EQNS_INTERNAL] == nse_eqns)) p_wrk3d = p_wrk3d*rho
 
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -503,7 +503,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
 
     ! -----------------------------------------------------------------------
     ! turbulent transport terms
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -544,7 +544,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), s_local, dsdx)
     call OPR_Partial_Y(OPR_P1, imax, jmax, kmax, bcs, g(2), s_local, dsdy)
     call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), s_local, dsdz)
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1,kmax
         do j = 1, jmax
@@ -702,7 +702,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, fQ(1), wrk1d)
     fQ(:) = fQ(:)/rR(:)
 
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax
@@ -852,7 +852,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
 
     ! -----------------------------------------------------------------------
     ! Moments
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax !offload
@@ -896,7 +896,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     call AVG_IK_V(imax, jmax, kmax, dsdy, Fy(1), wrk1d)
 
     ! Contribution to turbulent transport
-#ifndef USE_APU
+#ifdef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
     do k = 1, kmax
         do j = 1, jmax
