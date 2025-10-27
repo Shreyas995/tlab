@@ -334,13 +334,13 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             hq(ij, 3) = hq(ij, 3) - tmp4(ij)
         end do
 #ifdef USE_APU
-        !$omp target teams distribute parallel do default(shared) private(ij)
+    !$omp target teams distribute parallel do default(shared) private(ij)
         do ij = srt, end ! offload to APU
             dummy = hq(ij, 1) - tmp2(ij)
             dummy = hq(ij, 2) - tmp3(ij)
             dummy = hq(ij, 3) - tmp4(ij)
         end do
-        !$omp end target teams parallel do
+    !$omp end target teams distribute parallel do
 #endif
 #endif
 
