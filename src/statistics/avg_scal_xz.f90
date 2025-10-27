@@ -289,11 +289,8 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         end do
     end do
     !$omp end target teams distribute parallel do
-    
-    print *,'1', 'mean2d: ', sum(mean2d)
 #else
     mean2d(:, 1:nv) = 0.0_wp
-    print *,'1', 'mean2d: ', sum(mean2d)
 #endif
 
     ng = ng - 1
@@ -393,12 +390,10 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'2', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax !offload
         p_wrk3d(:, j, :) = s_local(:, j, :) - rS(j)
     end do
-    print *,'2', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     tmp1 = p_wrk3d*p_wrk3d
     call AVG_IK_V(imax, jmax, kmax, tmp1, rS2(1), wrk1d)
@@ -423,12 +418,10 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
             end do
         end do
         !$omp end target teams distribute parallel do
-        print *,'3', 'p_wrk3d: ', sum(p_wrk3d)
 #else
         do j = 1, jmax
             p_wrk3d(:, j, :) = s_local(:, j, :) - fS(j)
         end do
-        print *,'3', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
         tmp1 = p_wrk3d*p_wrk3d*rho
         call AVG_IK_V(imax, jmax, kmax, tmp1, fS2(1), wrk1d)
@@ -456,12 +449,10 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
             end do
         end do
         !$omp end target teams distribute parallel do
-        print *,'4', 'p_wrk3d: ', sum(p_wrk3d)
 #else
         do j = 1, jmax !offload
             p_wrk3d(:, j, :) = s_local(:, j, :) - fS(j)
         end do
-        print *,'4', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     if (any([DNS_EQNS_TOTAL, DNS_EQNS_INTERNAL] == nse_eqns)) p_wrk3d = p_wrk3d*rho
 
@@ -477,18 +468,12 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'5', 'dsdx: ', sum(dsdx)
-    print *,'5', 'dsdy: ', sum(dsdy)
-    print *,'5', 'dsdz: ', sum(dsdz)
 #else
     do j = 1, jmax !offload
         dsdx(:, j, :) = p_wrk3d(:, j, :)*(u(:, j, :) - fU(j))
         dsdy(:, j, :) = p_wrk3d(:, j, :)*(v(:, j, :) - fV(j))
         dsdz(:, j, :) = p_wrk3d(:, j, :)*(w(:, j, :) - fW(j))
     end do
-    print *,'5', 'dsdx: ', sum(dsdx)
-    print *,'5', 'dsdy: ', sum(dsdy)
-    print *,'5', 'dsdz: ', sum(dsdz)
 #endif
     call AVG_IK_V(imax, jmax, kmax, dsdx, Rsu(1), wrk1d)
     call AVG_IK_V(imax, jmax, kmax, dsdy, Rsv(1), wrk1d)
@@ -516,10 +501,6 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'6', 'tmp1: ', sum(tmp1)
-    print *,'6', 'dsdx: ', sum(dsdx)
-    print *,'6', 'dsdy: ', sum(dsdy)
-    print *,'6', 'dsdz: ', sum(dsdz)
 #else
     do j = 1, jmax !offload
         tmp1(:, j, :) = dsdy(:, j, :)*(s_local(:, j, :) - fS(j))
@@ -527,10 +508,6 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         dsdy(:, j, :) = dsdy(:, j, :)*(v(:, j, :) - fV(j))
         dsdz(:, j, :) = dsdz(:, j, :)*(v(:, j, :) - fV(j))
     end do
-    print *,'6', 'tmp1: ', sum(tmp1)
-    print *,'6', 'dsdx: ', sum(dsdx)
-    print *,'6', 'dsdy: ', sum(dsdy)
-    print *,'6', 'dsdz: ', sum(dsdz)
 #endif
     call AVG_IK_V(imax, jmax, kmax, tmp1, Tssy1(1), wrk1d)
     call AVG_IK_V(imax, jmax, kmax, dsdx, Tsuy1(1), wrk1d)
@@ -557,10 +534,6 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'7', 'tmp1: ', sum(tmp1)
-    print *,'7', 'dsdx: ', sum(dsdx)
-    print *,'7', 'dsdy: ', sum(dsdy)
-    print *,'7', 'dsdz: ', sum(dsdz)
 #else
     do j = 1, jmax
         tmp1(:, j, :) = (p_loc(:, j, :) - rP(j))*(s_local(:, j, :) - fS(j))
@@ -568,10 +541,6 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         dsdy(:, j, :) = (p_loc(:, j, :) - rP(j))*(dsdy(:, j, :) - fS_y(j))
         dsdz(:, j, :) = (p_loc(:, j, :) - rP(j))*dsdz(:, j, :)
     end do
-    print *,'7', 'tmp1: ', sum(tmp1)
-    print *,'7', 'dsdx: ', sum(dsdx)
-    print *,'7', 'dsdy: ', sum(dsdy)
-    print *,'7', 'dsdz: ', sum(dsdz)
 #endif
     call AVG_IK_V(imax, jmax, kmax, tmp1, Tsvy3(1), wrk1d)
     call AVG_IK_V(imax, jmax, kmax, dsdx, PIsu(1), wrk1d)
@@ -715,10 +684,6 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'8', 'tmp1: ', sum(tmp1)
-    print *,'8', 'dsdx: ', sum(dsdx)
-    print *,'8', 'dsdy: ', sum(dsdy)
-    print *,'8', 'dsdz: ', sum(dsdz)
 #else
     do j = 1, jmax
         tmp1(:, j, :) = (s_local(:, j, :) - fS(j))*p_wrk3d(:, j, :)
@@ -726,10 +691,6 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         dsdy(:, j, :) = (v(:, j, :) - fV(j))*p_wrk3d(:, j, :)
         dsdz(:, j, :) = (w(:, j, :) - fW(j))*p_wrk3d(:, j, :)
     end do
-    print *,'8', 'tmp1: ', sum(tmp1)
-    print *,'8', 'dsdx: ', sum(dsdx)
-    print *,'8', 'dsdy: ', sum(dsdy)
-    print *,'8', 'dsdz: ', sum(dsdz)
 #endif
 
     call AVG_IK_V(imax, jmax, kmax, tmp1, Qss(1), wrk1d)
@@ -862,12 +823,10 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'9', 'p_wrk3d: ', sum(p_wrk3d)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = dsdy(:, j, :) - rS_y(j)
     end do
-    print *,'9', 'p_wrk3d: ', sum(p_wrk3d)
 #endif
     tmp1 = dsdx*dsdx
     tmp2 = p_wrk3d*p_wrk3d
@@ -909,10 +868,6 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         end do
     end do
     !$omp end target teams distribute parallel do
-    print *,'10', 'p_wrk3d: ', sum(p_wrk3d)
-    print *,'10', 'tmp1: ', sum(tmp1)
-    print *,'10', 'tmp2: ', sum(tmp2)
-    print *,'10', 'tmp3: ', sum(tmp3)
 #else
     do j = 1, jmax
         p_wrk3d(:, j, :) = (dsdy(:, j, :) - Fy(j))*(s_local(:, j, :) - fS(j))
@@ -920,10 +875,6 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         tmp2(:, j, :) = (dsdy(:, j, :) - Fy(j))*(v(:, j, :) - fV(j))
         tmp3(:, j, :) = (dsdy(:, j, :) - Fy(j))*(w(:, j, :) - fW(j))
     end do
-    print *,'10', 'p_wrk3d: ', sum(p_wrk3d)
-    print *,'10', 'tmp1: ', sum(tmp1)
-    print *,'10', 'tmp2: ', sum(tmp2)
-    print *,'10', 'tmp3: ', sum(tmp3)
 #endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, Tssy2(1), wrk1d)
     Tssy2(:) = -Tssy2(:)*diff*2.0_wp
