@@ -385,9 +385,9 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! Moments
 #ifndef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
-    do j = 1, jmax !offload
-        do i = 1, imax
-            do k = 1, kmax
+    do k = 1, kmax
+        do j = 1, jmax 
+            do i = 1, imax
                 p_wrk3d(i, j, k) = s_local(i, j, k) - rS(j)
             end do
         end do
@@ -415,9 +415,9 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     else
 #ifndef USE_APU
         !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
-        do j = 1, jmax
-            do i = 1, imax
-                do k = 1, kmax
+        do k = 1, kmax
+            do j = 1, jmax
+                do i = 1, imax
                     p_wrk3d(i, j, k) = s_local(i, j, k) - fS(j)
                 end do
             end do
@@ -448,9 +448,10 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! Cross terms
 #ifndef USE_APU
         !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
-        do j = 1, jmax
-            do i = 1, imax
-                do k = 1, kmax
+        do k = 1, kmax
+            do j = 1, jmax    do j = 1, jmax !offload
+
+                do i = 1, imax
                     p_wrk3d(i, j, k) = s_local(i, j, k) - fS(j)
                 end do
             end do
@@ -467,9 +468,9 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
 
 #ifndef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
-    do j = 1, jmax !offload
-        do i = 1, imax
-            do k = 1, kmax
+    do k = 1, kmax
+        do j = 1, jmax !offload
+            do i = 1, imax
                 dsdx(i, j, k) = p_wrk3d(i, j, k)*(u(i, j, k) - fU(j))
                 dsdy(i, j, k) = p_wrk3d(i, j, k)*(v(i, j, k) - fV(j))
                 dsdz(i, j, k) = p_wrk3d(i, j, k)*(w(i, j, k) - fW(j))
@@ -505,9 +506,9 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! turbulent transport terms
 #ifndef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
-    do j = 1, jmax !offload
-        do i = 1, imax
-            do k = 1, kmax
+    do k = 1, kmax
+        do j = 1, jmax !offload
+            do i = 1, imax
                 tmp1(i, j, k) = dsdy(i, j, k)*(s_local(i, j, k) - fS(j))
                 dsdx(i, j, k) = dsdx(i, j, k)*(v(i, j, k) - fV(j))
                 dsdy(i, j, k) = dsdy(i, j, k)*(v(i, j, k) - fV(j))
@@ -546,9 +547,9 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), s_local, dsdz)
 #ifndef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
-    do j = 1, jmax
-        do i = 1, imax
-            do k = 1,kmax
+    do k = 1,kmax
+        do j = 1, jmax
+            do i = 1, imax
                 tmp1(i, j, k) = (p_loc(i, j, k) - rP(j))*(s_local(i, j, k) - fS(j))
                 dsdx(i, j, k) = (p_loc(i, j, k) - rP(j))*dsdx(i, j, k)
                 dsdy(i, j, k) = (p_loc(i, j, k) - rP(j))*(dsdy(i, j, k) - fS_y(j))
@@ -704,9 +705,9 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
 
 #ifndef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
-    do j = 1, jmax
-        do i = 1, imax
-            do k = 1, kmax
+    do k = 1, kmax
+        do j = 1, jmax
+            do i = 1, imax
                 tmp1(i, j, k) = (s_local(i, j, k) - fS(j))*p_wrk3d(i, j, k)
                 dsdx(i, j, k) = (u(i, j, k) - fU(j))*p_wrk3d(i, j, k)
                 dsdy(i, j, k) = (v(i, j, k) - fV(j))*p_wrk3d(i, j, k)
@@ -854,9 +855,9 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! Moments
 #ifndef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
-    do j = 1, jmax !offload
-        do i = 1, imax
-            do k = 1, kmax
+    do k = 1, kmax
+        do j = 1, jmax !offload
+            do i = 1, imax
                 p_wrk3d(i, j, k) = dsdy(i, j, k) - rS_y(j)
             end do
         end do
@@ -898,9 +899,9 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! Contribution to turbulent transport
 #ifndef USE_APU
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
-    do j = 1, jmax
-        do i = 1, imax
-            do k = 1, kmax
+    do k = 1, kmax
+        do j = 1, jmax
+            do i = 1, imax
                 p_wrk3d(i, j, k) = (dsdy(i, j, k) - Fy(j))*(s_local(i, j, k) - fS(j))
                 tmp1(i, j, k) = (dsdy(i, j, k) - Fy(j))*(u(i, j, k) - fU(j))
                 tmp2(i, j, k) = (dsdy(i, j, k) - Fy(j))*(v(i, j, k) - fV(j))
