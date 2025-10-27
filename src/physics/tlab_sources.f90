@@ -72,14 +72,8 @@ contains
                 call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
                 dummy = buoyancy%vector(iq)
-#ifdef USE_APU
-                !$omp target teams distribute parallel do private(ij) &
-                !$omp shared(srt,end,hq,dummy,tmp1)
-                do ij = srt, end ! offload to APU
-                    hq(ij, iq) = hq(ij, iq) + dummy*tmp1(ij)
-                end do
-                !$omp end target teams distribute parallel do
-#elif defined(USE_BLAS)
+
+#ifdef USE_BLAS
                 ILEN = siz
                 call DAXPY(ILEN, dummy, tmp1(srt), 1, hq(srt, iq), 1)
 #else
@@ -97,16 +91,11 @@ contains
                 call LargeScaleForcing_Subsidence(subsidenceProps, imax, jmax, kmax, q(:, iq), tmp1)
 
                 call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-#ifdef USE_APU
-                !$omp target teams distribute parallel do private(ij) &
-                !$omp shared(srt,end,hq,tmp1)
-#endif
+
                 do ij = srt, end
                     hq(ij, iq) = hq(ij, iq) + tmp1(ij)
                 end do
-#ifdef USE_APU
-                !$omp end target teams distribute parallel do
-#endif
+
             end if
 
             ! -----------------------------------------------------------------------
@@ -116,17 +105,12 @@ contains
                 call SpecialForcing_Source(forcingProps, imax, jmax, kmax, iq, rtime, q(:,iq), hq(:, iq), tmp1)
 
                 call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-#ifdef USE_APU
-                !$omp target teams distribute parallel do private(ij) &
-                !$omp shared(srt,end,hq,tmp1,iq)
-#endif
+
                 do ij = srt, end
                     ! hq(ij, iq) = hq(ij, iq) + tmp1(ij)*forcingProps%vector(iq)
                     hq(ij, iq) = hq(ij, iq) + tmp1(ij)
                 end do
-#ifdef USE_APU
-                !$omp end target teams distribute parallel do
-#endif
+
             end if
         end do
 
@@ -158,14 +142,13 @@ contains
                 if (nse_eqns == DNS_EQNS_ANELASTIC) then
                     call Thermo_Anelastic_WEIGHT_ADD(imax, jmax, kmax, ribackground, tmp1, hs(:, is))
                 else
-! !$omp parallel default( shared ) &
-! !$omp private( ij, srt,end,siz )
+
                     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
                     do ij = srt, end
                         hs(ij, is) = hs(ij, is) + tmp1(ij)
                     end do
-! !$omp end parallel
+
                 end if
 
             end if
@@ -179,14 +162,11 @@ contains
                 if (nse_eqns == DNS_EQNS_ANELASTIC) then
                     call Thermo_Anelastic_WEIGHT_ADD(imax, jmax, kmax, ribackground, tmp1, hs(:, is))
                 else
-! !$omp parallel default( shared ) &forcingProps%vector
-! !$omp private( ij, srt,end,siz )
                     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
                     do ij = srt, end
                         hs(ij, is) = hs(ij, is) + tmp1(ij)
                     end do
-! !$omp end parallel
                 end if
 
             end if
@@ -197,14 +177,11 @@ contains
             if (chemistryProps%active(is)) then
                 call Chemistry_Source(chemistryProps, imax, jmax, kmax, is, s, tmp1)
 
-! !$omp parallel default( shared ) &
-! !$omp private( ij, srt,end,siz )
                 call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
                 do ij = srt, end
                     hs(ij, is) = hs(ij, is) + tmp1(ij)
                 end do
-! !$omp end parallel
 
             end if
 
@@ -214,14 +191,11 @@ contains
             if (subsidenceProps%active(is)) then
                 call LargeScaleForcing_Subsidence(subsidenceProps, imax, jmax, kmax, s(:, is), tmp1)
 
-! !$omp parallel default( shared ) &
-! !$omp private( ij, srt,end,siz )
                 call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
                 do ij = srt, end
                     hs(ij, is) = hs(ij, is) + tmp1(ij)
                 end do
-! !$omp end parallel
 
             end if
 

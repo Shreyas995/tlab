@@ -99,43 +99,7 @@ subroutine TRIDSS(nmax, len, a, b, c, f)
         goto 999
     end if
 
-#ifdef USE_APU
-    if (end > 1.5e4) then
-        !$omp target teams distribute parallel do &
-        !$omp& private(n) &
-        !$omp& shared(f, a, b, c, srt, end, nmax)
-        do l = srt, end ! end = 1
-            do n = 2, nmax !nx
-                f(l, n) = f(l, n) + a(n)*f(l, n - 1)
-            end do
-        ! end do
-        ! -----------------------------------------------------------------------
-        ! Backward sweep
-        ! -----------------------------------------------------------------------
-        ! do l = srt, end ! end = 1
-            f(l, nmax) = f(l, nmax)*b(nmax)
-            do n = nmax - 1, 1, -1 ! nmax = nx
-                f(l, n) = (f(l, n) + c(n)*f(l, n + 1))*b(n)
-            end do
-        end do
-        !$omp end target teams distribute parallel do
-    else
-        do l = srt, end ! end = 1
-            do n = 2, nmax !nx
-                f(l, n) = f(l, n) + a(n)*f(l, n - 1)
-            end do
-        ! end do
-        ! -----------------------------------------------------------------------
-        ! Backward sweep
-        ! -----------------------------------------------------------------------
-        ! do l = srt, end ! end = 1
-            f(l, nmax) = f(l, nmax)*b(nmax)
-            do n = nmax - 1, 1, -1 ! nmax = nx
-                f(l, n) = (f(l, n) + c(n)*f(l, n + 1))*b(n)
-            end do
-        end do
-    end if
-#elif defined (USE_BLAS)
+#ifdef USE_BLAS 
     ilen = siz
     do n = 2, nmax !nx
         dummy1 = a(n)
@@ -394,32 +358,7 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
         goto 999
     end if
 
-#ifdef USE_APU
-    ! -------------------------------------------------------------------
-    ! Forward sweep
-    ! -------------------------------------------------------------------
-    !$omp target teams distribute parallel do &
-    !$omp private(l, n) &
-    !$omp shared(srt,end,nmax,f,a,b,d,e,wrk)
-    do l = srt, end 
-        f(l, 1) = f(l, 1)*b(1)
-        wrk(l) = 0.0_wp
-        do n = 2, nmax - 1 
-            f(l, n) = f(l, n)*b(n) + a(n)*f(l, n - 1)
-            wrk(l) = wrk(l) + d(n)*f(l, n)
-        end do
-        wrk(l) = wrk(l) + d(1)*f(l, 1)
-        f(l, nmax) = (f(l, nmax) - wrk(l))*b(nmax)
-        ! -------------------------------------------------------------------
-        ! Backward sweep
-        ! -------------------------------------------------------------------
-        f(l, nmax - 1) = e(nmax - 1)*f(l, nmax) + f(l, nmax - 1)
-        do n = nmax - 2, 1, -1 ! offload to APU
-            f(l, n) = f(l, n) + c(n)*f(l, n + 1) + e(n)*f(l, nmax)
-        end do
-    end do
-    !$omp end target teams distribute parallel do
-#elif defined(USE_BLAS)
+#ifdef USE_BLAS
 ! -------------------------------------------------------------------
 ! Forward sweep
 ! -------------------------------------------------------------------
@@ -476,7 +415,7 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
     end do
 #endif
 999 continue
-! !$omp end parallel
+
     CALL SYSTEM_CLOCK(clock_1,clock_cycle)
     tridpss_time = tridpss_time + real(clock_1 - clock_0,wp)/real(clock_cycle,wp)
     return
@@ -526,32 +465,7 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
         goto 999
     end if
 
-#ifdef USE_APU
-    !$omp target teams distribute parallel do &
-    !$omp private(l, n) &
-    !$omp shared(srt,end,nmax,wrk,f,a,b,c,d,e,g,h)
-    do l = srt, end
-        wrk(l) = 0.0_wp
-        f(l, 1) = f(l, 1)*b(1)
-        do n = 2, nmax - 1
-            f(l, n) = f(l, n)*b(n) + a(n)*f(l, n - 1)
-            wrk(l) = wrk(l) + d(n)*f(l, n)
-        end do
-        wrk(l) = wrk(l) + d(1)*f(l, 1)
-        f(l, nmax) = (f(l, nmax) - wrk(l))*b(nmax)
-        ! -------------------------------------------------------------------
-        ! Backward sweep
-        ! -------------------------------------------------------------------
-        f(l, nmax - 1) = e(nmax - 1)*f(l, nmax) + f(l, nmax - 1)
-        do n = nmax - 2, 1, -1
-            f(l, n) = f(l, n) + c(n)*f(l, n + 1) + e(n)*f(l, nmax)
-            f(l, n + 1) = f(l, n + 1) - g(l, n + 1)*h(l, n + 1)
-        end do
-        f(l, 1) = f(l, 1) - g(l, 1)*h(l, 1)
-        f(l, nmax) = f(l, nmax) - g(l, nmax)*h(l, nmax)
-    end do
-    !$omp end target teams distribute parallel do
-#elif defined(USE_BLAS)
+#ifdef USE_BLAS
     ilen = siz
     dummy1 = b(1)
     call SCAL_LOC(ilen, dummy1, f(srt, 1), 1)

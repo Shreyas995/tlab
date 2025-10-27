@@ -60,9 +60,7 @@ contains
         ! #######################################################################
         c0115 = 1.0_wp/15.0_wp
         imm1 = imax - 1
-#ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(2) private(im1, ip1, ip2,i,jk) default(shared)
-#endif
+
         do i = 1, imax
             im1 = i - 1; im1 = im1 + imm1; im1 = mod(im1, imax) + 1
             ip1 = i + 1; ip1 = ip1 + imm1; ip1 = mod(ip1, imax) + 1
@@ -72,9 +70,7 @@ contains
                 d(jk, i) = u(jk, ip1) + u(jk, i) + c0115*(u(jk, ip2) + u(jk, im1))
             end do
         end do
-#ifdef USE_APU
-        !$omp end target teams distribute parallel do
-#endif
+
         return
     end subroutine FDM_C0INTVP6P_RHS
 
@@ -95,9 +91,7 @@ contains
         ! #######################################################################
         c0115 = 1.0_wp/15.0_wp
         imm1 = imax - 1
-#ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(2) private(im1, ip1, im2, i, jk) default(shared)
-#endif
+
         do i = 1, imax
             im1 = i - 1; im1 = im1 + imm1; im1 = mod(im1, imax) + 1
             im2 = i - 2; im2 = im2 + imm1; im2 = mod(im2, imax) + 1
@@ -107,9 +101,6 @@ contains
                 d(jk, i) = u(jk, i) + u(jk, im1) + c0115*(u(jk, ip1) + u(jk, im2))
             end do
         end do
-#ifdef USE_APU
-        !$omp end target teams distribute parallel do
-#endif
 
         return
     end subroutine FDM_C0INTPV6P_RHS
@@ -344,9 +335,7 @@ contains
     
         c17189 = 17.0_wp/189.0_wp
         imm1 = imax - 1
-#ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(2) private(im1, ip1, ip2,i,jk) default(shared)
-#endif    
+  
         do i = 1, imax
             im1 = i - 1; im1 = im1 + imm1; im1 = MOD(im1, imax) + 1
             ip1 = i + 1; ip1 = ip1 + imm1; ip1 = MOD(ip1, imax) + 1
@@ -357,9 +346,7 @@ contains
             end do
     
         end do
-#ifdef USE_APU
-        !$omp end target teams distribute parallel do
-#endif    
+  
         return
     end subroutine FDM_C1INTVP6P_RHS
     
