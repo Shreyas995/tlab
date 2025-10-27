@@ -449,8 +449,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
 #ifndef USE_APU
         !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k)
         do k = 1, kmax
-            do j = 1, jmax    do j = 1, jmax !offload
-
+            do j = 1, jmax
                 do i = 1, imax
                     p_wrk3d(i, j, k) = s_local(i, j, k) - fS(j)
                 end do
