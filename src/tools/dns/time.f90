@@ -263,14 +263,6 @@ contains
             if ((rkm_mode == RKM_EXP3 .or. rkm_mode == RKM_EXP4) .and. &
                 rkm_substep < rkm_endstep) then
 
-#ifdef USE_BLAS
-! !$omp parallel default(shared) &
-! !$omp private (ij_len,ij_srt,ij_end,ij_siz,alpha,is)
-#else
-! !$omp parallel default(shared) &
-! !$omp private (i,   ij_srt,ij_end,ij_siz,alpha,is)
-#endif
-
                 call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
 #ifdef USE_APU
                 alpha = kco(rkm_substep)
@@ -330,7 +322,7 @@ contains
 
                 alpha = kco(rkm_substep)
 
-                if ((flow_on) .and. (scal_on)) then
+                if (flow_on .and. scal_on) then
                     do is = 1, inb_flow
                         hq(ij_srt:ij_end, is) = alpha*hq(ij_srt:ij_end, is)
                     end do
@@ -347,8 +339,6 @@ contains
                     end do
                 end if
 #endif
-
-
                 if (part%type /= PART_TYPE_NONE) then
                     do is = 1, inb_part
                         l_hq(1:l_g%np, is) = alpha*l_hq(1:l_g%np, is)
