@@ -270,32 +270,82 @@ contains
 #endif
 
                 call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
-#ifdef USE_BLAS
+#ifdef USE_APU
+                alpha = kco(rkm_substep)
+                if (flow_on) .and. (scal_on) then
+                    !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+                    do is = 1, inb_flow
+                        do ij = ij_srt, ij_end
+                            hq(ij, is) = alpha*hq(ij, is)
+                        end do
+                    end do
+                    !$omp end target teams distribute parallel do
+
+                    !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+                    do is = 1, inb_scal
+                        do ij = ij_srt, ij_end
+                            hs(ij, is) = alpha*hs(ij, is)
+                        end do
+                    end do
+                    !$omp end target teams distribute parallel do
+                    
+                elseif (flow_on) then
+                    !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+                    do is = 1, inb_flow
+                        do ij = ij_srt, ij_end
+                            hq(ij, is) = alpha*hq(ij, is)
+                        end do
+                    end do
+                    !$omp end target teams distribute parallel do
+
+                elseif (scal_on) then
+                    !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+                    do is = 1, inb_scal
+                        do ij = ij_srt, ij_end
+                            hs(ij, is) = alpha*hs(ij, is)
+                        end do
+                    end do
+                    !$omp end target teams distribute parallel do
+                end if
+
+#elif defined (USE_BLAS)
                 ij_len = ij_siz
-#endif
 
                 alpha = kco(rkm_substep)
 
                 if (flow_on) then
                     do is = 1, inb_flow
-#ifdef USE_BLAS
                         call DSCAL(ij_len, alpha, hq(ij_srt, is), 1)
-#else
-                        hq(ij_srt:ij_end, is) = alpha*hq(ij_srt:ij_end, is)
-#endif
                     end do
                 end if
 
                 if (scal_on) then
                     do is = 1, inb_scal
-#ifdef USE_BLAS
                         call DSCAL(ij_len, alpha, hs(ij_srt, is), 1)
-#else
-                        hs(ij_srt:ij_end, is) = alpha*hs(ij_srt:ij_end, is)
-#endif
                     end do
                 end if
-! !$omp end parallel
+#else
+
+                alpha = kco(rkm_substep)
+
+                if (flow_on) .and. (scal_on) then
+                    do is = 1, inb_flow
+                        hq(ij_srt:ij_end, is) = alpha*hq(ij_srt:ij_end, is)
+                    end do
+                    do is = 1, inb_scal
+                        hs(ij_srt:ij_end, is) = alpha*hs(ij_srt:ij_end, is)
+                    end do
+                elseif (flow_on) then
+                    do is = 1, inb_flow
+                        hq(ij_srt:ij_end, is) = alpha*hq(ij_srt:ij_end, is)
+                    end do
+                elseif (scal_on) then
+                    do is = 1, inb_scal
+                        hs(ij_srt:ij_end, is) = alpha*hs(ij_srt:ij_end, is)
+                    end do
+                end if
+#endif
+
 
                 if (part%type /= PART_TYPE_NONE) then
                     do is = 1, inb_part
