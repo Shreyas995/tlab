@@ -197,7 +197,9 @@ contains
         character*256 time_string
 #endif
 
-#ifdef USE_BLAS
+#ifdef USE_APU
+        integer ij
+#elif defined (USE_BLAS)
         integer ij_len
 #endif
 
@@ -288,7 +290,7 @@ contains
                         end do
                     end do
                     !$omp end target teams distribute parallel do
-                    
+
                 elseif (flow_on) then
                     !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
                     do is = 1, inb_flow
@@ -328,7 +330,7 @@ contains
 
                 alpha = kco(rkm_substep)
 
-                if (flow_on) .and. (scal_on) then
+                if ((flow_on) .and. (scal_on)) then
                     do is = 1, inb_flow
                         hq(ij_srt:ij_end, is) = alpha*hq(ij_srt:ij_end, is)
                     end do
@@ -617,7 +619,9 @@ contains
         ! -----------------------------------------------------------------------
         integer(wi) ij_srt, ij_end, ij_siz    !  Variables for OpenMP Partitioning
 
-#ifdef USE_BLAS
+#ifdef USE_APU
+        integer(wi) ij
+#elif defined (USE_BLAS)
         integer ij_len
 #endif
 
@@ -693,29 +697,39 @@ contains
 #endif
 
         call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
-#ifdef USE_BLAS
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+        do is = 1, inb_flow !offload to APU
+            do ij = ij_srt, ij_end
+                q(ij, is) = q(ij, is) + dte*hq(ij, is)
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+
+        !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+        do is = 1, inb_scal !Offload to APU
+            do ij = ij_srt, ij_end
+            s(ij, is) = s(ij, is) + dte*hs(ij, is)
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+#elif defined (USE_BLAS)
         ij_len = ij_siz
-#endif
         do is = 1, inb_flow
-
-#ifdef USE_BLAS
             call DAXPY(ij_len, dte, hq(ij_srt, is), 1, q(ij_srt, is), 1)
-#else
-            q(ij_srt:ij_end, is) = q(ij_srt:ij_end, is) + dte*hq(ij_srt:ij_end, is)
-#endif
         end do
-
         do is = 1, inb_scal
-#ifdef BLAS
             call DAXPY(ij_len, dte, hs(ij_srt, is), 1, s(ij_srt, is), 1)
-#else
-            s(ij_srt:ij_end, is) = s(ij_srt:ij_end, is) + dte*hs(ij_srt:ij_end, is)
-#endif
         end do
-#ifdef USE_OPENMP
-! !$omp end parallel
-#endif
+#else
+        do is = 1, inb_flow !offload to APU
+            q(ij_srt:ij_end, is) = q(ij_srt:ij_end, is) + dte*hq(ij_srt:ij_end, is)
+        end do
 
+        do is = 1, inb_scal !Offload to APU
+            s(ij_srt:ij_end, is) = s(ij_srt:ij_end, is) + dte*hs(ij_srt:ij_end, is)
+        end do
+#endif
         return
     end subroutine TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT
 
