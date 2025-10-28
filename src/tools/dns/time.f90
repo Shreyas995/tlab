@@ -266,7 +266,7 @@ contains
                 call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
 #ifdef USE_APU
                 alpha = kco(rkm_substep)
-                if (flow_on) .and. (scal_on) then
+                if (flow_on .and. scal_on) then
                     !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
                     do is = 1, inb_flow
                         do ij = ij_srt, ij_end
