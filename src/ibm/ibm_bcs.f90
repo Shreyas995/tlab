@@ -197,7 +197,7 @@ subroutine IBM_BCS_FIELD_INV(fld,tmp) ! not used so far
   ! apply inverse IBM BCs on fields -- only BCs in solid left, fluid regions are zero
 
 #ifdef USE_APU
-  !$omp tareget teams distribute parallel do
+  !$omp target teams distribute parallel do default(shared) private(i)
 #endif
   do i = 1, isize_field
     tmp(i) = eps(i) * fld(i)  
