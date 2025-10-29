@@ -206,7 +206,7 @@ program DNS
         call IBM_BCS_FIELD_COMBINED(i0, q)
         if (scal_on) call IBM_INITIALIZE_SCAL(i1, s)
     end if
-    print *, '1'
+
     ! ###################################################################
     ! Check
     ! ###################################################################
