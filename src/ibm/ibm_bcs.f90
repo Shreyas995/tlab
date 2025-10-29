@@ -166,7 +166,7 @@ subroutine IBM_BCS_FIELD_STAGGER(fld)
   ! apply IBM BCs on scalar/flow fields
   
 #ifdef USE_APU
-  !$omp tareget teams distribute parallel do
+  !$omp target teams distribute parallel do default(shared) private(i)
 #endif
   do i = 1, isize_field
     fld(i) = (1.0_wp - epsp(i)) * fld(i)  
