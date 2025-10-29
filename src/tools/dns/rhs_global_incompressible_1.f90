@@ -19,7 +19,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef TRACE_ON
     use TLab_Constants, only: tfile
 #endif
-    use TLab_Constants, only: wp, wi, BCS_NN
+    use TLab_Constants, only: wp, wi, BCS_NN, mps
     use NavierStokes, only: nse_eqns, DNS_EQNS_ANELASTIC
     use TLab_Memory, only: imax, jmax, kmax, isize_field
     use FDM, only: g
@@ -108,7 +108,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp target teams distribute parallel do &
     !$omp private( ij ) &
     !$omp shared( srt,end,hq,tmp1,tmp7,tmp8 ) &
-    !$omp if(end > 15000)
+    !$omp if(end > mps)
 #endif
     do ij = srt, end 
         hq(ij, 1) = hq(ij, 1) + tmp1(ij) + tmp7(ij) + tmp8(ij)
@@ -127,7 +127,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp target teams distribute parallel do &
     !$omp private( ij ) &
     !$omp shared( srt,end,hq,tmp2,tmp7,tmp8 ) &
-    !$omp if(end > 15000)
+    !$omp if(end > mps)
 #endif
     do ij = srt, end ! offload to APU
         hq(ij, 2) = hq(ij, 2) + tmp2(ij) + tmp7(ij) + tmp8(ij)
@@ -146,7 +146,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp target teams distribute parallel do &
     !$omp private( ij ) &
     !$omp shared( srt,end,hq,tmp2,tmp7,tmp8 ) &
-    !$omp if(end > 15000)
+    !$omp if(end > mps)
 #endif
     do ij = srt, end ! offload to APU
         hq(ij, 3) = hq(ij, 3) + tmp3(ij) + tmp7(ij) + tmp8(ij)
@@ -176,7 +176,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp target teams distribute parallel do &
     !$omp private( ij ) &
     !$omp shared( srt,end,hs,tmp1,tmp2,tmp3 ) &
-    !$omp if(end > 15000)
+    !$omp if(end > mps)
 #endif
         do ij = srt, end ! offload to APU
             hs(ij, is) = hs(ij, is) + tmp1(ij) + tmp2(ij) + tmp3(ij)
@@ -209,7 +209,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         !$omp target teams distribute parallel do &
         !$omp private( ij ) &
         !$omp shared( srt,end,tmp2,tmp3,tmp4,hq,u,v,w,dummy ) &
-        !$omp if(end > 15000)
+        !$omp if(end > mps)
         do ij = srt, end ! offload to APU
             tmp2(ij) = hq(ij, 2) + v(ij)*dummy
             tmp3(ij) = hq(ij, 1) + u(ij)*dummy
@@ -285,7 +285,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp target teams distribute parallel do &
     !$omp private( ij ) &
     !$omp shared( srt,end,tmp1,tmp2,tmp3 ) &
-    !$omp if(end > 15000)
+    !$omp if(end > mps)
 #endif
     do ij = srt, end 
         tmp1(ij) = tmp1(ij) + tmp2(ij) + tmp3(ij) ! forcing term in tmp1
@@ -369,7 +369,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
 #ifdef USE_APU
         !$omp parallel do default( shared ) private ( ij ) &
-        !$omp if(end > 15000)
+        !$omp if(end > mps)
         do ij = srt, end 
             hq(ij, 1) = hq(ij, 1) - tmp2(ij)
             hq(ij, 2) = hq(ij, 2) - tmp3(ij)

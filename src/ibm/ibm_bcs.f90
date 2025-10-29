@@ -122,22 +122,28 @@ end subroutine IBM_BCS_FIELD_COMBINED
 !########################################################################
 
 subroutine IBM_BCS_FIELD(fld)
-  
+
   use IBM_VARS,       only : eps
   use TLab_Memory, only: isize_field
   use TLab_Constants, only : wi, wp
 
   implicit none
-  
+
   real(wp), dimension(isize_field), intent(inout) :: fld
 
   integer(wi)                                     :: i
 
   ! ================================================================== !
   ! apply IBM BCs on scalar/flow fields
+#ifdef USE_APU
+  !$omp tareget teams distribute parallel do
+#endif
   do i = 1, isize_field
     fld(i) = (1.0_wp - eps(i)) * fld(i)  
   end do
+#ifdef USE_APU
+  !$omp end target teams distribute parallel do
+#endif
 
   return
 end subroutine IBM_BCS_FIELD
@@ -158,9 +164,16 @@ subroutine IBM_BCS_FIELD_STAGGER(fld)
 
   ! ================================================================== !
   ! apply IBM BCs on scalar/flow fields
+  
+#ifdef USE_APU
+  !$omp tareget teams distribute parallel do
+#endif
   do i = 1, isize_field
     fld(i) = (1.0_wp - epsp(i)) * fld(i)  
   end do
+#ifdef USE_APU
+  !$omp end target teams distribute parallel do
+#endif
 
   return
 end subroutine IBM_BCS_FIELD_STAGGER
@@ -182,9 +195,16 @@ subroutine IBM_BCS_FIELD_INV(fld,tmp) ! not used so far
 
   ! ================================================================== !
   ! apply inverse IBM BCs on fields -- only BCs in solid left, fluid regions are zero
+
+#ifdef USE_APU
+  !$omp tareget teams distribute parallel do
+#endif
   do i = 1, isize_field
     tmp(i) = eps(i) * fld(i)  
   end do
+#ifdef USE_APU
+  !$omp end target teams distribute parallel do
+#endif
 
   return
 end subroutine IBM_BCS_FIELD_INV

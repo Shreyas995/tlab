@@ -70,4 +70,6 @@ module TLab_Constants
     integer, parameter :: BCS_MAX = 2    ! Special treatment at the upper interval limit
     integer, parameter :: BCS_BOTH = 3
 
+    integer, parameter :: mps = 14592 ! minimum array size for APU offloading according to AMD APU documentation 38 * 6 * 64 = 14,592
+
 end module TLab_Constants

@@ -3,7 +3,7 @@
 ! Split the routines into the ones that are initialized and the ones that not?
 ! If not initialized, you can enter with any jmax, but the periodic directions need to be the global ones because of OPR_Fourier.
 module OPR_Elliptic
-    use TLab_Constants, only: wp, wi, longi
+    use TLab_Constants, only: wp, wi, longi, mps
     use TLab_Constants, only: BCS_DD, BCS_DN, BCS_ND, BCS_NN, BCS_NONE, BCS_MIN, BCS_MAX, BCS_BOTH
     use TLab_Constants, only: lfile
     use TLab_Memory, only: TLab_Allocate_Real
@@ -67,7 +67,7 @@ module OPR_Elliptic
 
     real(wp) norm
     integer(wi) i_sing(2), k_sing(2)                                ! singular modes
-    integer(wi) i, k, i_max
+    integer(wi) i, j, k, i_max
 
     type(fdm_dt) fdm_loc                                            ! scheme used for the elliptic solvers
 
@@ -187,6 +187,7 @@ contains
 
         i_sing = i_sing - [fft_offset_i, fft_offset_i]              ! Singular modes in task-local variables
         k_sing = k_sing - [fft_offset_k, fft_offset_k]
+        print *, "i_sing, k_sing: ", i_sing, k_sing
         i_max = min(g(1)%size/2 + 1 - fft_offset_i, isize_line)     ! Maximum mode is x direction
 
         do i = 1, i_max
@@ -427,29 +428,32 @@ contains
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
 
-#ifdef USE_APU
-        ! Here collapse (2) does not work
-        !$omp target teams distribute parallel do private(i,k)
-#endif
-        do i = 1, i_max
-            do k = 1, nz
-                u(1:2, k, i) = f(1:2, k, i)                         ! bottom boundary conditions
-                u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
-            end do
-        end do
-#ifdef USE_APU
-        !$omp end target teams distribute parallel do
-#endif
-
         select case (ibc)
         case (BCS_NN)           ! use precalculated LU factorization
             ! Compatibility constraint for singular modes. The reference value of p at bottom is set to zero
-            u(1:2, i_sing(1),k_sing(1)) = 0.0_wp; u(1:2, i_sing(1),k_sing(2)) = 0.0_wp
-            u(1:2, i_sing(2),k_sing(1)) = 0.0_wp; u(1:2, i_sing(2),k_sing(2)) = 0.0_wp
+#ifdef USE_APU
+            ! Here collapse (2) does not work
+            !$omp target teams distribute parallel do private(i,k) &
+            !$omp if (nz*i_max  > mps)
+#endif
+            do i = 1, i_max
+                do k = 1, nz
+                    do j = 1, 2
+                        u(j, k, i) = f(j, k, i)                         ! bottom boundary conditions
+                        u(2*ny - j*ny, k, i) = f(2*ny - j*ny, k, i)     ! top boundary conditions
+                        if (any(i_sing == i) .and. any(k_sing == k)) u(1:2, k, i) = 0.0_wp
+                    end do
+                end do
+            end do
+#ifdef USE_APU
+            !$omp end target teams distribute parallel do
+#endif
             call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2, rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p_wrk2d(:,:,:))
         case default            ! Need to calculate and factorize LHS
             do i = 1, i_max
                 do k = 1, nz
+                    u(1:2, k, i) = f(1:2, k, i)                         ! bottom boundary conditions
+                    u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
                     call FDM_Int2_Initialize(fdm_loc%nodes(:), fdm_loc%der2, lambda(k, i), ibc, fdm_int2_loc)
                     call FDM_Int2_Solve(2, fdm_int2_loc, fdm_int2_loc%rhs, f(:, k, i), u(:, k, i), wrk2d)
                 end do

@@ -97,13 +97,6 @@ subroutine RHS_FLOW_GLOBAL_INCOMPRESSIBLE_1()
     call OPR_Burgers_Y(OPR_B_SELF, 0, imax, jmax, kmax, bcs, v, v, tmp5, tmp2)
     call OPR_Partial_X(OPR_P2_P1, imax, jmax, kmax, bcs, g(1), v, tmp4, tmp1)
 
-#ifdef USE_ESSL
-! !$omp parallel default( shared ) &
-! !$omp private( ilen, srt,end,siz)
-#else
-! !$omp parallel default( shared ) &
-! !$omp private( ij,   srt,end,siz)
-#endif
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
     do ij = srt, end
         hq(:, 2) = hq(:, 2) + tmp5(ij) + visc*(tmp6(ij) + tmp4(ij)) &
