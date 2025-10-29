@@ -187,7 +187,6 @@ contains
 
         i_sing = i_sing - [fft_offset_i, fft_offset_i]              ! Singular modes in task-local variables
         k_sing = k_sing - [fft_offset_k, fft_offset_k]
-        print *, "i_sing, k_sing: ", i_sing, k_sing
         i_max = min(g(1)%size/2 + 1 - fft_offset_i, isize_line)     ! Maximum mode is x direction
 
         do i = 1, i_max
