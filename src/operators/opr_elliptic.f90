@@ -438,11 +438,9 @@ contains
 #endif
             do i = 1, i_max
                 do k = 1, nz
-                    do j = 1, 2
-                        u(j, k, i) = f(j, k, i)                         ! bottom boundary conditions
-                        u(2*ny - j*ny, k, i) = f(2*ny - j*ny, k, i)     ! top boundary conditions
-                        if (any(i_sing == i) .and. any(k_sing == k)) u(1:2, k, i) = 0.0_wp
-                    end do
+                    u(1:2, k, i) = f(1:2, k, i)                        ! bottom boundary conditions
+                    u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
+                    if (any(i_sing == i) .and. any(k_sing == k)) u(1:2, k, i) = 0.0_wp
                 end do
             end do
 #ifdef USE_APU
