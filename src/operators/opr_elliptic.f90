@@ -439,7 +439,9 @@ contains
                 do k = 1, nz
                     u(1:2, k, i) = f(1:2, k, i)                        ! bottom boundary conditions
                     u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
-                    if (any(i_sing == i) .and. any(k_sing == k)) u(1:2, k, i) = 0.0_wp
+                    if (any(i_sing == i) .and. any(k_sing == k)) then
+                        u(1:2, k, i) = 0.0_wp
+                    end if
                 end do
             end do
 #ifdef USE_APU
