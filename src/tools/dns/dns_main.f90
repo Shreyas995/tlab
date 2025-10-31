@@ -66,6 +66,7 @@ program DNS
     
     ! ###################################################################
     call system_clock(start_clock)
+    print *, ' Starting TLab DNS simulation...'
     call TLab_Start()
 
     call TLab_Initialize_Parameters(ifile)
