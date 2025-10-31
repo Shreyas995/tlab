@@ -70,6 +70,7 @@ program DNS
 
     call TLab_Initialize_Parameters(ifile)
 #ifdef USE_MPI
+    print *, ' Initializing MPI...'
     call TLabMPI_Initialize(ifile)
     print *, ' MPI initialized.'
     call TLabMPI_Trp_Initialize(ifile)
