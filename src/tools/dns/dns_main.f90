@@ -53,7 +53,6 @@ program DNS
 #ifdef USE_APU
     !$omp requires unified_shared_memory
 #endif
-    print *, ' loaded use statements'
 
     ! -------------------------------------------------------------------
     character(len=32) fname, str
@@ -65,6 +64,7 @@ program DNS
     integer clock_0, clock_1, clock_cycle
     
     
+    print *, ' loaded use statements'
     ! ###################################################################
     call system_clock(start_clock)
     print *, ' Starting TLab DNS simulation...'
