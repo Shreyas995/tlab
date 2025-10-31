@@ -71,7 +71,9 @@ program DNS
     call TLab_Initialize_Parameters(ifile)
 #ifdef USE_MPI
     call TLabMPI_Initialize(ifile)
+    print *, ' MPI initialized.'
     call TLabMPI_Trp_Initialize(ifile)
+    print *, ' MPI transpose initialized.'
 #endif
     call Particle_Initialize_Parameters(ifile)
     call IBM_READ_INI(ifile)
