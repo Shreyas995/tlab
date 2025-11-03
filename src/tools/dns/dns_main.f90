@@ -65,6 +65,7 @@ program DNS
     
     
     print *, ' loaded use statements'
+    STOP
     ! ###################################################################
     call system_clock(start_clock)
     print *, ' Starting TLab DNS simulation...'
