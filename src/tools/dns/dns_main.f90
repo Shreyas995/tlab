@@ -14,7 +14,7 @@ program DNS
     use TLabMPI_Transpose, only: TLabMPI_Trp_Initialize
 #endif
     use IO_Fields
-    ! use TLab_Grid
+    use TLab_Grid
     ! use FDM, only: FDM_Initialize
     ! use Thermodynamics, only: Thermodynamics_Initialize_Parameters
     ! use NavierStokes, only: NavierStokes_Initialize_Parameters, DNS_EQNS_ANELASTIC, DNS_EQNS_INCOMPRESSIBLE
