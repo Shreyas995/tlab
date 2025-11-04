@@ -13,7 +13,7 @@ program DNS
     use TLabMPI_PROCS, only: TLabMPI_Initialize
     use TLabMPI_Transpose, only: TLabMPI_Trp_Initialize
 #endif
-    ! use IO_Fields
+    use IO_Fields
     ! use TLab_Grid
     ! use FDM, only: FDM_Initialize
     ! use Thermodynamics, only: Thermodynamics_Initialize_Parameters
