@@ -224,6 +224,7 @@ contains
             trp_plan%nlines = npage/ims_npro_i
             allocate (trp_plan%disp_s(ims_npro_i), trp_plan%disp_r(ims_npro_i))
             trp_plan%size3d = npage*nmax
+            print *, ' npage, ims_npro_i ', npage, ims_npro_i
         else
             print *, ' npage, ims_npro_i ', npage, ims_npro_i
             call TLab_Write_ASCII(efile, 'TLabMPI_TypeI_Create. Ratio npage/npro not an integer.')
@@ -294,7 +295,9 @@ contains
             trp_plan%nlines = npage/ims_npro_k
             allocate (trp_plan%disp_s(ims_npro_k), trp_plan%disp_r(ims_npro_k))
             trp_plan%size3d = npage*nmax
+            print *, ' npage, ims_npro_i ', npage, ims_npro_i
         else
+            print *, ' npage, ims_npro_i ', npage, ims_npro_i
             call TLab_Write_ASCII(efile, 'TLabMPI_TypeI_Create. Ratio npage/npro not an integer.')
             call TLab_Stop(DNS_ERROR_PARPARTITION)
         end if
