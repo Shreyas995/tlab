@@ -225,6 +225,7 @@ contains
             allocate (trp_plan%disp_s(ims_npro_i), trp_plan%disp_r(ims_npro_i))
             trp_plan%size3d = npage*nmax
         else
+            print *, ' npage, ims_npro_i ', npage, ims_npro_i
             call TLab_Write_ASCII(efile, 'TLabMPI_TypeI_Create. Ratio npage/npro not an integer.')
             call TLab_Stop(DNS_ERROR_PARPARTITION)
         end if
