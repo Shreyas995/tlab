@@ -64,19 +64,19 @@ program DNS
     integer clock_0, clock_1, clock_cycle
     
     
-    print *, ' loaded use statements'
+    ! print *, ' loaded use statements'
     ! ###################################################################
     call system_clock(start_clock)
-    print *, ' Starting TLab DNS simulation...'
+    ! print *, ' Starting TLab DNS simulation...'
     call TLab_Start()
 
     call TLab_Initialize_Parameters(ifile)
 #ifdef USE_MPI
-    print *, ' Initializing MPI...'
+    ! print *, ' Initializing MPI...'
     call TLabMPI_Initialize(ifile)
-    print *, ' MPI initialized.'
+    ! print *, ' MPI initialized.'
     call TLabMPI_Trp_Initialize(ifile)
-    print *, ' MPI transpose initialized.'
+    ! print *, ' MPI transpose initialized.'
 #endif
     call Particle_Initialize_Parameters(ifile)
     call IBM_READ_INI(ifile)
