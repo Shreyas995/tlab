@@ -72,6 +72,7 @@ program DNS
 #ifdef USE_MPI
     call TLabMPI_Initialize(ifile)
     print *, "Initialized MPI"
+    call flush(6)
     call TLabMPI_Trp_Initialize(ifile)
 #endif
     call Particle_Initialize_Parameters(ifile)
