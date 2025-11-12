@@ -44,8 +44,8 @@ module TLabMPI_Transpose
     real(wp), allocatable, target :: wrk_mpi(:)                     ! 3D work array
     real(sp), pointer :: a_wrk(:) => null(), b_wrk(:) => null()
 
-    type(MPI_Status), allocatable :: status(:)
-    type(MPI_Request), allocatable :: request(:)
+    type(MPI_Status), allocatable :: mpit_tpse_status(:)
+    type(MPI_Request), allocatable :: mpit_tpse_request(:)
 
     interface TLabMPI_Trp_ExecK_Forward
         module procedure TLabMPI_Trp_ExecK_Forward_Real, TLabMPI_Trp_ExecK_Forward_Complex
@@ -152,10 +152,10 @@ contains
             call TLab_Write_ASCII(lfile, line)
         end if
 
-        print *, 'Allocated status array of size ', 2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)
+        print *, 'Allocated mpit_tpse_status array of size ', 2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)
         print *, 'trp_sizBlock_i', trp_sizBlock_i, ' trp_sizBlock_k', trp_sizBlock_k, ' ims_npro_i', ims_npro_i, ' ims_npro_k', ims_npro_k
-        allocate (status(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
-        allocate (request(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
+        allocate (mpit_tpse_status(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
+        allocate (mpit_tpse_request(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
 
         ! -----------------------------------------------------------------------
         ! local PE mappings for explicit send/recv
@@ -584,11 +584,11 @@ contains
                     ns = msend(m) + 1; ips = ns - 1
                     nr = mrecv(m) + 1; ipr = nr - 1
                     l = l + 1
-                    call MPI_ISEND(a(dsend(ns) + 1), 1, tsend, ips, ims_tag, comm, request(l), ims_err)
+                    call MPI_ISEND(a(dsend(ns) + 1), 1, tsend, ips, ims_tag, comm, mpit_tpse_request(l), ims_err)
                     l = l + 1
-                    call MPI_IRECV(b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, request(l), ims_err)
+                    call MPI_IRECV(b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, mpit_tpse_request(l), ims_err)
                 end do
-                call MPI_WAITALL(l, request, status, ims_err)
+                call MPI_WAITALL(l, mpit_tpse_request, mpit_tpse_status, ims_err)
             end do
 
         case (TLAB_MPI_TRP_SENDRECV)
@@ -597,7 +597,7 @@ contains
                     ns = msend(m) + 1; ips = ns - 1
                     nr = mrecv(m) + 1; ipr = nr - 1
                     call MPI_SENDRECV(a(dsend(ns) + 1), 1, tsend, ips, ims_tag, &
-                                      b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, status(1), ims_err)
+                                      b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, mpit_tpse_status(1), ims_err)
                 end do
             end do
 
@@ -641,11 +641,11 @@ contains
                     ns = msend(m) + 1; ips = ns - 1
                     nr = mrecv(m) + 1; ipr = nr - 1
                     l = l + 1
-                    call MPI_ISEND(a(dsend(ns) + 1), 1, tsend, ips, ims_tag, comm, request(l), ims_err)
+                    call MPI_ISEND(a(dsend(ns) + 1), 1, tsend, ips, ims_tag, comm, mpit_tpse_request(l), ims_err)
                     l = l + 1
-                    call MPI_IRECV(b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, request(l), ims_err)
+                    call MPI_IRECV(b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, mpit_tpse_request(l), ims_err)
                 end do
-                call MPI_WAITALL(l, request, status, ims_err)
+                call MPI_WAITALL(l, mpit_tpse_request, mpit_tpse_status, ims_err)
             end do
 
         case (TLAB_MPI_TRP_SENDRECV)
@@ -654,7 +654,7 @@ contains
                     ns = msend(m) + 1; ips = ns - 1
                     nr = mrecv(m) + 1; ipr = nr - 1
                     call MPI_SENDRECV(a(dsend(ns) + 1), 1, tsend, ips, ims_tag, &
-                                      b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, status(1), ims_err)
+                                      b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, mpit_tpse_status(1), ims_err)
                 end do
             end do
 
@@ -699,11 +699,11 @@ contains
                     ns = msend(m) + 1; ips = ns - 1
                     nr = mrecv(m) + 1; ipr = nr - 1
                     l = l + 1
-                    call MPI_ISEND(a(dsend(ns) + 1), 1, tsend, ips, ims_tag, comm, request(l), ims_err)
+                    call MPI_ISEND(a(dsend(ns) + 1), 1, tsend, ips, ims_tag, comm, mpit_tpse_request(l), ims_err)
                     l = l + 1
-                    call MPI_IRECV(b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, request(l), ims_err)
+                    call MPI_IRECV(b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, mpit_tpse_request(l), ims_err)
                 end do
-                call MPI_WAITALL(l, request, status, ims_err)
+                call MPI_WAITALL(l, mpit_tpse_request, mpit_tpse_status, ims_err)
             end do
 
         case (TLAB_MPI_TRP_SENDRECV)
@@ -712,7 +712,7 @@ contains
                     ns = msend(m) + 1; ips = ns - 1
                     nr = mrecv(m) + 1; ipr = nr - 1
                     call MPI_SENDRECV(a(dsend(ns) + 1), 1, tsend, ips, ims_tag, &
-                                      b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, status(1), ims_err)
+                                      b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, mpit_tpse_status(1), ims_err)
                 end do
             end do
 
