@@ -133,8 +133,10 @@ contains
 #else
         ! We assume that this will help to release some of the very heavy
         ! network load in transpositions on most systems
-        trp_sizBlock_k = 64
-        trp_sizBlock_i = 128
+        ! trp_sizBlock_k = 64
+        trp_sizBlock_k = 4
+        ! trp_sizBlock_i = 128
+        trp_sizBlock_i = 4
         ! trp_sizBlock_k=1e5   -- would essentially switch off the blocking
 #endif
 
