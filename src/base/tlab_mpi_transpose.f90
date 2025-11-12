@@ -68,7 +68,7 @@ contains
     subroutine TLabMPI_Trp_Initialize(inifile)
         character(len=*), intent(in) :: inifile
 
-        ! -----------------------------------------------------------------------
+        ! -----------------------------------------------------------------------TLabMPI_Trp_Initialize
         integer(wi) ip, npage
 
         character(len=32) bakfile, block
@@ -124,33 +124,34 @@ contains
         ! #######################################################################
         ! Initialize
 
-!         ! Size of communication in explicit send/recv
-! #ifdef HLRS_HAWK
-!         ! On hawk, we tested that 192 yields optimum performace;
-!         ! Blocking will thus only take effect in very large cases
-!         trp_sizBlock_k = 192
-!         trp_sizBlock_i = 384
-! #else
-!         ! We assume that this will help to release some of the very heavy
-!         ! network load in transpositions on most systems
-!         trp_sizBlock_k = 64
-!         trp_sizBlock_i = 128
-!         ! trp_sizBlock_k=1e5   -- would essentially switch off the blocking
-! #endif
+        ! Size of communication in explicit send/recv
+#ifdef HLRS_HAWK
+        ! On hawk, we tested that 192 yields optimum performace;
+        ! Blocking will thus only take effect in very large cases
+        trp_sizBlock_k = 192
+        trp_sizBlock_i = 384
+#else
+        ! We assume that this will help to release some of the very heavy
+        ! network load in transpositions on most systems
+        trp_sizBlock_k = 64
+        trp_sizBlock_i = 128
+        ! trp_sizBlock_k=1e5   -- would essentially switch off the blocking
+#endif
 
-!         if (ims_npro_i > trp_sizBlock_i) then
-!             write (line, *) trp_sizBlock_i
-!             line = 'Using blocking of '//trim(adjustl(line))//' in TLabMPI_TRP<F,B>_I'
-!             call TLab_Write_ASCII(lfile, line)
-!         end if
+        if (ims_npro_i > trp_sizBlock_i) then
+            write (line, *) trp_sizBlock_i
+            line = 'Using blocking of '//trim(adjustl(line))//' in TLabMPI_TRP<F,B>_I'
+            call TLab_Write_ASCII(lfile, line)
+        end if
 
-!         if (ims_npro_k > trp_sizBlock_k) then
-!             write (line, *) trp_sizBlock_k
-!             line = 'Using blocking of '//trim(adjustl(line))//' in TLabMPI_TRP<F,B>_K'
-!             call TLab_Write_ASCII(lfile, line)
-!         end if
+        if (ims_npro_k > trp_sizBlock_k) then
+            write (line, *) trp_sizBlock_k
+            line = 'Using blocking of '//trim(adjustl(line))//' in TLabMPI_TRP<F,B>_K'
+            call TLab_Write_ASCII(lfile, line)
+        end if
 
-!         allocate (status(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
+        allocate (status(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
+        print *, 'Allocated status array of size ', 2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)
 !         allocate (request(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
 
 !         ! -----------------------------------------------------------------------
