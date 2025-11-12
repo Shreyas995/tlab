@@ -65,6 +65,8 @@ program DNS
     
     
     ! ###################################################################
+    print *, 'At start of program'
+    call flush(6)
     call system_clock(start_clock)
     call TLab_Start()
 
