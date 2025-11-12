@@ -69,7 +69,8 @@ program DNS
     call flush(6)
     call TLab_Start()
     print *, 'After TLab_Start'
-!     call TLab_Initialize_Parameters(ifile)
+    call TLab_Initialize_Parameters(ifile)
+    print *, 'After TLab_Initialize_Parameters'
 ! #ifdef USE_MPI
 !     print *, "Starting MPI"
 !     call flush(6)
