@@ -151,6 +151,7 @@ contains
         end if
 
         print *, 'Allocated status array of size ', 2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)
+        print *, 'trp_sizBlock_i', trp_sizBlock_i, ' trp_sizBlock_k', trp_sizBlock_k, ' ims_npro_i', ims_npro_i, ' ims_npro_k', ims_npro_k
         ! allocate (status(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
 !         allocate (request(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
 
