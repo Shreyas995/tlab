@@ -71,14 +71,14 @@ program DNS
     print *, 'After TLab_Start'
     call TLab_Initialize_Parameters(ifile)
     print *, 'After TLab_Initialize_Parameters'
-! #ifdef USE_MPI
-!     print *, "Starting MPI"
-!     call flush(6)
-!     call TLabMPI_Initialize(ifile)
-!     print *, "Initialized MPI"
+#ifdef USE_MPI
+    print *, "Starting MPI"
+    call flush(6)
+    call TLabMPI_Initialize(ifile)
+    print *, "Initialized MPI"
 !     call flush(6)
 !     call TLabMPI_Trp_Initialize(ifile)
-! #endif
+#endif
 !     call Particle_Initialize_Parameters(ifile)
 !     call IBM_READ_INI(ifile)
 !     if (imode_ibm == 1) then
