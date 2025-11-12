@@ -150,8 +150,8 @@ contains
             call TLab_Write_ASCII(lfile, line)
         end if
 
-        allocate (status(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
         print *, 'Allocated status array of size ', 2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)
+        ! allocate (status(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
 !         allocate (request(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
 
 !         ! -----------------------------------------------------------------------
