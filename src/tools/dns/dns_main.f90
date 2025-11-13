@@ -65,22 +65,22 @@ program DNS
     
     
     ! ###################################################################
-    print *, 'At start of program'
-    call flush(6)
+    ! print *, 'At start of program'
+    ! call flush(6)
     call TLab_Start()
-    print *, 'After TLab_Start'
+    ! print *, 'After TLab_Start'
     call TLab_Initialize_Parameters(ifile)
-    print *, 'After TLab_Initialize_Parameters'
+    ! print *, 'After TLab_Initialize_Parameters'
 #ifdef USE_MPI
-    print *, "Starting MPI"
-    call flush(6)
+    ! print *, "Starting MPI"
+    ! call flush(6)
     call TLabMPI_Initialize(ifile)
-    print *, "Initialized MPI"
-    call flush(6)
-    print *, "Starting MPI Trp_Initialize"
+    ! print *, "Initialized MPI"
+    ! call flush(6)
+    ! print *, "Starting MPI Trp_Initialize"
     call TLabMPI_Trp_Initialize(ifile)
-    PRINT *, "Initialized MPI Trp_Initialize"
-    call flush(6)
+    ! PRINT *, "Initialized MPI Trp_Initialize"
+    ! call flush(6)
 #endif
     call Particle_Initialize_Parameters(ifile)
     call IBM_READ_INI(ifile)
