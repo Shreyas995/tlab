@@ -79,6 +79,8 @@ program DNS
     call flush(6)
     print *, "Starting MPI Trp_Initialize"
     call TLabMPI_Trp_Initialize(ifile)
+    PRINT *, "Initialized MPI Trp_Initialize"
+    call flush(6)
 #endif
 !     call Particle_Initialize_Parameters(ifile)
 !     call IBM_READ_INI(ifile)
