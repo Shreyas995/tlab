@@ -47,6 +47,7 @@ module TLabMPI_Transpose
     type(MPI_Status), allocatable :: status(:)
     type(MPI_Request), allocatable :: request(:)
 
+    integer(wi), allocatable :: test(:)
     interface TLabMPI_Trp_ExecK_Forward
         module procedure TLabMPI_Trp_ExecK_Forward_Real, TLabMPI_Trp_ExecK_Forward_Complex
     end interface TLabMPI_Trp_ExecK_Forward
@@ -70,7 +71,6 @@ contains
 
         ! -----------------------------------------------------------------------TLabMPI_Trp_Initialize
         integer(wi) ip, npage
-        integer(wi), allocatable :: test(:)
         character(len=32) bakfile, block
         character(len=512) sRes, line
         character*64 lstr
@@ -155,6 +155,7 @@ contains
         print *, 'Allocated status array of size ', 2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)
         print *, 'trp_sizBlock_i', trp_sizBlock_i, ' trp_sizBlock_k', trp_sizBlock_k, ' ims_npro_i', ims_npro_i, ' ims_npro_k', ims_npro_k
         allocate (test(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
+        print *, 'Deallocated test array'
         ! allocate (status(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
         ! allocate (request(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
 
