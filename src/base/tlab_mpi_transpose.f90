@@ -70,7 +70,7 @@ contains
 
         ! -----------------------------------------------------------------------TLabMPI_Trp_Initialize
         integer(wi) ip, npage
-
+        integer(wi), allocatable :: test(:)
         character(len=32) bakfile, block
         character(len=512) sRes, line
         character*64 lstr
@@ -154,51 +154,52 @@ contains
 
         print *, 'Allocated status array of size ', 2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)
         print *, 'trp_sizBlock_i', trp_sizBlock_i, ' trp_sizBlock_k', trp_sizBlock_k, ' ims_npro_i', ims_npro_i, ' ims_npro_k', ims_npro_k
-        allocate (status(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
-        allocate (request(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
+        allocate (test(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
+        ! allocate (status(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
+        ! allocate (request(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
 
-        ! -----------------------------------------------------------------------
-        ! local PE mappings for explicit send/recv
-        allocate (maps_send_i(ims_npro_i))
-        allocate (maps_recv_i(ims_npro_i))
-        do ip = 0, ims_npro_i - 1
-            maps_send_i(ip + 1) = ip
-            maps_recv_i(ip + 1) = mod(ims_npro_i - ip, ims_npro_i)
-        end do
-        maps_send_i = cshift(maps_send_i, ims_pro_i)
-        maps_recv_i = cshift(maps_recv_i, -ims_pro_i)
+        ! ! -----------------------------------------------------------------------
+        ! ! local PE mappings for explicit send/recv
+        ! allocate (maps_send_i(ims_npro_i))
+        ! allocate (maps_recv_i(ims_npro_i))
+        ! do ip = 0, ims_npro_i - 1
+        !     maps_send_i(ip + 1) = ip
+        !     maps_recv_i(ip + 1) = mod(ims_npro_i - ip, ims_npro_i)
+        ! end do
+        ! maps_send_i = cshift(maps_send_i, ims_pro_i)
+        ! maps_recv_i = cshift(maps_recv_i, -ims_pro_i)
 
-        allocate (maps_send_k(ims_npro_k))
-        allocate (maps_recv_k(ims_npro_k))
-        do ip = 0, ims_npro_k - 1
-            maps_send_k(ip + 1) = ip
-            maps_recv_k(ip + 1) = mod(ims_npro_k - ip, ims_npro_k)
-        end do
-        maps_send_k = cshift(maps_send_k, ims_pro_k)
-        maps_recv_k = cshift(maps_recv_k, -ims_pro_k)
+        ! allocate (maps_send_k(ims_npro_k))
+        ! allocate (maps_recv_k(ims_npro_k))
+        ! do ip = 0, ims_npro_k - 1
+        !     maps_send_k(ip + 1) = ip
+        !     maps_recv_k(ip + 1) = mod(ims_npro_k - ip, ims_npro_k)
+        ! end do
+        ! maps_send_k = cshift(maps_send_k, ims_pro_k)
+        ! maps_recv_k = cshift(maps_recv_k, -ims_pro_k)
 
-        ! -----------------------------------------------------------------------
-        ! to use alltoallw
-        allocate (counts(max(ims_npro_i, ims_npro_j, ims_npro_k)))
-        allocate (types_send(max(ims_npro_i, ims_npro_j, ims_npro_k)))
-        allocate (types_recv(max(ims_npro_i, ims_npro_j, ims_npro_k)))
-        counts(:) = 1
+        ! ! -----------------------------------------------------------------------
+        ! ! to use alltoallw
+        ! allocate (counts(max(ims_npro_i, ims_npro_j, ims_npro_k)))
+        ! allocate (types_send(max(ims_npro_i, ims_npro_j, ims_npro_k)))
+        ! allocate (types_recv(max(ims_npro_i, ims_npro_j, ims_npro_k)))
+        ! counts(:) = 1
 
-        ! -----------------------------------------------------------------------
-        ! to use single transposition when running in double precission
-        call TLab_Allocate_Real(__FILE__, wrk_mpi, [isize_wrk3d], 'wrk-mpi')
+        ! ! -----------------------------------------------------------------------
+        ! ! to use single transposition when running in double precission
+        ! call TLab_Allocate_Real(__FILE__, wrk_mpi, [isize_wrk3d], 'wrk-mpi')
 
-        ! -----------------------------------------------------------------------
-        ! Create basic transposition plans used for partial X and partial Z; could be in another module...
-        if (ims_npro_i > 1) then
-            npage = kmax*jmax
-            tmpi_plan_dx = TLabMPI_Trp_PlanI(imax, npage, message='Ox derivatives.')
-        end if
+        ! ! -----------------------------------------------------------------------
+        ! ! Create basic transposition plans used for partial X and partial Z; could be in another module...
+        ! if (ims_npro_i > 1) then
+        !     npage = kmax*jmax
+        !     tmpi_plan_dx = TLabMPI_Trp_PlanI(imax, npage, message='Ox derivatives.')
+        ! end if
 
-        if (ims_npro_k > 1) then
-            npage = imax*jmax
-            tmpi_plan_dz = TLabMPI_Trp_PlanK(kmax, npage, message='Oz derivatives.')
-        end if
+        ! if (ims_npro_k > 1) then
+        !     npage = imax*jmax
+        !     tmpi_plan_dz = TLabMPI_Trp_PlanK(kmax, npage, message='Oz derivatives.')
+        ! end if
 
         return
     end subroutine TLabMPI_Trp_Initialize
