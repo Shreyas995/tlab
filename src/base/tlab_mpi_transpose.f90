@@ -43,7 +43,7 @@ module TLabMPI_Transpose
 
     real(wp), allocatable, target :: wrk_mpi(:)                     ! 3D work array
     real(sp), pointer :: a_wrk(:) => null(), b_wrk(:) => null()
-    !$OMP DECLARE TARGET(test_com, status, request) DEVICE_TYPE(host)
+    !$OMP DECLARE TARGET TO(test_com, status, request) DEVICE_TYPE(host)
     type(MPI_Status), allocatable :: status(:)
     type(MPI_Request), allocatable :: request(:)
     type(MPI_Comm), allocatable :: test_com(:)
