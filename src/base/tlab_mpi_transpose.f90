@@ -43,12 +43,12 @@ module TLabMPI_Transpose
 
     real(wp), allocatable, target :: wrk_mpi(:)                     ! 3D work array
     real(sp), pointer :: a_wrk(:) => null(), b_wrk(:) => null()
-
+    !$OMP DECLARE TARGET(test_com, status, request) DEVICE_TYPE(host)
     type(MPI_Status), allocatable :: status(:)
     type(MPI_Request), allocatable :: request(:)
+    type(MPI_Comm), allocatable :: test_com(:)
 
     integer(wi), allocatable :: test(:)
-    type(MPI_Comm), allocatable :: test_com(:)
     interface TLabMPI_Trp_ExecK_Forward
         module procedure TLabMPI_Trp_ExecK_Forward_Real, TLabMPI_Trp_ExecK_Forward_Complex
     end interface TLabMPI_Trp_ExecK_Forward
@@ -157,7 +157,6 @@ contains
         print *, 'trp_sizBlock_i', trp_sizBlock_i, ' trp_sizBlock_k', trp_sizBlock_k, ' ims_npro_i', ims_npro_i, ' ims_npro_k', ims_npro_k
         allocate (test(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
         print *, 'allocated test array type integer(wi)'
-        !$omp declare target(test_com) device_type(host)
         allocate (test_com(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
         print *, 'allocated test_int array type MPI_INTEGER4'
         ! allocate (status(2*max(trp_sizBlock_i, trp_sizBlock_k, ims_npro_i, ims_npro_k)))
