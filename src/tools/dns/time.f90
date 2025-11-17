@@ -603,6 +603,7 @@ contains
 !#
 !########################################################################
     subroutine TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT()
+        use TLab_Constants, only: mas
         use TLab_Arrays, only: q, s, txc
         use PARTICLE_ARRAYS
         use DNS_ARRAYS, only: hq, hs
