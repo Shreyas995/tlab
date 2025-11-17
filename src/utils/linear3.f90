@@ -100,10 +100,11 @@ subroutine TRIDSS(nmax, len, a, b, c, f)
     end if
 
 #ifdef USE_APU
-    if (end > 1.5e4) then
+    if (end > mas) then
         !$omp target teams distribute parallel do &
         !$omp& private(n) &
-        !$omp& shared(f, a, b, c, srt, end, nmax)
+        !$omp& shared(f, a, b, c, srt, end, nmax) &
+        !$omp if (end*nmax > mas) 
         do l = srt, end ! end = 1
             do n = 2, nmax !nx
                 f(l, n) = f(l, n) + a(n)*f(l, n - 1)
@@ -400,7 +401,8 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
     ! -------------------------------------------------------------------
     !$omp target teams distribute parallel do &
     !$omp private(l, n) &
-    !$omp shared(srt,end,nmax,f,a,b,d,e,wrk)
+    !$omp shared(srt,end,nmax,f,a,b,d,e,wrk) &
+    !$omp if (end*nmax > mas) 
     do l = srt, end 
         f(l, 1) = f(l, 1)*b(1)
         wrk(l) = 0.0_wp
@@ -529,7 +531,8 @@ subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
     !$omp private(l, n) &
-    !$omp shared(srt,end,nmax,wrk,f,a,b,c,d,e,g,h)
+    !$omp shared(srt,end,nmax,wrk,f,a,b,c,d,e,g,h) &
+    !$omp if (nmax*end > mas) 
     do l = srt, end
         wrk(l) = 0.0_wp
         f(l, 1) = f(l, 1)*b(1)

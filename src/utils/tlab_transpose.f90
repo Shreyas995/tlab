@@ -48,25 +48,27 @@ subroutine TLab_Transpose(a, nra, nca, ma, b, mb)
 #elif defined(USE_APU)
     if (  nca < nra .AND. nca < 2e4 ) THEN    ! This 'if' is a workaround for an int-overflow  bug in 
                                               ! OMP implementation of cray in cpe17
-       !$omp target teams distribute parallel do collapse(2) default(none) &
-       !$omp private(k,j) &
-       !$omp shared(a,b,nca,nra)
-       do k = 1, nca
-          do j = 1, nra 
-             b(k, j) = a(j,k)
-          end do
-       end do
-       !$omp end target teams distribute parallel do
+        !$omp target teams distribute parallel do collapse(2) default(none) &
+        !$omp private(k,j) &
+        !$omp shared(a,b,nca,nra) &
+        !$omp if (nca*nra > mas)
+        do k = 1, nca
+            do j = 1, nra 
+                b(k, j) = a(j,k)
+            end do
+        end do
+        !$omp end target teams distribute parallel do
     else
-       !$omp target teams distribute parallel do default(none) &
-       !$omp private(k,j) &
-       !$omp shared(a,b,nca,nra)
-       do k = 1, nca
-          do j = 1, nra 
-             b(k, j) = a(j,k)
-          end do
-       end do
-       !$omp end target teams distribute parallel do
+        !$omp target teams distribute parallel do default(none) &
+        !$omp private(k,j) &
+        !$omp shared(a,b,nca,nra) &
+        !$omp if (nca*nra > mas)
+        do k = 1, nca
+            do j = 1, nra 
+                b(k, j) = a(j,k)
+            end do
+        end do
+        !$omp end target teams distribute parallel do
     endif
 #else 
 !!$omp parallel default(none) &
@@ -134,9 +136,9 @@ subroutine TLab_Transpose_INT1(a, nra, nca, ma, b, mb)
     integer(wi) last_k, last_j
 
 ! -------------------------------------------------------------------
-!$omp parallel default(none) &
-!$omp private(k,j,jj,kk,srt,end,siz,last_k,last_j) &
-!$omp shared(a,b,nca,nra)
+! !$omp parallel default(none) &
+! !$omp private(k,j,jj,kk,srt,end,siz,last_k,last_j) &
+! !$omp shared(a,b,nca,nra)
 
     call TLab_OMP_PARTITION(nca, srt, end, siz)
 
@@ -167,7 +169,7 @@ subroutine TLab_Transpose_INT1(a, nra, nca, ma, b, mb)
         end do
     end do
 
-!$omp end parallel
+! !$omp end parallel
 
     return
 end subroutine TLab_Transpose_INT1

@@ -267,7 +267,8 @@ contains
 #ifdef USE_APU
                 alpha = kco(rkm_substep)
                 if (flow_on .and. scal_on) then
-                    !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+                    !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
+                    !$omp if (inb_flow*ij_end > mas)                    
                     do is = 1, inb_flow
                         do ij = ij_srt, ij_end
                             hq(ij, is) = alpha*hq(ij, is)
@@ -275,7 +276,8 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
 
-                    !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+                    !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
+                    !$omp if (inb_scal*ij_end > mas)     
                     do is = 1, inb_scal
                         do ij = ij_srt, ij_end
                             hs(ij, is) = alpha*hs(ij, is)
@@ -284,7 +286,8 @@ contains
                     !$omp end target teams distribute parallel do
 
                 elseif (flow_on) then
-                    !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+                    !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
+                    !$omp if (inb_flow*ij_end > mas) 
                     do is = 1, inb_flow
                         do ij = ij_srt, ij_end
                             hq(ij, is) = alpha*hq(ij, is)
@@ -293,7 +296,8 @@ contains
                     !$omp end target teams distribute parallel do
 
                 elseif (scal_on) then
-                    !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+                    !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
+                    !$omp if (inb_scal*ij_end > mas) 
                     do is = 1, inb_scal
                         do ij = ij_srt, ij_end
                             hs(ij, is) = alpha*hs(ij, is)
@@ -688,7 +692,8 @@ contains
 
         call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
 #ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+        !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
+        !$omp if (inb_flow*ij_end > mas) 
         do is = 1, inb_flow !offload to APU
             do ij = ij_srt, ij_end
                 q(ij, is) = q(ij, is) + dte*hq(ij, is)
@@ -697,6 +702,7 @@ contains
         !$omp end target teams distribute parallel do
 
         !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+        !$omp if (inb_flow*ij_end > mas) 
         do is = 1, inb_scal !Offload to APU
             do ij = ij_srt, ij_end
             s(ij, is) = s(ij, is) + dte*hs(ij, is)

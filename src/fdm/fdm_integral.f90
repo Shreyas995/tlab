@@ -1274,11 +1274,12 @@ contains
         case (7)
             call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines, 1:nx, 1:klines, 1:ilines))
         end select
-
-        CALL SYSTEM_CLOCK(clock_0,clock_cycle) 
+#ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i,j,k,bcs) &
-        !$omp shared(ilines,klines,nlines,fdmi_int2,result,wrk2d,nx,ndl)
+        !$omp shared(ilines,klines,nlines,fdmi_int2,result,wrk2d,nx,ndl) &
+        !$omp if (ilines * klines * nlines > mas)
+#endif
         do i = 1, ilines
             do k = 1, klines
                 bcs = fdmi_int2%bc(k,i)
@@ -1299,9 +1300,9 @@ contains
                 end if
             end do
         end do
+#ifdef USE_APU
         !$omp end target teams distribute parallel do
-        CALL SYSTEM_CLOCK(clock_1,clock_cycle)
-        fdm_solve2_time = fdm_solve2_time + real(clock_1 - clock_0)/real(clock_cycle)
+#endif
         return
     end subroutine FDM_Int2_Solve_APU
     

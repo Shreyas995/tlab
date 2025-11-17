@@ -56,7 +56,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 ! ###################################################################
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared(imax,jmax,kmax,tmp4,tmp3,tmp2,tmp1,u,v,w,p,rho)
+    !$omp shared(imax,jmax,kmax,tmp4,tmp3,tmp2,tmp1,u,v,w,p,rho) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         tmp4(i) = 0.5_wp*rho(i)*u(i)
@@ -74,7 +75,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,hq,tmp6 )
+    !$omp shared( imax,jmax,kmax,hq,tmp6 ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 5) = hq(i, 5) - 2.0_wp*tmp6(i)
@@ -90,7 +92,8 @@ subroutine RHS_FLOW_GLOBAL_2()
     call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp1, tmp2)
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,hq,tmp2,tmp3,tmp4,rho,g1 )
+    !$omp shared( imax,jmax,kmax,hq,tmp2,tmp3,tmp4,rho,g1 ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 1) = hq(i, 1) - (tmp2(i) + tmp3(i) + tmp4(i)) + g1*rho(i)
@@ -104,7 +107,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 ! ###################################################################
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,rho,u,v,w,p )
+    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,rho,u,v,w,p ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         tmp4(i) = 0.5_wp*rho(i)*v(i)
@@ -122,7 +126,8 @@ subroutine RHS_FLOW_GLOBAL_2()
     call OPR_Partial_Y(OPR_P1, imax, jmax, kmax, bcs, g(2), tmp4, tmp5)
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,tmp5,tmp6,hq )
+    !$omp shared( imax,jmax,kmax,tmp5,tmp6,hq ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 5) = hq(i, 5) - 2.0_wp*tmp5(i)
@@ -140,7 +145,8 @@ subroutine RHS_FLOW_GLOBAL_2()
     call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp1, tmp2)
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,tmp2,tmp3,tmp4,g2,rho,hq )
+    !$omp shared( imax,jmax,kmax,tmp2,tmp3,tmp4,g2,rho,hq ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 2) = hq(i, 2) - (tmp2(i) + tmp3(i) + tmp4(i)) + g2*rho(i)
@@ -153,7 +159,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 ! ###################################################################
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,u,v,w,p,rho )
+    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,u,v,w,p,rho ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         tmp4(i) = 0.5_wp*rho(i)*w(i)
@@ -170,7 +177,8 @@ subroutine RHS_FLOW_GLOBAL_2()
     call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), tmp4, tmp5)
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,tmp5,tmp6,hq )
+    !$omp shared( imax,jmax,kmax,tmp5,tmp6,hq ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 5) = hq(i, 5) - 2.0_wp*tmp5(i)
@@ -188,7 +196,8 @@ subroutine RHS_FLOW_GLOBAL_2()
     call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp1, tmp2)
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,tmp2,tmp3,tmp4,g3,rho,hq )
+    !$omp shared( imax,jmax,kmax,tmp2,tmp3,tmp4,g3,rho,hq ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 3) = hq(i, 3) - (tmp2(i) + tmp3(i) + tmp4(i)) + g3*rho(i)
@@ -201,7 +210,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 ! ###################################################################
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i,dummy ) &
-    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,u,v,w,e,rho )
+    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,u,v,w,e,rho ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
 
     do i = 1, imax*jmax*kmax
@@ -221,7 +231,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
     !$omp private( i ) &
-    !$omp shared( imax,jmax,kmax,hq,tmp2,tmp3,tmp4)
+    !$omp shared( imax,jmax,kmax,hq,tmp2,tmp3,tmp4) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 4) = hq(i, 4) - (tmp2(i) + tmp3(i) + tmp4(i))
@@ -237,7 +248,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
     !$omp private( i ) &
-    !$omp shared( imax,jmax,kmax,hq,u,v,w,e,tmp6)
+    !$omp shared( imax,jmax,kmax,hq,u,v,w,e,tmp6) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 1) = hq(i, 1) - u(i)*tmp6(i)
@@ -252,7 +264,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 #ifdef USE_APU
     !$omp target teams distribute parallel do collapse(2) &
     !$omp private( i,is ) &
-    !$omp shared( imax,jmax,kmax,inb_scal,hs,s,tmp6 )
+    !$omp shared( imax,jmax,kmax,inb_scal,hs,s,tmp6 ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do is = 1, inb_scal
         do i = 1, imax*jmax*kmax
@@ -279,7 +292,8 @@ subroutine RHS_FLOW_GLOBAL_2()
     call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), e, tmp2)
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,tmp2,tmp3,tmp4,rho,hq,u,v,w )
+    !$omp shared( imax,jmax,kmax,tmp2,tmp3,tmp4,rho,hq,u,v,w ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 4) = hq(i, 4) - 0.5_wp*rho(i)*(u(i)*tmp2(i) + v(i)*tmp3(i) + w(i)*tmp4(i))
@@ -295,7 +309,8 @@ subroutine RHS_FLOW_GLOBAL_2()
     call OPR_Partial_Z(OPR_P2_P1, imax, jmax, kmax, bcs_out(:, :, 3), g(3), u, tmp6, tmp2)
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp5,tmp6,hq,rho,visc,v,w )
+    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp5,tmp6,hq,rho,visc,v,w ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 1) = hq(i, 1) + visc*(tmp5(i) + tmp6(i)) - 0.5_wp*rho(i)*(v(i)*tmp1(i) + w(i)*tmp2(i))
@@ -309,7 +324,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i, dum1 ) &
-    !$omp shared( imax,jmax,kmax,tmp1,tmp3,tmp4,tmp5,tmp6,hq,rho,visc,u,w,dummy )
+    !$omp shared( imax,jmax,kmax,tmp1,tmp3,tmp4,tmp5,tmp6,hq,rho,visc,u,w,dummy ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 2) = hq(i, 2) + visc*(tmp5(i) + tmp6(i)) - 0.5_wp*rho(i)*(u(i)*tmp3(i) + w(i)*tmp4(i))
@@ -326,7 +342,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i,dum2,dum3 ) &
-    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,hq,rho,visc,u,v,dummy )
+    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,hq,rho,visc,u,v,dummy ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 3) = hq(i, 3) + visc*(tmp5(i) + tmp6(i)) - 0.5_wp*rho(i)*(u(i)*tmp1(i) + v(i)*tmp3(i))
@@ -348,7 +365,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i,dum1 ) &
-    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,hq,rho,u,v,w,p,CRATIO_INV,dummy,c13 )
+    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,hq,rho,u,v,w,p,CRATIO_INV,dummy,c13 ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 1) = hq(i, 1) - 0.5_wp*rho(i)*u(i)*tmp1(i)
@@ -368,7 +386,8 @@ subroutine RHS_FLOW_GLOBAL_2()
     call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs_inf(:, :, 1), g(1), tmp1, tmp2)
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,tmp2,tmp4,hq,visc )
+    !$omp shared( imax,jmax,kmax,tmp2,tmp4,hq,visc ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 1) = hq(i, 1) + visc*(tmp4(i) + tmp2(i))
@@ -382,6 +401,7 @@ subroutine RHS_FLOW_GLOBAL_2()
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
     !$omp shared( imax,jmax,kmax,tmp2,tmp5,hq,visc )
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 2) = hq(i, 2) + visc*(tmp5(i) + tmp2(i))
@@ -394,7 +414,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,tmp2,tmp6,hq,visc )
+    !$omp shared( imax,jmax,kmax,tmp2,tmp6,hq,visc ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 3) = hq(i, 3) + visc*(tmp6(i) + tmp2(i))
@@ -419,7 +440,8 @@ subroutine RHS_FLOW_GLOBAL_2()
 
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,hq,cond )
+    !$omp shared( imax,jmax,kmax,tmp1,tmp2,tmp3,hq,cond ) &
+    !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
         hq(i, 4) = hq(i, 4) + cond*(tmp1(i) + tmp2(i) + tmp3(i))

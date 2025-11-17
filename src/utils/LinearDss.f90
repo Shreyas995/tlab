@@ -63,9 +63,12 @@ contains
          if (len <= 0) then
             goto 999
         end if
+#ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i, k, n) &
-        !$omp shared(ilen,klen,len,nmax,f,fdmi)
+        !$omp shared(ilen,klen,len,nmax,f,fdmi) &
+        !$omp if (ilen*klen*len > mas)
+#endif
         do i = 1, ilen
             do k = 1, klen
                 do l = 1, len
@@ -88,7 +91,9 @@ contains
                 end do
             end do
         end do
+#ifdef USE_APU
         !$omp end target teams distribute parallel do
+#endif
         999 continue
         CALL SYSTEM_CLOCK(clock_1,clock_cycle)
         tridss_time = tridss_time + real(clock_1 - clock_0)/real(clock_cycle)
@@ -114,9 +119,12 @@ contains
         ! -----------------------------------------------------------------------
         ! Solve Ly=f, forward
         ! -----------------------------------------------------------------------
+#ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i, k, n) &
-        !$omp shared(ilen,klen,len,nmax,f,fdmi)
+        !$omp shared(ilen,klen,len,nmax,f,fdmi) &
+        !$omp if (ilen*klen*len > mas)
+#endif
         do i = 1, ilen
             do k = 1, klen
                 do l = 1, len
@@ -138,7 +146,9 @@ contains
                 end do
             end do
         end do
+#ifdef USE_APU
         !$omp end target teams distribute parallel do
+#endif
         CALL SYSTEM_CLOCK(clock_1,clock_cycle) 
         pentadss_time = pentadss_time + real(clock_1 - clock_0)/real(clock_cycle)
         return
@@ -163,7 +173,10 @@ contains
     ! -----------------------------------------------------------------------
     ! Solve Ly=frc, forward
     ! -----------------------------------------------------------------------
-        !$omp target teams distribute parallel do collapse(2) private(i, k, n)
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(2) private(i, k, n) &
+        !$omp if (ilen*klen*len > mas)
+#endif
         do i = 1, ilen
             do k = 1, klen
                 do ij = 1, len
@@ -188,14 +201,18 @@ contains
                 end do
 
                 do n = nmax - 4, 1, -1
+#ifdef USE_APU
                     !$omp simd
+#endif
                     do ij = 1, len
                         frc(ij, n, k, i) = (frc(ij, n, k, i) - frc(ij, n + 1, k, i)*fdmi%lhs(n, k, i, 5) - frc(ij, n + 2, k ,i)*fdmi%lhs(n, k, i, 6) - frc(ij, n + 3, k, i)*fdmi%lhs(n, k, i, 7))/fdmi%lhs(n, k, i, 4)
                     end do
                 end do
             end do
         end do
+#ifdef USE_APU
         !$omp end target teams distribute parallel do
+#endif
         CALL SYSTEM_CLOCK(clock_1,clock_cycle)
         heptadss_time = heptadss_time + real(clock_1 - clock_0)/real(clock_cycle)
         return

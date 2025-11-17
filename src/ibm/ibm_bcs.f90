@@ -136,7 +136,8 @@ subroutine IBM_BCS_FIELD(fld)
   ! ================================================================== !
   ! apply IBM BCs on scalar/flow fields
 #ifdef USE_APU
-  !$omp target teams distribute parallel do default(shared) private(i)
+  !$omp target teams distribute parallel do default(shared) private(i) &
+  !$omp if (isize_field > mas)
 #endif
   do i = 1, isize_field
     fld(i) = (1.0_wp - eps(i)) * fld(i)  
@@ -166,7 +167,8 @@ subroutine IBM_BCS_FIELD_STAGGER(fld)
   ! apply IBM BCs on scalar/flow fields
   
 #ifdef USE_APU
-  !$omp target teams distribute parallel do default(shared) private(i)
+  !$omp target teams distribute parallel do default(shared) private(i) &
+  !$omp if (isize_field > mas)
 #endif
   do i = 1, isize_field
     fld(i) = (1.0_wp - epsp(i)) * fld(i)  
@@ -197,7 +199,8 @@ subroutine IBM_BCS_FIELD_INV(fld,tmp) ! not used so far
   ! apply inverse IBM BCs on fields -- only BCs in solid left, fluid regions are zero
 
 #ifdef USE_APU
-  !$omp target teams distribute parallel do default(shared) private(i)
+  !$omp target teams distribute parallel do default(shared) private(i) &
+  !$omp if (isize_field > mas)
 #endif
   do i = 1, isize_field
     tmp(i) = eps(i) * fld(i)  

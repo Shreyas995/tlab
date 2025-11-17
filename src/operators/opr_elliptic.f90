@@ -3,7 +3,7 @@
 ! Split the routines into the ones that are initialized and the ones that not?
 ! If not initialized, you can enter with any jmax, but the periodic directions need to be the global ones because of OPR_Fourier.
 module OPR_Elliptic
-    use TLab_Constants, only: wp, wi, longi, mps
+    use TLab_Constants, only: wp, wi, longi, mas
     use TLab_Constants, only: BCS_DD, BCS_DN, BCS_ND, BCS_NN, BCS_NONE, BCS_MIN, BCS_MAX, BCS_BOTH
     use TLab_Constants, only: lfile
     use TLab_Memory, only: TLab_Allocate_Real
@@ -433,7 +433,7 @@ contains
 #ifdef USE_APU
             ! Here collapse (2) does not work
             !$omp target teams distribute parallel do private(i,k) &
-            !$omp if (nz*i_max  > mps)
+            !$omp if (nz*i_max  > mas)
 #endif
             do i = 1, i_max
                 do k = 1, nz

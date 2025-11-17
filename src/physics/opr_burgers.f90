@@ -491,7 +491,8 @@ contains
             else
 #ifdef USE_APU
             !$omp target teams distribute parallel do private( ij ) &
-            !$omp shared(nlines,g,result,uf,dsf)
+            !$omp shared(nlines,g,result,uf,dsf) &
+            !$omp if (nlines*g%size > mas)
 #endif
                 do ij = 1, nlines*g%size
                     result(ij, 1) = result(ij, 1) - uf(ij, 1)*dsf(ij, 1)
@@ -512,7 +513,8 @@ contains
             else
 #ifdef USE_APU
             !$omp target teams distribute parallel do private( ij ) &
-            !$omp shared(nlines,g,result,u,dsdx)
+            !$omp shared(nlines,g,result,u,dsdx) &
+            !$omp if (nlines*g%size > mas)
 #endif
                 do ij = 1, nlines*g%size ! offload to APU
                     result(ij, 1) = result(ij, 1) - u(ij, 1)*dsdx(ij, 1)

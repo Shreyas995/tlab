@@ -281,11 +281,14 @@ contains
         ! ###################################################################
         avg = 0.0_wp
 #ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(2) private(k,i) default(shared)
+        !$omp target teams distribute parallel do collapse(2) private(k,i) default(shared) &
+        !$omp if (nz*nx > mas) 
 #endif
         do k = 1, nz
             do i = 1, nx
+#ifdef USE_APU
                 !$omp atomic
+#endif
                 avg = avg + a(i, j, k)
             end do
         end do
@@ -316,12 +319,15 @@ contains
         ! ###################################################################
         avg = 0.0_wp
 #ifdef USE_APU
-       !$omp target teams distribute parallel do collapse(3) private(i,j,k) default(shared)
+        !$omp target teams distribute parallel do collapse(3) private(i,j,k) default(shared) &
+        !$omp if (nz*nx*ny > mas) 
 #endif
         do k = 1, nz
             do j = 1, ny
                 do i = 1, nx
+#ifdef USE_APU
                     !$omp atomic
+#endif
                     avg(j) = avg(j) + a(i, j, k)
                 end do
             end do

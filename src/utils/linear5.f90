@@ -218,7 +218,7 @@ subroutine PENTADSS2(nmax, len, a, b, c, d, e, f)
 
     ! #######################################################################
 #ifdef USE_APU
-    if (size(f) < 1.5e4) then ! problem is to small for APU, no performance benefit
+    if (size(f) < mas) then ! problem is to small for APU, no performance benefit
 #endif
         ! -----------------------------------------------------------------------
         ! Solve Ly=f, forward
@@ -244,7 +244,8 @@ subroutine PENTADSS2(nmax, len, a, b, c, d, e, f)
         end do
 #ifdef USE_APU
     else
-        !$omp target teams distribute parallel do private(n, l) default(shared)
+        !$omp target teams distribute parallel do private(n, l) default(shared) &
+        !$omp if (nmax*len > mas)
         do l = 1, len
             ! -----------------------------------------------------------------------
             ! Solve Ly=f, forward
@@ -415,7 +416,7 @@ subroutine PENTADPSS(nmax, len, a, b, c, d, e, f, g, frc)
     d23 = di*m3*a(1)
     d24 = di*m1*e(nmax)
 #ifdef USE_APU
-    if ((nmax*len) < 1.5e4) then
+    if ((nmax*len) < mas) then
 #endif
         ! Solve
         do l = 1, len, 1
@@ -442,7 +443,8 @@ subroutine PENTADPSS(nmax, len, a, b, c, d, e, f, g, frc)
         ! Solve
         !$omp target teams distribute parallel do&
         !$omp private(l, n, dummy1, dummy2) &
-        !$omp default(shared)
+        !$omp default(shared) &
+        !$omp if (nmax*len > mas)
         do l = 1, len, 1
             do n = 3, nmax - 3, 1 ! Main loop
                 dummy1 = d11*frc(l, 1) + d12*frc(l, nmax) + d13*frc(l, nmax - 1) - d14*frc(l, 2)
