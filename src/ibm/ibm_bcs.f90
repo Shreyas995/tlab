@@ -125,7 +125,7 @@ subroutine IBM_BCS_FIELD(fld)
 
   use IBM_VARS,       only : eps
   use TLab_Memory, only: isize_field
-  use TLab_Constants, only : wi, wp
+  use TLab_Constants, only : wi, wp, mas
 
   implicit none
 
@@ -155,7 +155,7 @@ subroutine IBM_BCS_FIELD_STAGGER(fld)
   
   use IBM_VARS,       only : epsp
   use TLab_Memory, only: isize_field
-  use TLab_Constants, only : wi, wp
+  use TLab_Constants, only : wi, wp, mas
 
   implicit none
   
@@ -186,7 +186,7 @@ subroutine IBM_BCS_FIELD_INV(fld,tmp) ! not used so far
   
   use IBM_VARS,       only : eps
   use TLab_Memory, only: isize_field
-  use TLab_Constants, only : wi, wp
+  use TLab_Constants, only : wi, wp, mas
 
   implicit none
   
