@@ -380,7 +380,7 @@ end subroutine PENTADPFS
 ! Backward substitution step in the Thomas algorith
 ! #######################################################################
 subroutine PENTADPSS(nmax, len, a, b, c, d, e, f, g, frc)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
     implicit none
 
     integer(wi), intent(IN) :: nmax, len
