@@ -2989,7 +2989,7 @@ contains
                     else
                         !$omp target teams distribute parallel do &
                         !$omp private(m,n) &
-                        !$omp shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs)
+                        !$omp shared(my,nx,f,u,r4_loc,r6_loc,r7_loc,rhs) &
                         !$omp if (nx*my > mas)
                         do m = 1, my
                             f(m, 1) = u(m, 1)*r4_i(1) + u(m, 2)*r5_i(1) + u(m, 3)*r6_i(1) + u(m, 4)*r7_i(1) + u(m, 5)*r1_i(1)   
