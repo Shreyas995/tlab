@@ -400,7 +400,7 @@ subroutine RHS_FLOW_GLOBAL_2()
 
 #ifdef USE_APU
     !$omp target teams distribute parallel do private( i ) &
-    !$omp shared( imax,jmax,kmax,tmp2,tmp5,hq,visc )
+    !$omp shared( imax,jmax,kmax,tmp2,tmp5,hq,visc ) &
     !$omp if (kmax*jmax*imax > mas)
 #endif
     do i = 1, imax*jmax*kmax
