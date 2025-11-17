@@ -30,7 +30,7 @@
 #include "dns_error.h"
 
 module LinearDss
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
     use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
     use TLab_Time, only: pentadss_time, heptadss_time, tridss_time
     PUBLIC :: TRIDSS_APU

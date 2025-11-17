@@ -13,7 +13,7 @@ module TIME
 #ifdef USE_OPENMP
     use OMP_LIB
 #endif
-    use TLab_Constants, only: efile, wp, wi, big_wp
+    use TLab_Constants, only: efile, wp, wi, big_wp, mas
     use TLab_WorkFlow, only: flow_on, scal_on, fourier_on, stagger_on
     use TLab_Memory, only: imax, jmax, kmax, isize_field
     use TLab_Memory, only: isize_wrk1d, isize_wrk2d, isize_wrk3d

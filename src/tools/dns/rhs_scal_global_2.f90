@@ -12,7 +12,7 @@
 !########################################################################
 subroutine RHS_SCAL_GLOBAL_2(is)
 
-    use TLab_Constants, only: efile, wp, wi
+    use TLab_Constants, only: efile, wp, wi, mas
 #ifdef TRACE_ON
     use TLab_Constants, only: tfile
     use TLab_WorkFlow, only: TLab_Write_ASCII

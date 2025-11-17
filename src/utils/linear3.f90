@@ -27,7 +27,7 @@
 ! LU factorization stage; L with diagonal unity
 ! #######################################################################
 subroutine TRIDFS(nmax, a, b, c)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
     implicit none
 
     integer(wi), intent(IN) :: nmax

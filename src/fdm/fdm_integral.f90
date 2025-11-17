@@ -6,7 +6,7 @@
 !########################################################################
 
 module FDM_Integral
-    use TLab_Constants, only: wp, wi, efile
+    use TLab_Constants, only: wp, wi, efile, mas
     use TLab_Constants, only: BCS_DD, BCS_ND, BCS_DN, BCS_NN, BCS_MIN, BCS_MAX, BCS_BOTH
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use TLab_Memory, only: imax, jmax, kmax, isize_line

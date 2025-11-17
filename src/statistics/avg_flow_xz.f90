@@ -16,7 +16,7 @@
 
 subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwdz, mean2d)
     use TLab_Constants, only: MAX_AVG_TEMPORAL
-    use TLab_Constants, only: efile, lfile, wp, wi
+    use TLab_Constants, only: efile, lfile, wp, wi, mas
 #ifdef TRACE_ON
     use TLab_Constants, only: tfile
 #endif

@@ -4,7 +4,7 @@
 ! Apply the non-linear operator N(u)(s) = visc* d^2/dx^2 s - u d/dx s
 
 module OPR_Burgers
-    use TLab_Constants, only: wp, wi, efile, lfile
+    use TLab_Constants, only: wp, wi, efile, lfile, mas
     use IBM_VARS, only: ibm_burgers
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use TLab_Arrays, only: wrk2d, wrk3d

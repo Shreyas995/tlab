@@ -28,7 +28,7 @@
 ! LU factorization stage
 ! #######################################################################
 subroutine PENTADFS(nmax, a, b, c, d, e)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
     implicit none
 
     integer(wi) nmax

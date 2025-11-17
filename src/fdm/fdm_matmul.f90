@@ -5,7 +5,7 @@
 ! This allows use to handle systems A y = B x in which A amd B differ by up to 2 diagonals (see notes)
 !########################################################################
 module FDM_MatMul
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
     use TLab_Constants, only: BCS_DD, BCS_DN, BCS_ND, BCS_NN
     use TLab_Constants, only: BCS_NONE, BCS_MIN, BCS_MAX, BCS_BOTH
     use TLab_Constants, only: BCS_PERIODIC

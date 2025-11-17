@@ -4,7 +4,7 @@
 !# Sources (processes) in the evolution equations.
 !########################################################################
 module TLab_Sources
-    use TLab_Constants, only: wp, wi, small_wp
+    use TLab_Constants, only: wp, wi, small_wp, mas
     use TLab_Memory, only: imax, jmax, kmax, isize_field, inb_scal, inb_scal_array, inb_flow
     use NavierStokes, only: nse_eqns, DNS_EQNS_ANELASTIC
     use FDM, only: g

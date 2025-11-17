@@ -8,7 +8,7 @@
 !#
 !########################################################################
 module FDM_Com0_Jacobian
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
     implicit none
     ! private
 

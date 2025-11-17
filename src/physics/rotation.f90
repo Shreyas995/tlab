@@ -2,7 +2,7 @@
 #include "dns_error.h"
 
 module Rotation
-    use TLab_Constants, only: wp, wi, efile, lfile, MAX_VARS, MAX_PARS, MAX_PROF
+    use TLab_Constants, only: wp, wi, efile, lfile, MAX_VARS, MAX_PARS, MAX_PROF, mas
     use NavierStokes, only: rossby
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use TLab_Memory, only: inb_flow, inb_scal

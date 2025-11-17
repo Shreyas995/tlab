@@ -13,7 +13,7 @@
 !########################################################################
 
 subroutine TLab_Transpose(a, nra, nca, ma, b, mb)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
     use TLab_OpenMP
     use TLab_Time, only : trans_time 
     implicit none
