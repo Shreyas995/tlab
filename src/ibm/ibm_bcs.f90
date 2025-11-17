@@ -21,9 +21,9 @@
 
 subroutine IBM_INITIALIZE_SCAL(isbcs, s)
   
-  use IBM_VARS,       only : eps, ibmscaljmin, ibmscaljmax, scal_bcs, mas
+  use IBM_VARS,       only : eps, ibmscaljmin, ibmscaljmax, scal_bcs
   use TLab_Memory, only: imax, jmax, isize_field, inb_scal
-  use TLab_Constants, only : wi, wp
+  use TLab_Constants, only : wi, wp, mas
 
   implicit none
 
