@@ -54,7 +54,7 @@ end subroutine TRIDFS
 ! Backward substitution step in the Thomas algorith
 ! #######################################################################
 subroutine TRIDSS(nmax, len, a, b, c, f)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
     use TLab_Time, only: tridss_time
     use TLab_OpenMP
 
@@ -194,7 +194,7 @@ end subroutine TRIDSS
 ! Backward substitution step in the Thomas algorith
 ! #######################################################################
 subroutine TRIDSS_ADD(nmax, len, a, b, c, f, g, h, d)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
     use TLab_Time, only: tridssadd_time
     use TLab_OpenMP
 
@@ -303,7 +303,7 @@ end subroutine TRIDSS_ADD
 ! LU factorization stage
 ! #######################################################################
 subroutine TRIDPFS(nmax, a, b, c, d, e)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
 
     implicit none
 
@@ -355,7 +355,7 @@ end subroutine TRIDPFS
 ! Backward substitution step in the Thomas algorith
 ! #######################################################################
 subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
     use TLab_Time, only: tridpss_time
     use TLab_OpenMP
 
@@ -378,13 +378,6 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
 #ifdef USE_BLAS
     integer :: ilen
 #endif
-
-! ---------------------------------------------------
-    integer(wi) :: clock_0, clock_1, clock_cycle
-
-
-
-    CALL SYSTEM_CLOCK(clock_0,clock_cycle)
 
     ! call TLab_OMP_PARTITION(len, srt, end, siz)
     srt = 1
@@ -479,8 +472,6 @@ subroutine TRIDPSS(nmax, len, a, b, c, d, e, f, wrk)
 #endif
 999 continue
 ! !$omp end parallel
-    CALL SYSTEM_CLOCK(clock_1,clock_cycle)
-    tridpss_time = tridpss_time + real(clock_1 - clock_0,wp)/real(clock_cycle,wp)
     return
 end subroutine TRIDPSS
 
@@ -488,7 +479,7 @@ end subroutine TRIDPSS
 ! Backward substitution step in the Thomas algorith
 ! #######################################################################
 subroutine TRIDPSS_ADD(nmax, len, a, b, c, d, e, f, g, h, wrk)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
     use TLab_Time, only: tridpssadd_time
     use TLab_OpenMP
 
