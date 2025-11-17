@@ -603,7 +603,6 @@ contains
 !#
 !########################################################################
     subroutine TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT()
-        use TLab_Constants, only: mas
         use TLab_Arrays, only: q, s, txc
         use PARTICLE_ARRAYS
         use DNS_ARRAYS, only: hq, hs
@@ -702,7 +701,7 @@ contains
         end do
         !$omp end target teams distribute parallel do
 
-        !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij)
+        !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
         !$omp if (inb_flow*ij_end > mas) 
         do is = 1, inb_scal !Offload to APU
             do ij = ij_srt, ij_end
