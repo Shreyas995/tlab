@@ -74,7 +74,7 @@ end subroutine PENTADFS
 ! Backward substitution step in the Thomas algorith
 ! #######################################################################
 subroutine PENTADSS(nmax, len, a, b, c, d, e, f)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
 
     implicit none
 
@@ -154,7 +154,7 @@ end subroutine PENTADSS
 ! LU factorization stage
 ! #######################################################################
 subroutine PENTADFS2(nmax, a, b, c, d, e)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
 
     implicit none
 
@@ -205,7 +205,7 @@ end subroutine PENTADFS2
 ! Backward substitution step in the Thomas algorith
 ! #######################################################################
 subroutine PENTADSS2(nmax, len, a, b, c, d, e, f)
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, mas
 
     implicit none
 
