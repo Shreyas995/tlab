@@ -255,10 +255,26 @@ program DNS
     call TLab_Write_ASCII(lfile, 'Starting time integration at It'//trim(adjustl(str))//'.')
     call SYSTEM_CLOCK(clock_0) 
 
+    call TLab_Debug_Print_1D('1', q(:,1))
+    call TLab_Debug_Print_1D('2', q(:,2))
+    call TLab_Debug_Print_1D('3', q(:,3))
+    call TLab_Debug_Print_1D('4', s(:,1))
+
     do
         if (itime >= nitera_last) exit
         if (int(logs_data(1)) /= 0) exit
+        call TLab_Debug_Print_1D('5', q(:,1))
+        call TLab_Debug_Print_1D('6', q(:,2))
+        call TLab_Debug_Print_1D('7', q(:,3))
+        call TLab_Debug_Print_1D('8', s(:,1))
+
         call TIME_RUNGEKUTTA()
+
+        call TLab_Debug_Print_1D('9', q(:,1))
+        call TLab_Debug_Print_1D('10', q(:,2))
+        call TLab_Debug_Print_1D('11', q(:,3))
+        call TLab_Debug_Print_1D('12', s(:,1))
+
         itime = itime + 1
         rtime = rtime + dtime
         if (mod(itime - nitera_first, nitera_filter) == 0) then
@@ -269,6 +285,11 @@ program DNS
             end if
         end if
 
+        call TLab_Debug_Print_1D('13', q(:,1))
+        call TLab_Debug_Print_1D('14', q(:,2))
+        call TLab_Debug_Print_1D('15', q(:,3))
+        call TLab_Debug_Print_1D('16', s(:,1))
+
         if (flag_viscosity) then                ! Change viscosity if necessary
             visc = visc + visc_rate*dtime
             if (rtime > visc_time) then
@@ -276,6 +297,11 @@ program DNS
                 flag_viscosity = .false.
             end if
         end if
+
+        call TLab_Debug_Print_1D('17', q(:,1))
+        call TLab_Debug_Print_1D('18', q(:,2))
+        call TLab_Debug_Print_1D('19', q(:,3))
+        call TLab_Debug_Print_1D('20', s(:,1))
 
         call TIME_COURANT()
 
@@ -290,6 +316,11 @@ program DNS
                 call DNS_OBS()
             end if
         end if
+
+        call TLab_Debug_Print_1D('21', q(:,1))
+        call TLab_Debug_Print_1D('22', q(:,2))
+        call TLab_Debug_Print_1D('23', q(:,3))
+        call TLab_Debug_Print_1D('24', s(:,1))
 
         if (PhAvg%active) then
             if (mod(itime, PhAvg%stride) == 0) then
