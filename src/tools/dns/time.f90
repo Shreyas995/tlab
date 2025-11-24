@@ -222,7 +222,7 @@ contains
         !########################################################################
         ! Loop over the sub-stages
         !########################################################################
-        do rkm_substep = 1, rkm_endstep
+        do rkm_substep = 1, 1!rkm_endstep
             dbg = 0
             ! -------------------------------------------------------------------
             ! Update transported (or prognostic) variables q and s
@@ -267,9 +267,7 @@ contains
                 rkm_substep < rkm_endstep) then
 
                 call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
-                dbg = 5 + rkm_substep
-                WRITE(UNIT=dbg_string, FMT='(I10)') dbg
-                call TLab_Debug_Print_1D(dbg_string, q(:,1))
+                call TLab_Debug_Print_1D('6', q(:,1))
 #ifdef USE_APU
                 alpha = kco(rkm_substep)
                 if (flow_on .and. scal_on) then
@@ -281,7 +279,7 @@ contains
                         end do
                     end do
                     !$omp end target teams distribute parallel do
-
+                    call TLab_Debug_Print_1D('7apu', q(:,1))
                     !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
                     !$omp if (inb_scal*ij_end > mas)     
                     do is = 1, inb_scal
@@ -290,7 +288,7 @@ contains
                         end do
                     end do
                     !$omp end target teams distribute parallel do
-
+                    call TLab_Debug_Print_1D('8apu', q(:,1))
                 elseif (flow_on) then
                     !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
                     !$omp if (inb_flow*ij_end > mas) 
@@ -300,7 +298,7 @@ contains
                         end do
                     end do
                     !$omp end target teams distribute parallel do
-
+                    call TLab_Debug_Print_1D('9apu', q(:,1))
                 elseif (scal_on) then
                     !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
                     !$omp if (inb_scal*ij_end > mas) 
@@ -310,6 +308,7 @@ contains
                         end do
                     end do
                     !$omp end target teams distribute parallel do
+                    call TLab_Debug_Print_1D('10apu', q(:,1))
                 end if
 
 #elif defined (USE_BLAS)
@@ -331,7 +330,7 @@ contains
 #else
 
                 alpha = kco(rkm_substep)
-
+                call TLab_Debug_Print_1D('11', q(:,1))
                 if (flow_on .and. scal_on) then
                     do is = 1, inb_flow
                         hq(ij_srt:ij_end, is) = alpha*hq(ij_srt:ij_end, is)
@@ -354,6 +353,7 @@ contains
                         l_hq(1:l_g%np, is) = alpha*l_hq(1:l_g%np, is)
                     end do
                 end if
+                call TLab_Debug_Print_1D('12', q(:,1))
 
             end if
 
