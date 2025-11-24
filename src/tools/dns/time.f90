@@ -25,6 +25,7 @@ module TIME
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use TLab_OpenMP
     use PARTICLE_VARS
+    use Tlab_Debug
 #ifdef USE_MPI
     use mpi_f08
     use TLabMPI_VARS
@@ -192,6 +193,8 @@ contains
         real(wp) alpha
 
         integer(wi) ij_srt, ij_end, ij_siz ! Variables for OpenMP Paritioning
+        integer(wi) dbg
+        character*256 dbg_string
 #ifdef USE_PROFILE
         integer(wi) t_srt, t_end, t_dif, idummy, PROC_CYCLES, MAX_CYCLES
         character*256 time_string
@@ -207,7 +210,7 @@ contains
 #ifdef USE_BLAS
         ij_len = isize_field
 #endif
-
+        call TLab_Debug_Print_1D('5', q(:,1))
         ! -------------------------------------------------------------------
         ! Initialize arrays to zero for the explcit low-storage algorithm
         ! -------------------------------------------------------------------
@@ -220,7 +223,7 @@ contains
         ! Loop over the sub-stages
         !########################################################################
         do rkm_substep = 1, rkm_endstep
-
+            dbg = 0
             ! -------------------------------------------------------------------
             ! Update transported (or prognostic) variables q and s
             ! -------------------------------------------------------------------
@@ -264,6 +267,9 @@ contains
                 rkm_substep < rkm_endstep) then
 
                 call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
+                dbg = 5 + rkm_substep
+                WRITE(UNIT=dbg_string, FMT='(I10)') dbg
+                call TLab_Debug_Print_1D(dbg_string, q(:,1))
 #ifdef USE_APU
                 alpha = kco(rkm_substep)
                 if (flow_on .and. scal_on) then

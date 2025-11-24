@@ -264,10 +264,6 @@ program DNS
     do
         if (itime >= nitera_last) exit
         if (int(logs_data(1)) /= 0) exit
-        call TLab_Debug_Print_1D('5', q(:,1))
-        call TLab_Debug_Print_1D('6', q(:,2))
-        call TLab_Debug_Print_1D('7', q(:,3))
-        call TLab_Debug_Print_1D('8', s(:,1))
 
         call TIME_RUNGEKUTTA()
 
@@ -286,10 +282,10 @@ program DNS
             end if
         end if
 
-        call TLab_Debug_Print_1D('13', q(:,1))
-        call TLab_Debug_Print_1D('14', q(:,2))
-        call TLab_Debug_Print_1D('15', q(:,3))
-        call TLab_Debug_Print_1D('16', s(:,1))
+        ! call TLab_Debug_Print_1D('13', q(:,1))
+        ! call TLab_Debug_Print_1D('14', q(:,2))
+        ! call TLab_Debug_Print_1D('15', q(:,3))
+        ! call TLab_Debug_Print_1D('16', s(:,1))
 
         if (flag_viscosity) then                ! Change viscosity if necessary
             visc = visc + visc_rate*dtime
@@ -299,10 +295,10 @@ program DNS
             end if
         end if
 
-        call TLab_Debug_Print_1D('17', q(:,1))
-        call TLab_Debug_Print_1D('18', q(:,2))
-        call TLab_Debug_Print_1D('19', q(:,3))
-        call TLab_Debug_Print_1D('20', s(:,1))
+        ! call TLab_Debug_Print_1D('17', q(:,1))
+        ! call TLab_Debug_Print_1D('18', q(:,2))
+        ! call TLab_Debug_Print_1D('19', q(:,3))
+        ! call TLab_Debug_Print_1D('20', s(:,1))
 
         call TIME_COURANT()
 
@@ -318,10 +314,10 @@ program DNS
             end if
         end if
 
-        call TLab_Debug_Print_1D('21', q(:,1))
-        call TLab_Debug_Print_1D('22', q(:,2))
-        call TLab_Debug_Print_1D('23', q(:,3))
-        call TLab_Debug_Print_1D('24', s(:,1))
+        ! call TLab_Debug_Print_1D('21', q(:,1))
+        ! call TLab_Debug_Print_1D('22', q(:,2))
+        ! call TLab_Debug_Print_1D('23', q(:,3))
+        ! call TLab_Debug_Print_1D('24', s(:,1))
 
         if (PhAvg%active) then
             if (mod(itime, PhAvg%stride) == 0) then
