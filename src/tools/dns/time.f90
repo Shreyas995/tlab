@@ -744,6 +744,10 @@ contains
             s(ij_srt:ij_end, is) = s(ij_srt:ij_end, is) + dte*hs(ij_srt:ij_end, is)
         end do
 #endif
+        call TLab_Debug_Print_1D('time step 9', q(:,1))
+        call TLab_Debug_Print_1D('time step 10', q(:,2))
+        call TLab_Debug_Print_1D('time step 11', q(:,3))
+        call TLab_Debug_Print_1D('time step 12', s(:,1))
         return
     end subroutine TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT
 
