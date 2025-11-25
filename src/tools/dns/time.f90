@@ -690,11 +690,11 @@ contains
 #endif
             end select
         end select
-
+        call TLab_Debug_Print_1D('time step 9', q(:,2))
         if (BuffType == DNS_BUFFER_RELAX .or. BuffType == DNS_BUFFER_BOTH) then
             call BOUNDARY_BUFFER_RELAX_SCAL() ! Flow part needs to be taken into account in the pressure
         end if
-
+        call TLab_Debug_Print_1D('time step 10', q(:,2))
         ! #######################################################################
         ! Perform the time stepping for incompressible equations
         ! #######################################################################
@@ -739,15 +739,12 @@ contains
         do is = 1, inb_flow !offload to APU
             q(ij_srt:ij_end, is) = q(ij_srt:ij_end, is) + dte*hq(ij_srt:ij_end, is)
         end do
-
+        call TLab_Debug_Print_1D('time step 11', q(:,2))
         do is = 1, inb_scal !Offload to APU
             s(ij_srt:ij_end, is) = s(ij_srt:ij_end, is) + dte*hs(ij_srt:ij_end, is)
         end do
 #endif
-        call TLab_Debug_Print_1D('time step 9', q(:,1))
-        call TLab_Debug_Print_1D('time step 10', q(:,2))
-        call TLab_Debug_Print_1D('time step 11', q(:,3))
-        call TLab_Debug_Print_1D('time step 12', s(:,1))
+        call TLab_Debug_Print_1D('time step 12', q(:,2))
         return
     end subroutine TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT
 
