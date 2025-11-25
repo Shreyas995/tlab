@@ -707,8 +707,8 @@ contains
 ! !$omp private (ij,  is,ij_srt,ij_end,ij_siz)
 #endif
 #endif
-
         call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
+        call TLab_Debug_Print_1D('time step 11', q(:,2))
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
         !$omp if (inb_flow*ij_end > mas) 
@@ -736,15 +736,16 @@ contains
             call DAXPY(ij_len, dte, hs(ij_srt, is), 1, s(ij_srt, is), 1)
         end do
 #else
+        call TLab_Debug_Print_1D('time step 12', q(:,2))
         do is = 1, inb_flow !offload to APU
             q(ij_srt:ij_end, is) = q(ij_srt:ij_end, is) + dte*hq(ij_srt:ij_end, is)
         end do
-        call TLab_Debug_Print_1D('time step 11', q(:,2))
+        call TLab_Debug_Print_1D('time step 13', q(:,2))
         do is = 1, inb_scal !Offload to APU
             s(ij_srt:ij_end, is) = s(ij_srt:ij_end, is) + dte*hs(ij_srt:ij_end, is)
         end do
 #endif
-        call TLab_Debug_Print_1D('time step 12', q(:,2))
+        call TLab_Debug_Print_1D('time step 14', q(:,2))
         return
     end subroutine TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT
 
