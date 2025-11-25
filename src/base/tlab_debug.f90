@@ -47,15 +47,20 @@ contains
 
     end subroutine Tlab_Debug_Initialize
 
-    subroutine TLab_Debug_Print_1D(msg, var)
+    subroutine TLab_Debug_Print_1D(msg, var, msg2)
         implicit none
         character(len=*), intent(in) :: msg
         real(wp), intent(in) :: var(:)
+        character(len=*), intent(in), optional :: msg2
         integer(wi) :: i
         integer, parameter :: FILE_UNIT_BASE = 500
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
-        write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', sum(var)
+        if (present(msg2)) then
+            write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', trim(msg2), ' ', sum(var)
+        else
+            write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', sum(var)
+        end if
         flush(unit_num)
     end subroutine TLab_Debug_Print_1D
 
