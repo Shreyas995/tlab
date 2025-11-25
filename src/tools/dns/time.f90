@@ -210,7 +210,7 @@ contains
 #ifdef USE_BLAS
         ij_len = isize_field
 #endif
-        call TLab_Debug_Print_1D('time 1', q(:,1))
+        call TLab_Debug_Print_1D('time 1', q(:,2))
         ! -------------------------------------------------------------------
         ! Initialize arrays to zero for the explcit low-storage algorithm
         ! -------------------------------------------------------------------
@@ -246,25 +246,25 @@ contains
                 else
                     call TIME_SUBSTEP_INCOMPRESSIBLE_IMPLICIT()
                 end if
-                call TLab_Debug_Print_1D('time 3', q(:,1))
+                call TLab_Debug_Print_1D('time 3', q(:,2))
             case (DNS_EQNS_INTERNAL, DNS_EQNS_TOTAL)
                 call TIME_SUBSTEP_COMPRESSIBLE()
-                call TLab_Debug_Print_1D('time 3', q(:,1))
+                call TLab_Debug_Print_1D('time 3', q(:,2))
             end select
 
             call FI_DIAGNOSTIC(imax, jmax, kmax, q, s)
-            call TLab_Debug_Print_1D('time 4', q(:,1))
+            call TLab_Debug_Print_1D('time 4', q(:,2))
 
             call DNS_BOUNDS_LIMIT()
 !            if (int(logs_data(1)) /= 0) return ! Error detected
-            call TLab_Debug_Print_1D('time 5', q(:,1))
+            call TLab_Debug_Print_1D('time 5', q(:,2))
             
             if (part%type == PART_TYPE_BIL_CLOUD_4) then
                 call PARTICLE_TIME_RESIDENCE(dtime, l_g%np, l_q)
                 call PARTICLE_TIME_LIQUID_CLIPPING(s, l_q, l_txc)
             end if
             
-            call TLab_Debug_Print_1D('time 6', q(:,1))
+            call TLab_Debug_Print_1D('time 6', q(:,2))
             ! -------------------------------------------------------------------
             ! Update RHS hq and hs in the explicit low-storage algorithm
             ! -------------------------------------------------------------------
@@ -331,9 +331,9 @@ contains
                     end do
                 end if
 #else
-                call TLab_Debug_Print_1D('time 7', q(:,1))
+                call TLab_Debug_Print_1D('time 7', q(:,2))
                 alpha = kco(rkm_substep)
-                call TLab_Debug_Print_1D('time 8', q(:,1))
+                call TLab_Debug_Print_1D('time 8', q(:,2))
                 if (flow_on .and. scal_on) then
                     do is = 1, inb_flow
                         hq(ij_srt:ij_end, is) = alpha*hq(ij_srt:ij_end, is)
@@ -341,7 +341,7 @@ contains
                     do is = 1, inb_scal
                         hs(ij_srt:ij_end, is) = alpha*hs(ij_srt:ij_end, is)
                     end do
-                    call TLab_Debug_Print_1D('time 9', q(:,1))
+                    call TLab_Debug_Print_1D('time 9', q(:,2))
                 elseif (flow_on) then
                     do is = 1, inb_flow
                         hq(ij_srt:ij_end, is) = alpha*hq(ij_srt:ij_end, is)
@@ -356,9 +356,9 @@ contains
                     do is = 1, inb_part
                         l_hq(1:l_g%np, is) = alpha*l_hq(1:l_g%np, is)
                     end do
-                    call TLab_Debug_Print_1D('time 10', q(:,1))
+                    call TLab_Debug_Print_1D('time 10', q(:,2))
                 end if
-                call TLab_Debug_Print_1D('12', q(:,1))
+                call TLab_Debug_Print_1D('12', q(:,2))
 
             end if
 
@@ -371,7 +371,7 @@ contains
 
 #ifdef USE_MPI
             call MPI_REDUCE(idummy, t_dif, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD)
-            call TLab_Debug_Print_1D('time 11', q(:,1))
+            call TLab_Debug_Print_1D('time 11', q(:,2))
             if (ims_pro == 0) then
                 write (time_string, 999) ims_npro, ims_npro_i, ims_npro_k, rkm_substep, t_dif/1.0_wp/PROC_CYCLES/ims_npro
 999             format(I5.5, ' (ims_npro_i X ims_npro_k:', I4.4, 'x', I4.4, 1x, ') RK-Substep', I1, ':', E13.5, 's')
