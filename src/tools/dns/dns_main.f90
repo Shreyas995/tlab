@@ -297,10 +297,10 @@ program DNS
 
         call TIME_COURANT()
 
-        call TLab_Debug_Print_1D('13', q(:,1), dbg_string)
-        call TLab_Debug_Print_1D('14', q(:,2), dbg_string)
-        call TLab_Debug_Print_1D('15', q(:,3), dbg_string)
-        call TLab_Debug_Print_1D('16', s(:,1), dbg_string)
+        ! call TLab_Debug_Print_1D('13', q(:,1), dbg_string)
+        ! call TLab_Debug_Print_1D('14', q(:,2), dbg_string)
+        ! call TLab_Debug_Print_1D('15', q(:,3), dbg_string)
+        ! call TLab_Debug_Print_1D('16', s(:,1), dbg_string)
 
         ! -------------------------------------------------------------------
         ! The rest: Logging, postprocessing and check-pointing

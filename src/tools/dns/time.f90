@@ -237,7 +237,7 @@ contains
                 call TIME_SUBSTEP_PARTICLE()
             end if
 
-            call TLab_Debug_Print_1D('time 2', q(:,1))
+            call TLab_Debug_Print_1D('time 2', q(:,2))
             
             select case (nse_eqns)
             case (DNS_EQNS_INCOMPRESSIBLE, DNS_EQNS_ANELASTIC)
@@ -635,7 +635,6 @@ contains
 #ifdef USE_BLAS
         ij_len = isize_field
 #endif
-
         select case (nse_advection)
         case (EQNS_DIVERGENCE)
             call TLab_Sources_Flow(q, s, hq, txc(1, 1))
@@ -667,10 +666,17 @@ contains
                 end do
 
             case (EQNS_RHS_COMBINED)
+                call TLab_Debug_Print_1D('time step 1', q(:,1))
+                call TLab_Debug_Print_1D('time step 2', q(:,2))
+                call TLab_Debug_Print_1D('time step 3', q(:,3))
+                call TLab_Debug_Print_1D('time step 4', s(:,1))
                 call TLab_Sources_Flow(q, s, hq, txc(1, 1))
                 call TLab_Sources_Scal(s, hs, txc(1, 1), txc(1, 2), txc(1, 3), txc(1, 4))
                 call RHS_GLOBAL_INCOMPRESSIBLE_1()
-
+                call TLab_Debug_Print_1D('time step 5', q(:,1))
+                call TLab_Debug_Print_1D('time step 6', q(:,2))
+                call TLab_Debug_Print_1D('time step 7', q(:,3))
+                call TLab_Debug_Print_1D('time step 8', s(:,1))
             case (EQNS_RHS_NONBLOCKING)
 #ifdef USE_PSFFT
                 call RHS_GLOBAL_INCOMPRESSIBLE_NBC(q(1, 1), q(1, 2), q(1, 3), s(1, 1), &
