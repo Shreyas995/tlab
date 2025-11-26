@@ -328,13 +328,17 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call TLab_Debug_Print_1D('rhs_global_incompressible1 15', hq(:,2))
     ! pressure in tmp1, Oy derivative in tmp3
     call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
-    call TLab_Debug_Print_1D('rhs_global_incompressible1 16', hq(:,2))
+
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 16', tmp3(:))
+    
     ! filter pressure p and its vertical gradient dpdy
     if (any(PressureFilter(:)%type /= DNS_FILTER_NONE)) then
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp1, txc(1:isize_field,4:6))
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp3, txc(1:isize_field,4:6))
     end if
-    
+
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 16b', tmp3(:))
+
     ! Saving pressure for towers to tmp array
     if (rkm_substep == rkm_endstep) then
         if (stagger_on .and. ( use_tower .or. PhAvg%active )) then ! Stagger pressure field back on velocity grid (only for towers)
@@ -349,7 +353,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             end if
         end if
     end if
-    call TLab_Debug_Print_1D('rhs_global_incompressible1 17', hq(:,2))
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 17', tmp3(:))
     if (stagger_on) then
         !  vertical pressure derivative   dpdy - back on horizontal velocity nodes
         call OPR_Partial_Z(OPR_P0_INT_PV, imax, jmax, kmax, bcs, g(3), tmp3, tmp5)
