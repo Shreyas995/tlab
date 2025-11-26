@@ -325,16 +325,16 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         BcsFlowJmin%ref(:, :, 2) = p_bcs(:, 1, :)
         BcsFlowJmax%ref(:, :, 2) = p_bcs(:, jmax, :)
     end if
-
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 15', hq(:,2))
     ! pressure in tmp1, Oy derivative in tmp3
     call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
-
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 16', hq(:,2))
     ! filter pressure p and its vertical gradient dpdy
     if (any(PressureFilter(:)%type /= DNS_FILTER_NONE)) then
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp1, txc(1:isize_field,4:6))
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp3, txc(1:isize_field,4:6))
     end if
-
+    
     ! Saving pressure for towers to tmp array
     if (rkm_substep == rkm_endstep) then
         if (stagger_on .and. ( use_tower .or. PhAvg%active )) then ! Stagger pressure field back on velocity grid (only for towers)
@@ -349,7 +349,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             end if
         end if
     end if
-
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 17', hq(:,2))
     if (stagger_on) then
         !  vertical pressure derivative   dpdy - back on horizontal velocity nodes
         call OPR_Partial_Z(OPR_P0_INT_PV, imax, jmax, kmax, bcs, g(3), tmp3, tmp5)
@@ -365,7 +365,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp1, tmp2)
         call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), tmp1, tmp4)
     end if
-
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 18', hq(:,2))
     ! -----------------------------------------------------------------------
     ! Add pressure gradient
     ! -----------------------------------------------------------------------
@@ -377,7 +377,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     else
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 19', hq(:,2))
 #ifdef USE_APU
         !$omp parallel do default( shared ) private ( ij ) &
         !$omp if(end > mas)
@@ -402,6 +402,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #endif
 
     end if
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 20', hq(:,2))
 
     ! #######################################################################
     ! Boundary conditions
@@ -424,7 +425,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         p_bcs(:, jmax, :) = BcsFlowJmax%ref(:, :, iq)
 
     end do
-
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 21', hq(:,2))
     do is = 1, inb_scal
         ibc = 0
         if (BcsScalJmin%type(is) == DNS_BCS_NEUMANN) ibc = ibc + 1
@@ -445,6 +446,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         p_bcs(:, jmax, :) = BcsScalJmax%ref(:, :, is)
 
     end do
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 22', hq(:,2))
 
 #ifdef TRACE_ON
     call TLab_Write_ASCII(tfile, 'LEAVING SUBROUTINE RHS_GLOBAL_INCOMPRESSIBLE_1')
