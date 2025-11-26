@@ -666,18 +666,16 @@ contains
                 end do
 
             case (EQNS_RHS_COMBINED)
-                call TLab_Debug_Print_1D('time step 1', hq(:,1))
-                call TLab_Debug_Print_1D('time step 2', hq(:,2))
-                call TLab_Debug_Print_1D('time step 3', hq(:,3))
-                call TLab_Debug_Print_1D('time step 4', s(:,1))
+                call TLab_Debug_Print_1D('time step 1', hq(:,2))
 
                 call TLab_Sources_Flow(q, s, hq, txc(1, 1)) ! hq 2 goes wrong
                 call TLab_Sources_Scal(s, hs, txc(1, 1), txc(1, 2), txc(1, 3), txc(1, 4))
+
+                call TLab_Debug_Print_1D('time step 2', hq(:,2)) ! incorrect value
+
                 call RHS_GLOBAL_INCOMPRESSIBLE_1()
-                call TLab_Debug_Print_1D('time step 5', hq(:,1))
-                call TLab_Debug_Print_1D('time step 6', hq(:,2))
-                call TLab_Debug_Print_1D('time step 7', hq(:,3))
-                call TLab_Debug_Print_1D('time step 8', s(:,1))
+                call TLab_Debug_Print_1D('time step 3', hq(:,2)) ! incorrect value
+                call TLab_Debug_Print_1D('time step 4', s(:,1))
             case (EQNS_RHS_NONBLOCKING)
 #ifdef USE_PSFFT
                 call RHS_GLOBAL_INCOMPRESSIBLE_NBC(q(1, 1), q(1, 2), q(1, 3), s(1, 1), &
@@ -691,11 +689,11 @@ contains
 #endif
             end select
         end select
-        call TLab_Debug_Print_1D('time step 9', q(:,2))
+        call TLab_Debug_Print_1D('time step 5', q(:,2))
         if (BuffType == DNS_BUFFER_RELAX .or. BuffType == DNS_BUFFER_BOTH) then
             call BOUNDARY_BUFFER_RELAX_SCAL() ! Flow part needs to be taken into account in the pressure
         end if
-        call TLab_Debug_Print_1D('time step 10', q(:,2))
+        call TLab_Debug_Print_1D('time step 6', q(:,2))
         ! #######################################################################
         ! Perform the time stepping for incompressible equations
         ! #######################################################################
@@ -709,13 +707,14 @@ contains
 #endif
 #endif
         call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
-        call TLab_Debug_Print_1D('time step 11', q(:,2))
+        call TLab_Debug_Print_1D('time step 7', q(:,2))
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
         !$omp if (inb_flow*ij_end > mas) 
         do is = 1, inb_flow !offload to APU
             do ij = ij_srt, ij_end
-                q(ij, is) = q(ij, is) + dte*hq(ij, is)
+                q(ij, is) = q(ij, is) + dte*hq(ij,                call TLab_Debug_Print_1D('time step 7', hq(:,3))
+                call TLab_Debug_Print_1D('time step 8', s(:,1)) is)
             end do
         end do
         !$omp end target teams distribute parallel do
@@ -737,22 +736,15 @@ contains
             call DAXPY(ij_len, dte, hs(ij_srt, is), 1, s(ij_srt, is), 1)
         end do
 #else
-        call TLab_Debug_Print_1D('time step 12', q(:,2))
-        call TLab_Debug_Print_1D('time step 13', hq(:,1))
-        call TLab_Debug_Print_1D('time step 14', hq(:,2))
-        call TLab_Debug_Print_1D('time step 15', hq(:,3))
+        call TLab_Debug_Print_1D('time step 9', hq(:,2))
         do is = 1, inb_flow 
             q(ij_srt:ij_end, is) = q(ij_srt:ij_end, is) + dte*hq(ij_srt:ij_end, is)
         end do
-        call TLab_Debug_Print_1D('time step 16', q(:,2))
-        call TLab_Debug_Print_1D('time step 17', hq(:,1))
-        call TLab_Debug_Print_1D('time step 18', hq(:,2))
-        call TLab_Debug_Print_1D('time step 19', hq(:,3))
+        call TLab_Debug_Print_1D('time step 10', hq(:,2))
         do is = 1, inb_scal 
             s(ij_srt:ij_end, is) = s(ij_srt:ij_end, is) + dte*hs(ij_srt:ij_end, is)
         end do
 #endif
-        call TLab_Debug_Print_1D('time step 14', q(:,2))
         return
     end subroutine TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT
 
