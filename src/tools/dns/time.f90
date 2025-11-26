@@ -666,16 +666,17 @@ contains
                 end do
 
             case (EQNS_RHS_COMBINED)
-                call TLab_Debug_Print_1D('time step 1', q(:,1))
-                call TLab_Debug_Print_1D('time step 2', q(:,2))
-                call TLab_Debug_Print_1D('time step 3', q(:,3))
+                call TLab_Debug_Print_1D('time step 1', hq(:,1))
+                call TLab_Debug_Print_1D('time step 2', hq(:,2))
+                call TLab_Debug_Print_1D('time step 3', hq(:,3))
                 call TLab_Debug_Print_1D('time step 4', s(:,1))
+
                 call TLab_Sources_Flow(q, s, hq, txc(1, 1))
                 call TLab_Sources_Scal(s, hs, txc(1, 1), txc(1, 2), txc(1, 3), txc(1, 4))
                 call RHS_GLOBAL_INCOMPRESSIBLE_1()
-                call TLab_Debug_Print_1D('time step 5', q(:,1))
-                call TLab_Debug_Print_1D('time step 6', q(:,2))
-                call TLab_Debug_Print_1D('time step 7', q(:,3))
+                call TLab_Debug_Print_1D('time step 5', hq(:,1))
+                call TLab_Debug_Print_1D('time step 6', hq(:,2))
+                call TLab_Debug_Print_1D('time step 7', hq(:,3))
                 call TLab_Debug_Print_1D('time step 8', s(:,1))
             case (EQNS_RHS_NONBLOCKING)
 #ifdef USE_PSFFT
@@ -721,7 +722,7 @@ contains
 
         !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
         !$omp if (inb_flow*ij_end > mas) 
-        do is = 1, inb_scal !Offload to APU
+        do is = 1, inb_scal
             do ij = ij_srt, ij_end
             s(ij, is) = s(ij, is) + dte*hs(ij, is)
             end do
@@ -737,11 +738,11 @@ contains
         end do
 #else
         call TLab_Debug_Print_1D('time step 12', q(:,2))
-        do is = 1, inb_flow !offload to APU
+        do is = 1, inb_flow 
             q(ij_srt:ij_end, is) = q(ij_srt:ij_end, is) + dte*hq(ij_srt:ij_end, is)
         end do
         call TLab_Debug_Print_1D('time step 13', q(:,2))
-        do is = 1, inb_scal !Offload to APU
+        do is = 1, inb_scal 
             s(ij_srt:ij_end, is) = s(ij_srt:ij_end, is) + dte*hs(ij_srt:ij_end, is)
         end do
 #endif
