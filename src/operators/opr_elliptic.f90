@@ -14,9 +14,10 @@ module OPR_Elliptic
     use TLab_Pointers_3D, only: p_wrk2d
     use TLab_Grid, only: y
     use Tlab_Type
+    use Tlab_Debug, only : TLab_Debug_Print_3D
 
 #ifdef USE_MPI
-    use TLabMPI_VARS, only: ims_offset_i, ims_offset_k, ims_pro_i
+    use TLabMPI_VARS, only: ims_offset_i, ims_offset_k, ims_pro_i, ims_pro
 #endif
     use FDM, only: fdm_dt
     use FDM_Integral
@@ -37,6 +38,7 @@ module OPR_Elliptic
     abstract interface
         subroutine OPR_Poisson_interface(nx, ny, nz, ibc, p, tmp1, tmp2, bcs_hb, bcs_ht, dpdy)
             use TLab_Constants, only: wi, wp
+            use Tlab_Debug,
             use FDM, only: fdm_dt
             integer(wi), intent(in) :: nx, ny, nz
             integer, intent(in) :: ibc                                      ! Dirichlet/Neumman BCs at jmin/jmax: BCS_DD, BCS_ND, BCS_DN, BCS_NN
@@ -392,14 +394,13 @@ contains
 
         ! -----------------------------------------------------------------------
         integer(wi), parameter :: bcs_p(2, 2) = 0                       ! For partial_y at the end
-        real(wp) :: opr_poisson_sum_tmp1, opr_poisson_sum_tmp2, opr_poisson_sum_p
         ! #######################################################################
         call c_f_pointer(c_loc(tmp1), c_tmp1, shape=[isize_txc_field])
         call c_f_pointer(c_loc(tmp2), c_tmp2, shape=[isize_txc_field])
         p_wrk3d(1:2*ny, 1:nz, 1:nx/2 + 1) => wrk3d(1:isize_txc_field)
         call c_f_pointer(c_loc(wrk2d), p_wrk2d, shape=[4,isize_line, nz])
 
-        ! #######################################################################
+        ! #####################################        use Tlab_Debug##################################
         ! Fourier transform of forcing term; output of this section in array tmp1
         ! #######################################################################
         p(1:nx, 1, 1:nz) = bcs_hb(1:nx, 1:nz)       ! Passing boundary conditions in forcing array
@@ -472,10 +473,15 @@ contains
         else
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
         end if
-
+    
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 1', dpdy)
+    
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
         end if
+
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 2', dpdy)
+
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)
 #undef f
