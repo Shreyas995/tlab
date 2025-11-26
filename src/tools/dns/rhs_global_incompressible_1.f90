@@ -365,7 +365,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp1, tmp2)
         call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), tmp1, tmp4)
     end if
-    call TLab_Debug_Print_1D('rhs_global_incompressible1 18', hq(:,2))
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 18', tmp3(:))
     ! -----------------------------------------------------------------------
     ! Add pressure gradient
     ! -----------------------------------------------------------------------
@@ -377,7 +377,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     else
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-    call TLab_Debug_Print_1D('rhs_global_incompressible1 19', hq(:,2))
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 19', tmp3(:))
 #ifdef USE_APU
         !$omp parallel do default( shared ) private ( ij ) &
         !$omp if(end > mas)
