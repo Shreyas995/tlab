@@ -101,6 +101,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call OPR_Burgers_Y(OPR_B_SELF, 0, imax, jmax, kmax, bcs, v, v, tmp2, tmp5) ! store v transposed in tmp5
     call TLab_Debug_Print_1D('rhs_global_incompressible1  2', tmp2(:)) 
     call OPR_Burgers_Z(OPR_B_SELF, 0, imax, jmax, kmax, bcs, w, w, tmp3, tmp6) ! store w transposed in tmp6
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  2b', tmp3(:))
 
     ! Ox momentum equation
     call TLab_Debug_Print_1D('rhs_global_incompressible1  3', tmp7(:)) 
@@ -160,7 +161,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     do ij = srt, end 
         hq(ij, 3) = hq(ij, 3) + tmp3(ij) + tmp7(ij) + tmp8(ij)
     end do
-    call TLab_Debug_Print_1D('rhs_global_incompressible1  10', hq(:,2))
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  10a', hq(:,2))
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  10b', tmp3(:))
+
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
@@ -196,7 +199,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #endif
 
     end do
-
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  10c', tmp3(:))
     ! IBM usage for scalar field, done
     if (imode_ibm_scal == 1) ibm_burgers = .false.
 
@@ -239,6 +242,8 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             tmp4(ij) = hq(ij, 3) + w(ij)*dummy
         end do
     call TLab_Debug_Print_1D('rhs_global_incompressible1  11', hq(:,2))
+        call TLab_Debug_Print_1D('rhs_global_incompressible1  11b', tmp3(:))
+
 #endif
 
         if (imode_ibm == 1) then
@@ -252,6 +257,8 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             call Thermo_Anelastic_WEIGHT_INPLACE(imax, jmax, kmax, rbackground, tmp4)
         end if
         call TLab_Debug_Print_1D('rhs_global_incompressible1  12', hq(:,2))
+        call TLab_Debug_Print_1D('rhs_global_incompressible1  12b', tmp3(:))
+
         if (stagger_on) then ! staggering on horizontal pressure nodes
             !  Oy derivative
             call OPR_Partial_X(OPR_P0_INT_VP, imax, jmax, kmax, bcs, g(1), tmp2, tmp5)
@@ -268,7 +275,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp3, tmp2)
             call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), tmp4, tmp3)
         end if
-        call TLab_Debug_Print_1D('rhs_global_incompressible1 remove divergence  13', hq(:,2))
+        call TLab_Debug_Print_1D('rhs_global_incompressible1  13', hq(:,2))
+        call TLab_Debug_Print_1D('rhs_global_incompressible1  13b', tmp3(:))
+
     else
         if (imode_ibm == 1) then
             call IBM_BCS_FIELD(hq(:, 2))
@@ -288,6 +297,8 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), hq(:, 3), tmp3)
         end if
         call TLab_Debug_Print_1D('rhs_global_incompressible1 remove divergence  14', hq(:,2))
+        call TLab_Debug_Print_1D('rhs_global_incompressible1 remove divergence  14b', tmp3(:))
+
     end if
 
     ! -----------------------------------------------------------------------
