@@ -43,6 +43,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     use OPR_Elliptic
     use OPR_FILTERS
     use AVG_PHASE
+    use TLab_Debug, only: TLab_Debug_Print_1D
 
     implicit none
 
@@ -96,13 +97,16 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     ! Diagonal terms and transposed velocity arrays
     call OPR_Burgers_X(OPR_B_SELF, 0, imax, jmax, kmax, bcs, u, u, tmp1, tmp4) ! store u transposed in tmp4
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  1', tmp2(:)) 
     call OPR_Burgers_Y(OPR_B_SELF, 0, imax, jmax, kmax, bcs, v, v, tmp2, tmp5) ! store v transposed in tmp5
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  2', tmp2(:)) 
     call OPR_Burgers_Z(OPR_B_SELF, 0, imax, jmax, kmax, bcs, w, w, tmp3, tmp6) ! store w transposed in tmp6
 
     ! Ox momentum equation
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  3', tmp7(:)) 
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, v, tmp7, tmp9, tmp5) ! tmp5 contains v transposed
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
-
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  4', tmp7(:)) 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
@@ -110,9 +114,11 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp shared( srt,end,hq,tmp1,tmp7,tmp8 ) &
     !$omp if(end > mas)
 #endif
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  5', hq(:,2)) 
     do ij = srt, end 
         hq(ij, 1) = hq(ij, 1) + tmp1(ij) + tmp7(ij) + tmp8(ij)
     end do
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  6', hq(:,2)) 
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
@@ -129,17 +135,20 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp shared( srt,end,hq,tmp2,tmp7,tmp8 ) &
     !$omp if(end > mas)
 #endif
-    do ij = srt, end ! offload to APU
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  7', hq(:,2)) 
+    do ij = srt, end 
         hq(ij, 2) = hq(ij, 2) + tmp2(ij) + tmp7(ij) + tmp8(ij)
     end do
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  8', hq(:,2))
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
 
     ! Oz momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  9', tmp8)
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, v, tmp8, tmp9, tmp5) ! tmp5 contains v transposed
-
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  10', tmp8)
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
 #ifdef USE_APU

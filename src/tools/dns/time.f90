@@ -210,7 +210,7 @@ contains
 #ifdef USE_BLAS
         ij_len = isize_field
 #endif
-        call TLab_Debug_Print_1D('time 1', q(:,2))
+        call TLab_Debug_Print_1D('TIME_RUNGEKUTTA 1', q(:,2))
         ! -------------------------------------------------------------------
         ! Initialize arrays to zero for the explcit low-storage algorithm
         ! -------------------------------------------------------------------
@@ -237,34 +237,30 @@ contains
                 call TIME_SUBSTEP_PARTICLE()
             end if
 
-            call TLab_Debug_Print_1D('time 2', q(:,2))
+            call TLab_Debug_Print_1D('TIME_RUNGEKUTTA 2', q(:,2))
             
             select case (nse_eqns)
             case (DNS_EQNS_INCOMPRESSIBLE, DNS_EQNS_ANELASTIC)
                 if (rkm_mode == RKM_EXP3 .or. rkm_mode == RKM_EXP4) then
                     call TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT()
+                    call TLab_Debug_Print_1D('TIME_RUNGEKUTTA 3', q(:,2))
                 else
                     call TIME_SUBSTEP_INCOMPRESSIBLE_IMPLICIT()
                 end if
-                call TLab_Debug_Print_1D('time 3', q(:,2))
             case (DNS_EQNS_INTERNAL, DNS_EQNS_TOTAL)
                 call TIME_SUBSTEP_COMPRESSIBLE()
-                call TLab_Debug_Print_1D('time 3', q(:,2))
             end select
 
             call FI_DIAGNOSTIC(imax, jmax, kmax, q, s)
-            call TLab_Debug_Print_1D('time 4', q(:,2))
 
             call DNS_BOUNDS_LIMIT()
 !            if (int(logs_data(1)) /= 0) return ! Error detected
-            call TLab_Debug_Print_1D('time 5', q(:,2))
             
             if (part%type == PART_TYPE_BIL_CLOUD_4) then
                 call PARTICLE_TIME_RESIDENCE(dtime, l_g%np, l_q)
                 call PARTICLE_TIME_LIQUID_CLIPPING(s, l_q, l_txc)
             end if
             
-            call TLab_Debug_Print_1D('time 6', q(:,2))
             ! -------------------------------------------------------------------
             ! Update RHS hq and hs in the explicit low-storage algorithm
             ! -------------------------------------------------------------------
@@ -331,9 +327,7 @@ contains
                     end do
                 end if
 #else
-                call TLab_Debug_Print_1D('time 7', q(:,2))
                 alpha = kco(rkm_substep)
-                call TLab_Debug_Print_1D('time 8', q(:,2))
                 if (flow_on .and. scal_on) then
                     do is = 1, inb_flow
                         hq(ij_srt:ij_end, is) = alpha*hq(ij_srt:ij_end, is)
@@ -341,7 +335,6 @@ contains
                     do is = 1, inb_scal
                         hs(ij_srt:ij_end, is) = alpha*hs(ij_srt:ij_end, is)
                     end do
-                    call TLab_Debug_Print_1D('time 9', q(:,2))
                 elseif (flow_on) then
                     do is = 1, inb_flow
                         hq(ij_srt:ij_end, is) = alpha*hq(ij_srt:ij_end, is)
@@ -356,9 +349,7 @@ contains
                     do is = 1, inb_part
                         l_hq(1:l_g%np, is) = alpha*l_hq(1:l_g%np, is)
                     end do
-                    call TLab_Debug_Print_1D('time 10', q(:,2))
                 end if
-                call TLab_Debug_Print_1D('12', q(:,2))
 
             end if
 
@@ -371,7 +362,6 @@ contains
 
 #ifdef USE_MPI
             call MPI_REDUCE(idummy, t_dif, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD)
-            call TLab_Debug_Print_1D('time 11', q(:,2))
             if (ims_pro == 0) then
                 write (time_string, 999) ims_npro, ims_npro_i, ims_npro_k, rkm_substep, t_dif/1.0_wp/PROC_CYCLES/ims_npro
 999             format(I5.5, ' (ims_npro_i X ims_npro_k:', I4.4, 'x', I4.4, 1x, ') RK-Substep', I1, ':', E13.5, 's')
@@ -666,16 +656,17 @@ contains
                 end do
 
             case (EQNS_RHS_COMBINED)
-                call TLab_Debug_Print_1D('time step 1', hq(:,2))
+                call TLab_Debug_Print_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT 1', hq(:,2))
 
                 call TLab_Sources_Flow(q, s, hq, txc(1, 1)) ! hq 2 goes wrong
                 call TLab_Sources_Scal(s, hs, txc(1, 1), txc(1, 2), txc(1, 3), txc(1, 4))
 
-                call TLab_Debug_Print_1D('time step 2', hq(:,2)) ! incorrect value
+                call TLab_Debug_Print_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT 2', hq(:,2)) ! incorrect value
 
                 call RHS_GLOBAL_INCOMPRESSIBLE_1()
-                call TLab_Debug_Print_1D('time step 3', hq(:,2)) ! incorrect value
-                call TLab_Debug_Print_1D('time step 4', s(:,1))
+
+                call TLab_Debug_Print_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT', hq(:,2)) ! incorrect value
+
             case (EQNS_RHS_NONBLOCKING)
 #ifdef USE_PSFFT
                 call RHS_GLOBAL_INCOMPRESSIBLE_NBC(q(1, 1), q(1, 2), q(1, 3), s(1, 1), &
@@ -689,11 +680,9 @@ contains
 #endif
             end select
         end select
-        call TLab_Debug_Print_1D('time step 5', q(:,2))
         if (BuffType == DNS_BUFFER_RELAX .or. BuffType == DNS_BUFFER_BOTH) then
             call BOUNDARY_BUFFER_RELAX_SCAL() ! Flow part needs to be taken into account in the pressure
         end if
-        call TLab_Debug_Print_1D('time step 6', q(:,2))
         ! #######################################################################
         ! Perform the time stepping for incompressible equations
         ! #######################################################################
@@ -707,14 +696,12 @@ contains
 #endif
 #endif
         call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
-        call TLab_Debug_Print_1D('time step 7', q(:,2))
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
         !$omp if (inb_flow*ij_end > mas) 
         do is = 1, inb_flow !offload to APU
             do ij = ij_srt, ij_end
-                q(ij, is) = q(ij, is) + dte*hq(ij,                call TLab_Debug_Print_1D('time step 7', hq(:,3))
-                call TLab_Debug_Print_1D('time step 8', s(:,1)) is)
+                q(ij, is) = q(ij, is) + dte*hq(ij, is)
             end do
         end do
         !$omp end target teams distribute parallel do
@@ -723,7 +710,7 @@ contains
         !$omp if (inb_flow*ij_end > mas) 
         do is = 1, inb_scal
             do ij = ij_srt, ij_end
-            s(ij, is) = s(ij, is) + dte*hs(ij, is)
+                s(ij, is) = s(ij, is) + dte*hs(ij, is)
             end do
         end do
         !$omp end target teams distribute parallel do
@@ -736,11 +723,10 @@ contains
             call DAXPY(ij_len, dte, hs(ij_srt, is), 1, s(ij_srt, is), 1)
         end do
 #else
-        call TLab_Debug_Print_1D('time step 9', hq(:,2))
         do is = 1, inb_flow 
             q(ij_srt:ij_end, is) = q(ij_srt:ij_end, is) + dte*hq(ij_srt:ij_end, is)
         end do
-        call TLab_Debug_Print_1D('time step 10', hq(:,2))
+
         do is = 1, inb_scal 
             s(ij_srt:ij_end, is) = s(ij_srt:ij_end, is) + dte*hs(ij_srt:ij_end, is)
         end do

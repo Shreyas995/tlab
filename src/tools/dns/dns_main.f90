@@ -256,10 +256,6 @@ program DNS
     call TLab_Write_ASCII(lfile, 'Starting time integration at It'//trim(adjustl(str))//'.')
     call SYSTEM_CLOCK(clock_0) 
     call Tlab_Debug_Initialize()
-    call TLab_Debug_Print_1D('1', q(:,1))
-    call TLab_Debug_Print_1D('2', q(:,2))
-    call TLab_Debug_Print_1D('3', q(:,3))
-    call TLab_Debug_Print_1D('4', s(:,1))
 
     do
         if (itime >= nitera_last) exit
@@ -296,11 +292,6 @@ program DNS
         end if
 
         call TIME_COURANT()
-
-        ! call TLab_Debug_Print_1D('13', q(:,1), dbg_string)
-        ! call TLab_Debug_Print_1D('14', q(:,2), dbg_string)
-        ! call TLab_Debug_Print_1D('15', q(:,3), dbg_string)
-        ! call TLab_Debug_Print_1D('16', s(:,1), dbg_string)
 
         ! -------------------------------------------------------------------
         ! The rest: Logging, postprocessing and check-pointing
