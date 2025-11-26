@@ -296,10 +296,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), hq(:, 1), tmp2)
             call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), hq(:, 3), tmp3)
         end if
-        call TLab_Debug_Print_1D('rhs_global_incompressible1 remove divergence  14', hq(:,2))
-        call TLab_Debug_Print_1D('rhs_global_incompressible1 remove divergence  14b', tmp3(:))
 
     end if
+        call TLab_Debug_Print_1D('rhs_global_incompressible1 remove divergence  14', hq(:,2))
+        call TLab_Debug_Print_1D('rhs_global_incompressible1 remove divergence  14b', tmp3(:))
 
     ! -----------------------------------------------------------------------
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
@@ -337,6 +337,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         BcsFlowJmax%ref(:, :, 2) = p_bcs(:, jmax, :)
     end if
     call TLab_Debug_Print_1D('rhs_global_incompressible1 15', hq(:,2))
+    call TLab_Debug_Print_1D('rhs_global_incompressible1 15b', tmp3(:))
     ! pressure in tmp1, Oy derivative in tmp3
     call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
 
