@@ -38,7 +38,7 @@ module OPR_Elliptic
     abstract interface
         subroutine OPR_Poisson_interface(nx, ny, nz, ibc, p, tmp1, tmp2, bcs_hb, bcs_ht, dpdy)
             use TLab_Constants, only: wi, wp
-            use Tlab_Debug,
+            use Tlab_Debug
             use FDM, only: fdm_dt
             integer(wi), intent(in) :: nx, ny, nz
             integer, intent(in) :: ibc                                      ! Dirichlet/Neumman BCs at jmin/jmax: BCS_DD, BCS_ND, BCS_DN, BCS_NN
