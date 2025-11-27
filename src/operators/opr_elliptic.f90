@@ -461,15 +461,15 @@ contains
             end do
         end select
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 5', p)
-        call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct 6', c_wrk3d)
+        call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 6', c_wrk3d)
 #ifdef USE_APU
         call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
 #else
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
 #endif
-        call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct 7', c_wrk3d)
+        call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 7', c_wrk3d)
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 8', p)
-        call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct 9', c_tmp1)
+        call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 9', c_tmp1)
 
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
@@ -480,7 +480,7 @@ contains
         else
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
         end if
-        call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct 10', c_tmp1)
+        ! call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct 10', c_tmp1)
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 11', dpdy)
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 12', p)
 
