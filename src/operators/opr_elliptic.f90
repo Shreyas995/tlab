@@ -417,6 +417,8 @@ contains
         end if
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 3', p)
         tmp1 = tmp1*norm
+        call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 3a', c_tmp1)
+        call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 3b', c_tmp2)
 
         ! ###################################################################
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
@@ -427,6 +429,8 @@ contains
 #else
         call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
 #endif
+        call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 3c', c_tmp1)
+        call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 3d', c_tmp2)
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 4 ', p)
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
