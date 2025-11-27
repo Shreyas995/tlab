@@ -391,7 +391,6 @@ contains
         real(wp), intent(out), optional :: dpdy(nx, ny, nz)             ! Vertical derivative of solution
 
         target tmp1, tmp2
-        real(wp) dummy(2,2)
         ! -----------------------------------------------------------------------
         integer(wi), parameter :: bcs_p(2, 2) = 0                       ! For partial_y at the end
         ! #######################################################################
@@ -403,16 +402,18 @@ contains
         ! #####################################        use Tlab_Debug##################################
         ! Fourier transform of forcing term; output of this section in array tmp1
         ! #######################################################################
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 1', p)
+
         p(1:nx, 1, 1:nz) = bcs_hb(1:nx, 1:nz)       ! Passing boundary conditions in forcing array
         p(1:nx, ny, 1:nz) = bcs_ht(1:nx, 1:nz)
-
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 2', p)
         if (fft_z_on) then
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp2)
             call OPR_Fourier_Z_Forward(c_tmp2, c_tmp1) ! tmp2 might be overwritten; cannot use wrk3d
         else
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp1)
         end if
-
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 3', p)
         tmp1 = tmp1*norm
 
         ! ###################################################################
@@ -424,7 +425,7 @@ contains
 #else
         call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
 #endif
-
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 4', p)
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
 
@@ -459,11 +460,14 @@ contains
                 end do
             end do
         end select
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 5', p)
+
 #ifdef USE_APU
         call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
 #else
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
 #endif
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 6', p)
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
         ! ###################################################################
@@ -474,18 +478,14 @@ contains
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
         end if
 
-        dummy = bcs_p
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 1', dpdy)
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 2', p)
-        call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct 3', dummy)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 7', dpdy)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 8', p)
 
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
         end if
-        dummy = bcs_p
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 4', dpdy)
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 5', p)
-        call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct 6', dummy)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 9', dpdy)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 10', p)
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)
 #undef f
