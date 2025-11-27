@@ -428,9 +428,10 @@ contains
         call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
 #endif
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 4 ', p)
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 4a ', p_wrk3d)
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
+
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 4a ', u(:,:,:))
 
         select case (ibc)
         case (BCS_NN)           ! use precalculated LU factorization
@@ -440,6 +441,7 @@ contains
             !$omp target teams distribute parallel do private(i,k) &
             !$omp if (nz*i_max  > mas)
 #endif
+            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 4b ', u(:,:,:))
             do i = 1, i_max
                 do k = 1, nz
                     u(1:2, k, i) = f(1:2, k, i)                        ! bottom boundary conditions
@@ -449,6 +451,7 @@ contains
                     end if
                 end do
             end do
+            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 4c ', u(:,:,:))
 #ifdef USE_APU
             !$omp end target teams distribute parallel do
 #endif
@@ -464,7 +467,7 @@ contains
             end do
         end select
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 5', p)
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 5a', p_wrk3d)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 5a', u(:,:,:))
         call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 6', c_wrk3d)
 #ifdef USE_APU
         call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
