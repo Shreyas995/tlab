@@ -476,19 +476,23 @@ contains
         ! ###################################################################
         if (fft_z_on) then
             call OPR_Fourier_Z_Backward(c_tmp1, c_wrk3d)          ! tmp1 might be overwritten
+            call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 10', c_wrk3d)
+    
             call OPR_Fourier_X_Backward(nx, ny, nz, c_wrk3d, p)   ! wrk3d might be overwritten
+            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 11', p)
+
         else
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
         end if
         ! call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct 10', c_tmp1)
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 11', dpdy)
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 12', p)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 12', dpdy)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 13', p)
 
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
         end if
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 13', dpdy)
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 14', p)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 14', dpdy)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 15', p)
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)
 #undef f
