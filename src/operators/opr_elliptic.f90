@@ -399,6 +399,8 @@ contains
         p_wrk3d(1:2*ny, 1:nz, 1:nx/2 + 1) => wrk3d(1:isize_txc_field)
         call c_f_pointer(c_loc(wrk2d), p_wrk2d, shape=[4,isize_line, nz])
 
+        call TLab_Debug_Print_1D('OPR_Poisson_FourierXZ_Direct 0',wrk3d)
+
         ! #####################################        use Tlab_Debug##################################
         ! Fourier transform of forcing term; output of this section in array tmp1
         ! #######################################################################
@@ -425,7 +427,8 @@ contains
 #else
         call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
 #endif
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 4', p)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 4 ', p)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 4a ', p_wrk3d)
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
 
@@ -461,6 +464,7 @@ contains
             end do
         end select
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 5', p)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 5a', p_wrk3d)
         call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 6', c_wrk3d)
 #ifdef USE_APU
         call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
