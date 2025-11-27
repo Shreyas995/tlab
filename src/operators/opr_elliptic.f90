@@ -14,7 +14,7 @@ module OPR_Elliptic
     use TLab_Pointers_3D, only: p_wrk2d
     use TLab_Grid, only: y
     use Tlab_Type
-    use Tlab_Debug, only : TLab_Debug_Print_3D
+    use Tlab_Debug
 
 #ifdef USE_MPI
     use TLabMPI_VARS, only: ims_offset_i, ims_offset_k, ims_pro_i, ims_pro
@@ -391,7 +391,7 @@ contains
         real(wp), intent(out), optional :: dpdy(nx, ny, nz)             ! Vertical derivative of solution
 
         target tmp1, tmp2
-
+        real(wp) dummy(2,2)
         ! -----------------------------------------------------------------------
         integer(wi), parameter :: bcs_p(2, 2) = 0                       ! For partial_y at the end
         ! #######################################################################
@@ -473,15 +473,19 @@ contains
         else
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
         end if
-    
+
+        dummy = bcs_p
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 1', dpdy)
-    
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 2', p)
+        call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct 3', dummy)
+
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
         end if
-
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 2', dpdy)
-
+        dummy = bcs_p
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 4', dpdy)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 5', p)
+        call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct 6', dummy)
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)
 #undef f
