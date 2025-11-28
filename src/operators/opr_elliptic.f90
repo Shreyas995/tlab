@@ -416,7 +416,6 @@ contains
         if (fft_z_on) then
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp2)
             call OPR_Fourier_Z_Forward(c_tmp2, c_tmp1) ! tmp2 might be overwritten; cannot use wrk3d
-            print *, 'fft_z_on'
         else
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp1)
         end if
@@ -432,11 +431,11 @@ contains
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
         ! ###################################################################
         ! Make x direction last one and leave y direction first
-#ifdef USE_APU
+! #ifdef USE_APU
         call TLab_Transpose_COMPLEX_APU(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
-#else
-        call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
-#endif
+! #else
+!         call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
+! #endif
         call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 10, c_tmp2 ', c_tmp2)
 
 #define f(j,k,i) tmp2(j,k,i)
@@ -464,12 +463,13 @@ contains
             !$omp end target teams distribute parallel do
 #endif
             call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 13, u ', u(:,:,:))
-            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 14, f ', f(:,:,:))
+            call TLab_Debug_Print_1D('OPR_Poisson_FourierXZ_Direct 14, wrk3d ', wrk3d)
+            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 15, f ', f(:,:,:))
 
             call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2, rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p_wrk2d(:,:,:))
             
-            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 15, u ', u(:,:,:))
-            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 16, p_wrk2d ', p_wrk2d(:,:,:))
+            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 16, u ', u(:,:,:))
+            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 17, p_wrk2d ', p_wrk2d(:,:,:))
             
         case default            ! Need to calculate and factorize LHS
             do i = 1, i_max
@@ -482,40 +482,40 @@ contains
             end do
         end select
 
-        call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 17, c_wrk3d ', c_wrk3d)
-        call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 18, c_tmp1 ', c_tmp1)
+        call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 18, c_wrk3d ', c_wrk3d)
+        call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 19, c_tmp1 ', c_tmp1)
         
 #ifdef USE_APU
         call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
 #else
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
 #endif
-        call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 19, c_wrk3d ', c_wrk3d)
-        call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 20, c_tmp1 ', c_tmp1)
+        call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 20, c_wrk3d ', c_wrk3d)
+        call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 21, c_tmp1 ', c_tmp1)
 
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
         ! ###################################################################
         if (fft_z_on) then
             call OPR_Fourier_Z_Backward(c_tmp1, c_wrk3d)          ! tmp1 might be overwritten
-            call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 21, c_wrk3d ', c_wrk3d)
+            call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 22, c_wrk3d ', c_wrk3d)
     
             call OPR_Fourier_X_Backward(nx, ny, nz, c_wrk3d, p)   ! wrk3d might be overwritten
-            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 22, p ', p)
+            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 23, p ', p)
 
         else
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
         end if
-        call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 23, c_tmp1 ', c_tmp1)
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 24, p ', p)
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 25, dpdy ', dpdy)
+        call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 24, c_tmp1 ', c_tmp1)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 25, p ', p)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 26, dpdy ', dpdy)
 
 
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
         end if
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 26, dpdy ', dpdy)
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 27,  p ',  p)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 27, dpdy ', dpdy)
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 28,  p ',  p)
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)
 #undef f
