@@ -415,6 +415,7 @@ contains
 
         if (fft_z_on) then
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp2)
+            call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 7, c_tmp2 ', c_tmp2)
             call OPR_Fourier_Z_Forward(c_tmp2, c_tmp1) ! tmp2 might be overwritten; cannot use wrk3d
         else
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp1)
