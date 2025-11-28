@@ -485,11 +485,11 @@ contains
         call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 18, c_wrk3d ', c_wrk3d)
         call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 19, c_tmp1 ', c_tmp1)
         
-#ifdef USE_APU
+! #ifdef USE_APU
         call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
-#else
-        call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
-#endif
+! #else
+!         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
+! #endif
         call TLab_Debug_Print_2D_c('OPR_Poisson_FourierXZ_Direct 20, c_wrk3d ', c_wrk3d)
         call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 21, c_tmp1 ', c_tmp1)
 
