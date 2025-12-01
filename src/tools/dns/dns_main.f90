@@ -261,17 +261,17 @@ program DNS
         if (itime >= nitera_last) exit
         if (int(logs_data(1)) /= 0) exit
         WRITE(UNIT=dbg_string, FMT='(I10)') itime
-        call TLab_Debug_Print_1D('5', q(:,1), dbg_string)
-        call TLab_Debug_Print_1D('6', q(:,2), dbg_string)
-        call TLab_Debug_Print_1D('7', q(:,3), dbg_string)
-        call TLab_Debug_Print_1D('8', s(:,1), dbg_string)
+        ! call TLab_Debug_Print_1D('5', q(:,1), dbg_string)
+        ! call TLab_Debug_Print_1D('6', q(:,2), dbg_string)
+        ! call TLab_Debug_Print_1D('7', q(:,3), dbg_string)
+        ! call TLab_Debug_Print_1D('8', s(:,1), dbg_string)
 
         call TIME_RUNGEKUTTA()
 
-        call TLab_Debug_Print_1D('9', q(:,1) , dbg_string)
-        call TLab_Debug_Print_1D('10', q(:,2), dbg_string)
-        call TLab_Debug_Print_1D('11', q(:,3), dbg_string)
-        call TLab_Debug_Print_1D('12', s(:,1), dbg_string)
+        ! call TLab_Debug_Print_1D('9', q(:,1) , dbg_string)
+        ! call TLab_Debug_Print_1D('10', q(:,2), dbg_string)
+        ! call TLab_Debug_Print_1D('11', q(:,3), dbg_string)
+        ! call TLab_Debug_Print_1D('12', s(:,1), dbg_string)
 
         itime = itime + 1
         rtime = rtime + dtime

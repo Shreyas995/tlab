@@ -92,6 +92,7 @@ contains
     subroutine OPR_Elliptic_Initialize(inifile)
         use FDM, only: g, FDM_CreatePlan
         use FDM_Derivative, only: FDM_COM4_DIRECT, FDM_COM6_DIRECT
+        use Tlab_Debug
 
         character(len=*), intent(in) :: inifile
 
@@ -256,6 +257,12 @@ contains
 
             end do
         end do
+        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%lhs)
+        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%rhs)
+        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%rhs_b)
+        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%rhs_t)
+        call TLab_Debug_Print_2D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%lambda)
+
         ! free memory that is independent of lambda
         if (imode_elliptic == TYPE_DIRECT) then
             if (allocated(fdm_int2%rhs)) deallocate (fdm_int2%rhs)
@@ -382,6 +389,7 @@ contains
     !########################################################################
     subroutine OPR_Poisson_FourierXZ_Direct(nx, ny, nz, ibc, p, tmp1, tmp2, bcs_hb, bcs_ht, dpdy)
         use FDM, only: g
+        use Tlab_Debug
         integer(wi), intent(in) :: nx, ny, nz
         integer, intent(in) :: ibc
         real(wp), intent(inout) :: p(nx, ny, nz)                        ! Forcing term, and solution field p
@@ -517,6 +525,11 @@ contains
         end if
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 28, dpdy ', dpdy)
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 29,  p ',  p)
+        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%lhs)
+        call TLab_Debug_Print_2D('OPR_Elliptic_Initialize: rhs_d ', rhs_d)
+        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%rhs_b ', fdm_int2%rhs_b)
+        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%rhs_t ', fdm_int2%rhs_t)
+        call TLab_Debug_Print_2D('OPR_Elliptic_Initialize: fdm_int2%lambda ', fdm_int2%lambda)
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)
 #undef f
