@@ -17,8 +17,9 @@ module Tlab_Debug
     use  TLabMPI_VARS, only : ims_pro
     implicit none
     save
-    public :: TLab_Debug_Initialize, TLab_Debug_Print_1D, TLab_Debug_Print_2D, TLab_Debug_Print_3D
+    public :: TLab_Debug_Initialize, TLab_Debug_Print_1D, TLab_Debug_Print_2D, TLab_Debug_Print_3D, TLab_Debug_Print_4D
     public :: TLab_Debug_Print_2D_c, TLab_Debug_Print_1D_c, TLab_Debug_Print_3D_c
+    public :: TLab_Debug_Print_2D_i
     integer(wi), parameter :: FILE_UNIT_BASE = 500
 contains 
     
@@ -150,6 +151,38 @@ contains
         end if
         flush(unit_num)
     end subroutine TLab_Debug_Print_3D_c
+
+    subroutine TLab_Debug_Print_4D(msg, var, msg2)
+        character(len=*), intent(in) :: msg
+        real(wp), intent(in) :: var(:,:,:,:)
+        character(len=*), intent(in), optional :: msg2
+        integer(wp) :: i
+        integer, parameter :: FILE_UNIT_BASE = 500
+        integer :: unit_num
+        unit_num = FILE_UNIT_BASE + ims_pro
+        if (present(msg2)) then
+            write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', trim(msg2), ' ', sum(var)
+        else
+            write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', sum(var)
+        end if
+        flush(unit_num)
+    end subroutine TLab_Debug_Print_4D
+
+    subroutine TLab_Debug_Print_2D_i(msg, var, msg2)
+        character(len=*), intent(in) :: msg
+        integer(wi), intent(in) :: var(:,:)
+        character(len=*), intent(in), optional :: msg2
+        integer(wp) :: i
+        integer, parameter :: FILE_UNIT_BASE = 500
+        integer :: unit_num
+        unit_num = FILE_UNIT_BASE + ims_pro
+        if (present(msg2)) then
+            write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', trim(msg2), ' ', sum(var)
+        else
+            write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', sum(var)
+        end if
+        flush(unit_num)
+    end subroutine TLab_Debug_Print_2D_i
 
 end module Tlab_Debug
 !########################################################################
