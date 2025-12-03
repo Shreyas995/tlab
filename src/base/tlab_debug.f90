@@ -184,5 +184,37 @@ contains
         flush(unit_num)
     end subroutine TLab_Debug_Print_2D_i
 
+    subroutine TLab_Debug_Print_int(msg, var, msg2)
+        character(len=*), intent(in) :: msg
+        integer(wi), intent(in) :: var
+        character(len=*), intent(in), optional :: msg2
+        integer(wp) :: i
+        integer, parameter :: FILE_UNIT_BASE = 500
+        integer :: unit_num
+        unit_num = FILE_UNIT_BASE + ims_pro
+        if (present(msg2)) then
+            write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', trim(msg2), ' ', var
+        else
+            write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', var
+        end if
+        flush(unit_num)
+    end subroutine TLab_Debug_Print_int
+
+    subroutine TLab_Debug_Print_real(msg, var, msg2)
+        character(len=*), intent(in) :: msg
+        real(wi), intent(in) :: var
+        character(len=*), intent(in), optional :: msg2
+        integer(wp) :: i
+        integer, parameter :: FILE_UNIT_BASE = 500
+        integer :: unit_num
+        unit_num = FILE_UNIT_BASE + ims_pro
+        if (present(msg2)) then
+            write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', trim(msg2), ' ', var
+        else
+            write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', var
+        end if
+        flush(unit_num)
+    end subroutine TLab_Debug_Print_real
+
 end module Tlab_Debug
 !########################################################################
