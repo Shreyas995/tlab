@@ -8,6 +8,7 @@ module OPR_Fourier
     use TLab_Pointers_C, only: c_wrk3d
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use TLab_Grid
+    use Tlab_Debug
     use, intrinsic :: iso_c_binding
 #ifdef USE_MPI
     use TLabMPI_VARS, only: ims_npro_i, ims_npro_k
@@ -68,11 +69,14 @@ contains
         call TLab_Write_ASCII(efile, __FILE__//'. FFTW needed for POISSON solver.')
         call TLab_Stop(DNS_ERROR_UNDEVELOP)
 #endif
+        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 1, wrk3d: ', wrk3d)
 
         if (mod(imax, 2) /= 0) then
             call TLab_Write_ASCII(efile, __FILE__//'. Imax must be a multiple of 2 for the FFT operations.')
             call TLab_Stop(DNS_ERROR_DIMGRID)
         end if
+
+        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 1, wrk3d: ', wrk3d)
 
         ! -----------------------------------------------------------------------
         ! Oz direction
@@ -119,6 +123,8 @@ contains
                                      FFTW_BACKWARD, FFTW_MEASURE)
 #endif
         end if
+
+        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 2, wrk3d: ', wrk3d)
 
         ! -----------------------------------------------------------------------
         ! Ox direction
@@ -172,6 +178,8 @@ contains
 
         end if
 
+        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 3, wrk3d: ', wrk3d)
+
         ! -----------------------------------------------------------------------
         ! Oy direction
         size_fft_y = y%size
@@ -204,6 +212,8 @@ contains
 #endif
         end if
 
+        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 4, wrk3d: ', wrk3d)
+        
         return
     end subroutine OPR_Fourier_Initialize
 
