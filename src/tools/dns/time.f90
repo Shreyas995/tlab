@@ -242,8 +242,8 @@ contains
             select case (nse_eqns)
             case (DNS_EQNS_INCOMPRESSIBLE, DNS_EQNS_ANELASTIC)
                 if (rkm_mode == RKM_EXP3 .or. rkm_mode == RKM_EXP4) then
+                    call TLab_Debug_Print_1D('TIME_RUNGEKUTTA 1, wrk3d: ', wrk3d)
                     call TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT()
-                    !!call TLab_Debug_Print_1D('TIME_RUNGEKUTTA 3', q(:,2))
                 else
                     call TIME_SUBSTEP_INCOMPRESSIBLE_IMPLICIT()
                 end if
