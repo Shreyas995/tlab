@@ -605,7 +605,7 @@ contains
 !#
 !########################################################################
     subroutine TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT()
-        use TLab_Arrays, only: q, s, txc
+        use TLab_Arrays, only: q, s, txc, wrk3d
         use PARTICLE_ARRAYS
         use DNS_ARRAYS, only: hq, hs
         use DNS_LOCAL, only: imode_rhs
@@ -661,8 +661,8 @@ contains
                 call TLab_Sources_Flow(q, s, hq, txc(1, 1)) ! hq 2 goes wrong
                 call TLab_Sources_Scal(s, hs, txc(1, 1), txc(1, 2), txc(1, 3), txc(1, 4))
 
-                !!call TLab_Debug_Print_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT 2', hq(:,2)) ! incorrect value
-
+                call TLab_Debug_Print_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT 1, wrk3d: ', wrk3d) ! incorrect value
+                
                 call RHS_GLOBAL_INCOMPRESSIBLE_1()
 
                 !!call TLab_Debug_Print_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT', hq(:,2)) ! incorrect value
