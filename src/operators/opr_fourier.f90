@@ -6,6 +6,7 @@ module OPR_Fourier
     use TLab_Memory, only: imax, jmax, kmax
     use TLab_Arrays, only: wrk3d
     use TLab_Pointers_C, only: c_wrk3d
+    use TLab_Pointers_3D, only: p_wrk3d
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use TLab_Grid
     use Tlab_Debug
@@ -70,14 +71,19 @@ contains
         call TLab_Stop(DNS_ERROR_UNDEVELOP)
 #endif
         call TLab_Debug_Print_1D('OPR_Fourier_Initialize 1, wrk3d: ', wrk3d)
+        call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 1, wrk3d: ', c_wrk3d)
+        call TLab_Debug_Print_3D('OPR_Fourier_Initialize 1, wrk3d: ', p_wrk3d)
+
+
 
         if (mod(imax, 2) /= 0) then
             call TLab_Write_ASCII(efile, __FILE__//'. Imax must be a multiple of 2 for the FFT operations.')
             call TLab_Stop(DNS_ERROR_DIMGRID)
         end if
 
-        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 1, wrk3d: ', wrk3d)
-
+        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 2, wrk3d: ', wrk3d)
+        call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 2, wrk3d: ', c_wrk3d)
+        call TLab_Debug_Print_3D('OPR_Fourier_Initialize 2, wrk3d: ', p_wrk3d)
         ! -----------------------------------------------------------------------
         ! Oz direction
         size_fft_z = z%size
@@ -124,7 +130,9 @@ contains
 #endif
         end if
 
-        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 2, wrk3d: ', wrk3d)
+        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 3, wrk3d: ', wrk3d)
+        call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 3, wrk3d: ', c_wrk3d)
+        call TLab_Debug_Print_3D('OPR_Fourier_Initialize 3, wrk3d: ', p_wrk3d)
 
         ! -----------------------------------------------------------------------
         ! Ox direction
@@ -178,7 +186,9 @@ contains
 
         end if
 
-        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 3, wrk3d: ', wrk3d)
+        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 4, wrk3d: ', wrk3d)
+        call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 4, wrk3d: ', c_wrk3d)
+        call TLab_Debug_Print_3D('OPR_Fourier_Initialize 4, wrk3d: ', p_wrk3d)
 
         ! -----------------------------------------------------------------------
         ! Oy direction
@@ -212,7 +222,9 @@ contains
 #endif
         end if
 
-        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 4, wrk3d: ', wrk3d)
+        call TLab_Debug_Print_1D('OPR_Fourier_Initialize 5, wrk3d: ', wrk3d)
+        call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 5, wrk3d: ', c_wrk3d)
+        call TLab_Debug_Print_3D('OPR_Fourier_Initialize 5, wrk3d: ', p_wrk3d)
         
         return
     end subroutine OPR_Fourier_Initialize
