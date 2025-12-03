@@ -264,7 +264,7 @@ program DNS
         ! call TLab_Debug_Print_1D('5', q(:,1), dbg_string)
         ! call TLab_Debug_Print_1D('6', q(:,2), dbg_string)
         ! call TLab_Debug_Print_1D('7', q(:,3), dbg_string)
-        ! call TLab_Debug_Print_1D('8', s(:,1), dbg_string)
+        call TLab_Debug_Print_1D('dns_main 1, wrk3d: ', wrk3d, dbg_string)
 
         call TIME_RUNGEKUTTA()
 
