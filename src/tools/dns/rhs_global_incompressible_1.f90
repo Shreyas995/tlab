@@ -44,6 +44,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     use OPR_FILTERS
     use AVG_PHASE
     use TLab_Debug, only: TLab_Debug_Print_1D, TLab_Debug_Print_2D, TLab_Debug_Print_3D, TLab_Debug_Print_4D
+    use TLab_Arrays, only : wrk3d
 
     implicit none
 
@@ -97,6 +98,8 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     ! Diagonal terms and transposed velocity arrays
     call OPR_Burgers_X(OPR_B_SELF, 0, imax, jmax, kmax, bcs, u, u, tmp1, tmp4) ! store u transposed in tmp4
+
+    call TLab_Debug_Print_1D('rhs_global_incompressible1  0, wrk3d: ', wrk3d) 
 
     call TLab_Debug_Print_1D('rhs_global_incompressible1  1, tmp1: ', tmp1(:)) 
     call TLab_Debug_Print_1D('rhs_global_incompressible1  2, u: ', u(:))
