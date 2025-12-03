@@ -406,6 +406,8 @@ contains
         call c_f_pointer(c_loc(tmp2), c_tmp2, shape=[isize_txc_field])
         p_wrk3d(1:2*ny, 1:nz, 1:nx/2 + 1) => wrk3d(1:isize_txc_field)
         call c_f_pointer(c_loc(wrk2d), p_wrk2d, shape=[4,isize_line, nz])
+        
+        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 0, tmp2 ',tmp2)
 
         call TLab_Debug_Print_1D('OPR_Poisson_FourierXZ_Direct 1, wrk3d ',wrk3d)
 
