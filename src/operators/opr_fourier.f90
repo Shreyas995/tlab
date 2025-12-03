@@ -73,6 +73,8 @@ contains
         call TLab_Debug_Print_1D('OPR_Fourier_Initialize 1, wrk3d: ', wrk3d)
         call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 1, wrk3d: ', c_wrk3d)
         call TLab_Debug_Print_3D('OPR_Fourier_Initialize 1, wrk3d: ', p_wrk3d)
+        call TLab_Debug_Print_int('OPR_Fourier_Initialize 1, shape wrk3d: ', size(wrk3d))
+
 
         if (mod(imax, 2) /= 0) then
             call TLab_Write_ASCII(efile, __FILE__//'. Imax must be a multiple of 2 for the FFT operations.')
@@ -82,6 +84,8 @@ contains
         call TLab_Debug_Print_1D('OPR_Fourier_Initialize 2, wrk3d: ', wrk3d)
         call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 2, wrk3d: ', c_wrk3d)
         call TLab_Debug_Print_3D('OPR_Fourier_Initialize 2, wrk3d: ', p_wrk3d)
+        call TLab_Debug_Print_int('OPR_Fourier_Initialize 2, shape wrk3d: ', size(wrk3d))
+
         ! -----------------------------------------------------------------------
         ! Oz direction
         size_fft_z = z%size
@@ -134,6 +138,8 @@ contains
         call TLab_Debug_Print_1D('OPR_Fourier_Initialize 3, wrk3d: ', wrk3d)
         call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 3, wrk3d: ', c_wrk3d)
         call TLab_Debug_Print_3D('OPR_Fourier_Initialize 3, wrk3d: ', p_wrk3d)
+        call TLab_Debug_Print_int('OPR_Fourier_Initialize 3, shape wrk3d: ', size(wrk3d))
+
 
         ! -----------------------------------------------------------------------
         ! Ox direction
@@ -190,6 +196,8 @@ contains
         call TLab_Debug_Print_1D('OPR_Fourier_Initialize 4, wrk3d: ', wrk3d)
         call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 4, wrk3d: ', c_wrk3d)
         call TLab_Debug_Print_3D('OPR_Fourier_Initialize 4, wrk3d: ', p_wrk3d)
+        call TLab_Debug_Print_int('OPR_Fourier_Initialize 4, shape wrk3d: ', size(wrk3d))
+
 
         ! -----------------------------------------------------------------------
         ! Oy direction
@@ -229,7 +237,8 @@ contains
         call TLab_Debug_Print_1D('OPR_Fourier_Initialize 5, wrk3d: ', wrk3d)
         call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 5, wrk3d: ', c_wrk3d)
         call TLab_Debug_Print_3D('OPR_Fourier_Initialize 5, wrk3d: ', p_wrk3d)
-        
+        call TLab_Debug_Print_int('OPR_Fourier_Initialize 5, shape wrk3d: ', size(wrk3d))
+
         return
     end subroutine OPR_Fourier_Initialize
 
