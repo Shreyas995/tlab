@@ -1258,6 +1258,13 @@ contains
         ndl = size(fdmi_int2%lhs, 4)
         ndr = size(rhsi, 2)
 
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 1, f: ', f)
+        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 2, result: ', result)
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 3, bcs_b: ', wrk2d(:,1,:,:))
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 4, bcs_t: ', wrk2d(:,2,:,:))
+        print *, 'ndr: ' , ndr
+        print *, 'ndl: ' , ndl
+
         select case (ndr)
         case (3)
             call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:2*size(fdmi_int2%lhs, 1), 1:klines, 1:ilines), &
@@ -1267,10 +1274,10 @@ contains
             result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(1:nlines, 1, 1:klines, 1:ilines), bcs_t=wrk2d(1:nlines, 2, 1:klines, 1:ilines))
         end select
 
-        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 1, f: ', f)
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 2, result: ', result)
-        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 3, bcs_b: ', wrk2d(:,1,:,:))
-        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 4, bcs_t: ', wrk2d(:,2,:,:))
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 5, f: ', f)
+        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 6, result: ', result)
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 7, bcs_b: ', wrk2d(:,1,:,:))
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 8, bcs_t: ', wrk2d(:,2,:,:))
 
         
         ! Solve pentadiagonal linear system
@@ -1283,7 +1290,7 @@ contains
             call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines, 1:nx, 1:klines, 1:ilines))
         end select
         
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 1, result: ', result)
+        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 9, result: ', result)
         
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
@@ -1311,7 +1318,7 @@ contains
                 end if
             end do
         end do
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 2, result: ', result)
+        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 10, result: ', result)
 #ifdef USE_APU
         !$omp end target teams distribute parallel do
 #endif
