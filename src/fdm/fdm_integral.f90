@@ -1241,7 +1241,7 @@ contains
 
     subroutine FDM_Int2_Solve_APU(nlines, ilines, klines, fdmi_int2, rhsi, f, result, wrk2d)
         use TLab_Time, only: fdm_solve2_time
-        use TLab_Debug, only: TLab_Debug_Print_4D
+        use TLab_Debug
         integer(wi) nlines, ilines, klines
         type(fdm_integral_dt2), intent(in) :: fdmi_int2
         real(wp), intent(in) :: rhsi(:, :)
