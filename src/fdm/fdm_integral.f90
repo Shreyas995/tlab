@@ -926,7 +926,6 @@ contains
             ! We rely on this routines not changing a(2:3), b(2), e(ny-2:ny-1), d(ny-1)
             call PENTADFS(nx - 2, fdmi_int2%lhs(2:nx-1, k, i, 1), fdmi_int2%lhs(2:nx-1, k, i, 2), fdmi_int2%lhs(2:nx-1, k, i, 3), &
                           fdmi_int2%lhs(2:nx-1, k, i, 4), fdmi_int2%lhs(2:nx-1, k, i, 5))
-            call TLab_Debug_Print_4D("FDM_Int2_Initialize_APU, fdmi_int2%lhs: ", fdmi_int2%lhs)
         case (7)
             call HEPTADFS(nx - 2, fdmi_int2%lhs(2:nx-1, k, i, 1), fdmi_int2%lhs(2:nx-1, k, i, 2), fdmi_int2%lhs(2:nx-1, k, i, 3), &
                           fdmi_int2%lhs(2:nx-1, k, i, 4), fdmi_int2%lhs(2:nx-1, k, i, 5), fdmi_int2%lhs(2:nx-1, k, i, 6), fdmi_int2%lhs(2:nx-1, k, i, 7))    
@@ -1268,6 +1267,12 @@ contains
             result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(1:nlines, 1, 1:klines, 1:ilines), bcs_t=wrk2d(1:nlines, 2, 1:klines, 1:ilines))
         end select
 
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 1, f: ', f)
+        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 2, result: ', result)
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 3, bcs_b: ', wrk2d(:,1,:,:))
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 4, bcs_t: ', wrk2d(:,2,:,:))
+
+        
         ! Solve pentadiagonal linear system
         select case (ndl)
         case (3)
@@ -1277,6 +1282,7 @@ contains
         case (7)
             call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines, 1:nx, 1:klines, 1:ilines))
         end select
+        
         call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 1, result: ', result)
         
 #ifdef USE_APU
