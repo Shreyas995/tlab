@@ -26,6 +26,7 @@ module OPR_Elliptic
     use OPR_Partial, only: OPR_Partial_Y, OPR_P1
     use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
     use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
+    use Tlab_Debug
     implicit none
     private
 
@@ -256,6 +257,7 @@ contains
                 end select
 
             end do
+            STOP
         end do
         call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%lhs)
         call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%rhs)

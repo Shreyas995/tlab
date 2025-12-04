@@ -901,6 +901,7 @@ contains
     end subroutine FDM_Int2_CreateSystem
 
     subroutine FDM_Int2_Initialize_APU(k, i, x, g, lambda2, ibc, fdmi_int2)
+        use TLab_Debug
         integer, intent(in) :: k, i
         real(wp), intent(in) :: x(:)                        ! node positions
         type(fdm_derivative_dt), intent(in) :: g            ! derivative plan to be inverted
@@ -925,9 +926,10 @@ contains
             ! We rely on this routines not changing a(2:3), b(2), e(ny-2:ny-1), d(ny-1)
             call PENTADFS(nx - 2, fdmi_int2%lhs(2:nx-1, k, i, 1), fdmi_int2%lhs(2:nx-1, k, i, 2), fdmi_int2%lhs(2:nx-1, k, i, 3), &
                           fdmi_int2%lhs(2:nx-1, k, i, 4), fdmi_int2%lhs(2:nx-1, k, i, 5))
+            call TLab_Debug_Print_4D("FDM_Int2_Initialize_APU, fdmi_int2%lhs: ", fdmi_int2%lhs)
         case (7)
             call HEPTADFS(nx - 2, fdmi_int2%lhs(2:nx-1, k, i, 1), fdmi_int2%lhs(2:nx-1, k, i, 2), fdmi_int2%lhs(2:nx-1, k, i, 3), &
-                          fdmi_int2%lhs(2:nx-1, k, i, 4), fdmi_int2%lhs(2:nx-1, k, i, 5), fdmi_int2%lhs(2:nx-1, k, i, 6), fdmi_int2%lhs(2:nx-1, k, i, 7))
+                          fdmi_int2%lhs(2:nx-1, k, i, 4), fdmi_int2%lhs(2:nx-1, k, i, 5), fdmi_int2%lhs(2:nx-1, k, i, 6), fdmi_int2%lhs(2:nx-1, k, i, 7))    
         end select
 
         return
