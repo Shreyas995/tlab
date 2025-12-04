@@ -1242,6 +1242,7 @@ contains
 
     subroutine FDM_Int2_Solve_APU(nlines, ilines, klines, fdmi_int2, rhsi, f, result, wrk2d)
         use TLab_Time, only: fdm_solve2_time
+        use TLab_Debug, only: TLab_Debug_Print_4D
         integer(wi) nlines, ilines, klines
         type(fdm_integral_dt2), intent(in) :: fdmi_int2
         real(wp), intent(in) :: rhsi(:, :)
@@ -1276,6 +1277,8 @@ contains
         case (7)
             call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines, 1:nx, 1:klines, 1:ilines))
         end select
+        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 1, result: ', result)
+        
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i,j,k,bcs) &
@@ -1302,6 +1305,7 @@ contains
                 end if
             end do
         end do
+        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 2, result: ', result)
 #ifdef USE_APU
         !$omp end target teams distribute parallel do
 #endif

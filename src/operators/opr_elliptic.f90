@@ -257,8 +257,8 @@ contains
                 end select
 
             end do
-            STOP
         end do
+
         call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%lhs)
         call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%rhs)
         call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%rhs_b)
