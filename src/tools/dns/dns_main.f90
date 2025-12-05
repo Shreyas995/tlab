@@ -179,10 +179,12 @@ program DNS
 
     if (fourier_on) call OPR_Fourier_Initialize()
     call TLab_Debug_Print_1D('dns_main 12, wrk3d: ', wrk3d, dbg_string)
+    call TLab_Debug_Print_2D('dns_main 12a, q: ', q, dbg_string)
 
     call OPR_CHECK()
 
     call TLab_Debug_Print_1D('dns_main 13, wrk3d: ', wrk3d, dbg_string)
+    call TLab_Debug_Print_2D('dns_main 13a, q: ', q, dbg_string)
 
     ! ###################################################################
     ! Initialize fields

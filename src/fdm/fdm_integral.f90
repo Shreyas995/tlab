@@ -1262,8 +1262,6 @@ contains
         call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 2, result: ', result)
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 3, bcs_b: ', wrk2d(:,1,:,:))
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 4, bcs_t: ', wrk2d(:,2,:,:))
-        print *, 'ndr: ' , ndr
-        print *, 'ndl: ' , ndl
 
         select case (ndr)
         case (3)
@@ -1278,7 +1276,6 @@ contains
         call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 6, result: ', result)
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 7, bcs_b: ', wrk2d(:,1,:,:))
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 8, bcs_t: ', wrk2d(:,2,:,:))
-
         
         ! Solve pentadiagonal linear system
         select case (ndl)
