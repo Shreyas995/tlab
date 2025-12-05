@@ -14,13 +14,18 @@
 module Tlab_Debug
     
     use  TLab_Constants, only : wp, wi
+#ifdef USE_MPI
     use  TLabMPI_VARS, only : ims_pro
+#endif
     implicit none
     save
     public :: TLab_Debug_Initialize, TLab_Debug_Print_1D, TLab_Debug_Print_2D, TLab_Debug_Print_3D, TLab_Debug_Print_4D
     public :: TLab_Debug_Print_2D_c, TLab_Debug_Print_1D_c, TLab_Debug_Print_3D_c
     public :: TLab_Debug_Print_2D_i
     integer(wi), parameter :: FILE_UNIT_BASE = 500
+#ifndef USE_MPI
+    integer(wi), parameter :: ims_pro = 0
+#endif
 contains 
     
     subroutine Tlab_Debug_Initialize()
