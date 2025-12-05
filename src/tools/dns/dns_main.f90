@@ -168,14 +168,13 @@ program DNS
     call OPR_Filter_Initialize_Parameters(ifile)
 
     call TLab_Debug_Print_1D('dns_main 10, wrk3d: ', wrk3d, dbg_string)
-    call TLab_Debug_Print_2D('dns_main 10a, q: ', q, dbg_string)
-
 
     do ig = 1, 3
         call OPR_FILTER_INITIALIZE(g(ig), FilterDomain(ig))
         call OPR_FILTER_INITIALIZE(g(ig), PressureFilter(ig))
     end do
 
+    call TLab_Debug_Print_2D('dns_main 10a, q: ', q, dbg_string)
     call TLab_Debug_Print_1D('dns_main 11, wrk3d: ', wrk3d, dbg_string)
 
     if (fourier_on) call OPR_Fourier_Initialize()
