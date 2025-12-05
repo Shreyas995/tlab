@@ -199,6 +199,9 @@ program DNS
     end if
 
     call TLab_Debug_Print_1D('dns_main 14, wrk3d: ', wrk3d, dbg_string)
+    call TLab_Debug_Print_2D('dns_main 14a, q: ', q, dbg_string)
+    call TLab_Debug_Print_2D('dns_main 14b, s: ', s, dbg_string)
+
 
     write (fname, *) nitera_first; fname = trim(adjustl(tag_flow))//trim(adjustl(fname))
     call IO_Read_Fields(fname, imax, jmax, kmax, itime, inb_flow, 0, q, params(1:2))
