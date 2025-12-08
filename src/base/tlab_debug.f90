@@ -59,7 +59,6 @@ contains
         real(wp), intent(in) :: var(:)
         character(len=*), intent(in), optional :: msg2
         integer(wi) :: i
-        integer, parameter :: FILE_UNIT_BASE = 500
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
@@ -75,7 +74,6 @@ contains
         real(wp), intent(in) :: var(:,:)
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
-        integer, parameter :: FILE_UNIT_BASE = 500
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
@@ -91,7 +89,6 @@ contains
         real(wp), intent(in) :: var(:,:,:)
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
-        integer, parameter :: FILE_UNIT_BASE = 500
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
@@ -108,7 +105,6 @@ contains
         character(len=*), intent(in), optional :: msg2
 
         integer(wp) :: i
-        integer, parameter :: FILE_UNIT_BASE = 500
         integer :: unit_num
 
         unit_num = FILE_UNIT_BASE + ims_pro
@@ -127,7 +123,6 @@ contains
         character(len=*), intent(in), optional :: msg2
 
         integer(wi) :: i
-        integer, parameter :: FILE_UNIT_BASE = 500
         integer :: unit_num
 
         unit_num = FILE_UNIT_BASE + ims_pro
@@ -145,7 +140,6 @@ contains
         character(len=*), intent(in), optional :: msg2
 
         integer(wp) :: i
-        integer, parameter :: FILE_UNIT_BASE = 500
         integer :: unit_num
 
         unit_num = FILE_UNIT_BASE + ims_pro
@@ -162,7 +156,6 @@ contains
         real(wp), intent(in) :: var(:,:,:,:)
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
-        integer, parameter :: FILE_UNIT_BASE = 500
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
@@ -178,7 +171,6 @@ contains
         integer(wi), intent(in) :: var(:)
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
-        integer, parameter :: FILE_UNIT_BASE = 500
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
@@ -194,7 +186,6 @@ contains
         integer(wi), intent(in) :: var(:,:)
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
-        integer, parameter :: FILE_UNIT_BASE = 500
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
@@ -210,7 +201,6 @@ contains
         integer(wi), intent(in) :: var
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
-        integer, parameter :: FILE_UNIT_BASE = 500
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
@@ -226,7 +216,6 @@ contains
         real(wi), intent(in) :: var
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
-        integer, parameter :: FILE_UNIT_BASE = 500
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then

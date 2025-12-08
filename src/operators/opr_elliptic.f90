@@ -260,9 +260,9 @@ contains
         end do
 
         call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%lhs)
-        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%rhs)
-        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%rhs_b)
-        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%rhs_t)
+        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%rhs ', fdm_int2%rhs)
+        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%rhs_b ', fdm_int2%rhs_b)
+        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%rhs_t ', fdm_int2%rhs_t)
         call TLab_Debug_Print_2D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%lambda)
 
         ! free memory that is independent of lambda

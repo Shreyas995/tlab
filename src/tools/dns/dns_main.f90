@@ -66,22 +66,11 @@ program DNS
     
     
     ! ###################################################################
-    ! print *, 'At start of program'
-    ! call flush(6)
     call TLab_Start()
-    ! print *, 'After TLab_Start'
     call TLab_Initialize_Parameters(ifile)
-    ! print *, 'After TLab_Initialize_Parameters'
 #ifdef USE_MPI
-    ! print *, "Starting MPI"
-    ! call flush(6)
     call TLabMPI_Initialize(ifile)
-    ! print *, "Initialized MPI"
-    ! call flush(6)
-    ! print *, "Starting MPI Trp_Initialize"
     call TLabMPI_Trp_Initialize(ifile)
-    ! PRINT *, "Initialized MPI Trp_Initialize"
-    ! call flush(6)
 #endif
     call Particle_Initialize_Parameters(ifile)
     call IBM_READ_INI(ifile)
@@ -202,7 +191,6 @@ program DNS
     call TLab_Debug_Print_2D('dns_main 14a, q: ', q, dbg_string)
     call TLab_Debug_Print_2D('dns_main 14b, s: ', s, dbg_string)
 
-
     write (fname, *) nitera_first; fname = trim(adjustl(tag_flow))//trim(adjustl(fname))
     call IO_Read_Fields(fname, imax, jmax, kmax, itime, inb_flow, 0, q, params(1:2))
     rtime = params(1); visc = params(2)
@@ -321,7 +309,6 @@ program DNS
 
     write (str, *) itime
     call TLab_Write_ASCII(lfile, 'Starting time integration at It'//trim(adjustl(str))//'.')
-    call SYSTEM_CLOCK(clock_0) 
     call Tlab_Debug_Initialize()
     call TLab_Debug_Print_1D('dns_main 30, wrk3d: ', wrk3d, dbg_string)
 
