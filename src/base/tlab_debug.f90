@@ -37,7 +37,7 @@ contains
         ! Calculate thread-specific unit number
         unit_num = FILE_UNIT_BASE + ims_pro
 
-        write(filename, '(a, i0, a)') 'debug_thread_', ims_pro, '.log'
+        write(filename, '(a, i0, a)') 'debug_thread_n', ims_pro, '.log'
 
         inquire(unit=unit_num, opened=opened)
 
