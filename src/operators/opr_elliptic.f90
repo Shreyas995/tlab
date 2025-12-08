@@ -263,7 +263,7 @@ contains
         call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%rhs ', fdm_int2%rhs)
         call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%rhs_b ', fdm_int2%rhs_b)
         call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%rhs_t ', fdm_int2%rhs_t)
-        call TLab_Debug_Print_2D('OPR_Elliptic_Initialize: fdm_int2%lhs ', fdm_int2%lambda)
+        call TLab_Debug_Print_2D('OPR_Elliptic_Initialize: fdm_int2%lambda ', fdm_int2%lambda)
 
         ! free memory that is independent of lambda
         if (imode_elliptic == TYPE_DIRECT) then
@@ -515,13 +515,13 @@ contains
         end if
         call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 19, c_tmp1 ', c_tmp1)
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 20, p ', p)
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 21, dpdy ', dpdy)
+        ! call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 21, dpdy ', dpdy)
 
 
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
         end if
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 22, dpdy ', dpdy)
+        ! call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 22, dpdy ', dpdy)
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 23,  p ',  p)
         call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs 24 ', fdm_int2%lhs)
         call TLab_Debug_Print_2D('OPR_Elliptic_Initialize: rhs_d 25', rhs_d)
