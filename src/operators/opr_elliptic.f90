@@ -78,7 +78,7 @@ module OPR_Elliptic
     real(wp), allocatable, target :: rhs_b(:, :), rhs_t(:, :)       ! rhs to free memory space
     type(fdm_integral_dt) :: fdm_int1_loc(2)
 
-    type(fdm_integral_dt2), allocatable :: fdm_int2                 ! direct method (moving 2D dimneions into the type)
+    type(fdm_integral_dt2) :: fdm_int2                 ! direct method (moving 2D dimneions into the type)
     real(wp), allocatable, target :: rhs_d(:, :)                    ! rhs to free memory space
     type(fdm_integral_dt) :: fdm_int2_loc
 
@@ -164,14 +164,21 @@ contains
             ndl = fdm_loc%der2%nb_diag(1)
             ndr = fdm_loc%der2%nb_diag(2)
             nd = ndl
-            if (allocated(fdm_int2)) deallocate(fdm_int2)                       !(kmax, isize_line) moving the dimension inside fdm_int2
-            allocate (fdm_int2)
+            ! if (allocated(fdm_int2)) deallocate(fdm_int2)                       !(kmax, isize_line) moving the dimension inside fdm_int2
+            ! allocate (fdm_int2)
             allocate (fdm_int2%lambda(kmax, isize_line))
             allocate (fdm_int2%bc(kmax, isize_line))
-            allocate (fdm_int2%rhs_b(1:5, kmax, isize_line,0:7))                 ! # of diagonals is 7, # rows is 7/2+1
-            allocate (fdm_int2%rhs_t(0:4, kmax, isize_line, 8))
-            allocate (fdm_int2%lhs(fdm_loc%der2%size, kmax, isize_line, ndr))
-            allocate (fdm_int2%rhs(fdm_loc%der2%size, kmax, isize_line, ndl))
+            allocate (fdm_int2%rhs_b(kmax, isize_line ,1:5 ,0:7))                 ! # of diagonals is 7, # rows is 7/2+1
+            allocate (fdm_int2%rhs_t(kmax, isize_line, 0:4, 8))
+            allocate (fdm_int2%lhs(kmax, isize_line, fdm_loc%der2%size, ndr))
+            allocate (fdm_int2%rhs(kmax, isize_line, fdm_loc%der2%size, ndl))
+            fdm_int2%lambda = 0.0_wp
+            fdm_int2%bc = 0
+            fdm_int2%rhs_b = 0.0_wp
+            fdm_int2%rhs_t = 0.0_wp
+            fdm_int2%lhs = 0.0_wp
+            fdm_int2%rhs = 0.0_wp
+
             call TLab_Allocate_Real(__FILE__, rhs_d, [g(2)%size, nd], 'rhs_d')         
 
             i_sing = [1, 1]                     ! 2nd order FDMs are non-zero at Nyquist
@@ -253,7 +260,7 @@ contains
                         call FDM_Int2_Initialize_APU(k, i, fdm_loc%nodes(:), fdm_loc%der2, lambda(k, i), BCS_NN, fdm_int2)
                     end if
                     
-                    rhs_d(:, :) = fdm_int2%rhs(:, k, i, :)
+                    rhs_d(:, :) = fdm_int2%rhs(k, i, :, :)
                 end select
 
             end do

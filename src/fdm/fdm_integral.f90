@@ -35,8 +35,8 @@ module FDM_Integral
     public FDM_Int1_Initialize                      ! Prepare to solve u' +\lambda u = f
     public FDM_Int1_CreateSystem
     public FDM_Int1_Solve
-    public FDM_Int1_Initialize_APU
-    public FDM_Int1_CreateSystem_APU
+    ! public FDM_Int1_Initialize_APU
+    ! public FDM_Int1_CreateSystem_APU
     ! public FDM_Int1_Solve_APU
 
     public FDM_Int2_Initialize                      ! Prepare to solve (u')' - \lamba^2 u = f
@@ -96,165 +96,165 @@ contains
         return
     end subroutine FDM_Int1_Initialize
 
-    subroutine FDM_Int1_Initialize_APU(k, i, x, g, lambda, ibc, fdmi)
-        integer, intent(in) :: k, i
-        real(wp), intent(in) :: x(:)                    ! node positions
-        type(fdm_derivative_dt), intent(in) :: g        ! derivative plan to be inverted
-        real(wp), intent(in) :: lambda                  ! system constant
-        integer, intent(in) :: ibc                      ! type of boundary condition
-        type(fdm_integral_dt2), intent(inout) :: fdmi    ! int_plan to be created; inout because otherwise allocatable arrays are deallocated
+    ! subroutine FDM_Int1_Initialize_APU(k, i, x, g, lambda, ibc, fdmi)
+    !     integer, intent(in) :: k, i
+    !     real(wp), intent(in) :: x(:)                    ! node positions
+    !     type(fdm_derivative_dt), intent(in) :: g        ! derivative plan to be inverted
+    !     real(wp), intent(in) :: lambda                  ! system constant
+    !     integer, intent(in) :: ibc                      ! type of boundary condition
+    !     type(fdm_integral_dt2), intent(inout) :: fdmi    ! int_plan to be created; inout because otherwise allocatable arrays are deallocated
 
-        ! -------------------------------------------------------------------
-        integer(wi) nx, nd
+    !     ! -------------------------------------------------------------------
+    !     integer(wi) nx, nd
 
-        !########################################################################
-        call FDM_Int1_CreateSystem_APU(k, i, x, g, lambda, ibc, fdmi)
+    !     !########################################################################
+    !     call FDM_Int1_CreateSystem_APU(k, i, x, g, lambda, ibc, fdmi)
 
-        ! LU decomposition
-        nx = size(fdmi%lhs, 1)              ! # of grid points
-        nd = size(fdmi%lhs, 4)              ! # of diagonals
+    !     ! LU decomposition
+    !     nx = size(fdmi%lhs, 1)              ! # of grid points
+    !     nd = size(fdmi%lhs, 4)              ! # of diagonals
 
-        select case (nd)
-        case (3)
-            call TRIDFS(nx - 2, fdmi%lhs(2:nx-1, k, i, 1), fdmi%lhs(2:nx-1, k, i, 2), fdmi%lhs(2:nx-1, k, i, 3))
-        case (5)
-            call PENTADFS(nx - 2, fdmi%lhs(2:nx-1, k, i, 1), fdmi%lhs(2:nx-1, k, i, 2), fdmi%lhs(2:nx-1, k, i, 3), &
-                          fdmi%lhs(2:nx-1, k, i, 4), fdmi%lhs(2:nx-1, k, i, 5))
-        case (7)
-            call HEPTADFS(nx - 2, fdmi%lhs(2:nx-1, k, i, 1), fdmi%lhs(2:nx-1, k, i, 2), fdmi%lhs(2:nx-1, k, i, 3), &
-                          fdmi%lhs(2:nx-1, k, i, 4), fdmi%lhs(2:nx-1, k, i, 5), fdmi%lhs(2:nx-1, k, i, 6), fdmi%lhs(2:nx-1, k, i, 7))
-        end select
+    !     select case (nd)
+    !     case (3)
+    !         call TRIDFS(nx - 2, fdmi%lhs(2:nx-1, k, i, 1), fdmi%lhs(2:nx-1, k, i, 2), fdmi%lhs(2:nx-1, k, i, 3))
+    !     case (5)
+    !         call PENTADFS(nx - 2, fdmi%lhs(2:nx-1, k, i, 1), fdmi%lhs(2:nx-1, k, i, 2), fdmi%lhs(2:nx-1, k, i, 3), &
+    !                       fdmi%lhs(2:nx-1, k, i, 4), fdmi%lhs(2:nx-1, k, i, 5))
+    !     case (7)
+    !         call HEPTADFS(nx - 2, fdmi%lhs(2:nx-1, k, i, 1), fdmi%lhs(2:nx-1, k, i, 2), fdmi%lhs(2:nx-1, k, i, 3), &
+    !                       fdmi%lhs(2:nx-1, k, i, 4), fdmi%lhs(2:nx-1, k, i, 5), fdmi%lhs(2:nx-1, k, i, 6), fdmi%lhs(2:nx-1, k, i, 7))
+    !     end select
 
-        return
-    end subroutine FDM_Int1_Initialize_APU
+    !     return
+    ! end subroutine FDM_Int1_Initialize_APU
 
     !########################################################################
     !#####################################################################
 
-    subroutine FDM_Int1_CreateSystem_APU(ik, ii, x, g, lambda, ibc, fdmi)
-        integer, intent(in) :: ik, ii
-        real(wp), intent(in) :: x(:)                    ! node positions
-        type(fdm_derivative_dt), intent(in) :: g        ! derivative plan to be inverted
-        real(wp), intent(in) :: lambda                  ! system constant
-        integer, intent(in) :: ibc                      ! type of boundary condition
-        type(fdm_integral_dt2), intent(inout) :: fdmi    ! int_plan to be created; inout because otherwise allocatable arrays are deallocated
+    ! subroutine FDM_Int1_CreateSystem_APU(ik, ii, x, g, lambda, ibc, fdmi)
+    !     integer, intent(in) :: ik, ii
+    !     real(wp), intent(in) :: x(:)                    ! node positions
+    !     type(fdm_derivative_dt), intent(in) :: g        ! derivative plan to be inverted
+    !     real(wp), intent(in) :: lambda                  ! system constant
+    !     integer, intent(in) :: ibc                      ! type of boundary condition
+    !     type(fdm_integral_dt2), intent(inout) :: fdmi    ! int_plan to be created; inout because otherwise allocatable arrays are deallocated
 
-        ! -------------------------------------------------------------------
-        integer(wi) idl, ndl, idr, ndr, ir, nx, i
-        real(wp) dummy, rhsr_b(5, 0:7), rhsr_t(0:4, 8)
+    !     ! -------------------------------------------------------------------
+    !     integer(wi) idl, ndl, idr, ndr, ir, nx, i
+    !     real(wp) dummy, rhsr_b(5, 0:7), rhsr_t(0:4, 8)
 
-        ! ###################################################################
-        ndl = g%nb_diag(1)
-        idl = ndl/2 + 1             ! center diagonal in lhs
-        ndr = g%nb_diag(2)
-        idr = ndr/2 + 1             ! center diagonal in rhs
-        nx = g%size                 ! # grid points
+    !     ! ###################################################################
+    !     ndl = g%nb_diag(1)
+    !     idl = ndl/2 + 1             ! center diagonal in lhs
+    !     ndr = g%nb_diag(2)
+    !     idr = ndr/2 + 1             ! center diagonal in rhs
+    !     nx = g%size                 ! # grid points
 
-        ! check sizes
-        if (abs(idl - idr) > 1) then
-            call TLab_Write_ASCII(efile, __FILE__//'. lhs and rhs cannot differ by more than 2 diagonals.')
-            call TLab_Stop(DNS_ERROR_UNDEVELOP)
-        end if
+    !     ! check sizes
+    !     if (abs(idl - idr) > 1) then
+    !         call TLab_Write_ASCII(efile, __FILE__//'. lhs and rhs cannot differ by more than 2 diagonals.')
+    !         call TLab_Stop(DNS_ERROR_UNDEVELOP)
+    !     end if
 
-        fdmi%mode_fdm = g%mode_fdm
-        fdmi%lambda(ik, ii) = lambda
-        fdmi%bc(ik, ii) = ibc
+    !     fdmi%mode_fdm = g%mode_fdm
+    !     fdmi%lambda(ik, ii) = lambda
+    !     fdmi%bc(ik, ii) = ibc
 
-        ! if (allocated(fdmi%lhs)) deallocate (fdmi%lhs)
-        ! if (allocated(fdmi%rhs)) deallocate (fdmi%rhs)
-        ! allocate (fdmi%lhs(nx, ndr))
-        ! allocate (fdmi%rhs(nx, ndl))
+    !     ! if (allocated(fdmi%lhs)) deallocate (fdmi%lhs)
+    !     ! if (allocated(fdmi%rhs)) deallocate (fdmi%rhs)
+    !     ! allocate (fdmi%lhs(nx, ndr))
+    !     ! allocate (fdmi%rhs(nx, ndl))
 
-        ! -------------------------------------------------------------------
-        ! new rhs diagonals (array A), independent of lambda
-        fdmi%rhs(:, ik, ii, 1:ndl) = g%lhs(:, 1:ndl)
+    !     ! -------------------------------------------------------------------
+    !     ! new rhs diagonals (array A), independent of lambda
+    !     fdmi%rhs(:, ik, ii, 1:ndl) = g%lhs(:, 1:ndl)
 
-        call FDM_Bcs_Reduce_APU(nx, ndl, ndr, fdmi%bc(ik, ii), fdmi%rhs(1:nx, ik, ii, 1:ndl), g%rhs(:,1:ndr), rhsr_b, rhsr_t)
+    !     call FDM_Bcs_Reduce_APU(nx, ndl, ndr, fdmi%bc(ik, ii), fdmi%rhs(1:nx, ik, ii, 1:ndl), g%rhs(:,1:ndr), rhsr_b, rhsr_t)
 
-        fdmi%rhs_b(1:5, ik, ii, 0:7) = 0.0_wp
-        fdmi%rhs_t(0:4, ik, ii, 1:8) = 0.0_wp
-        select case (fdmi%bc(ik, ii))
-        case (BCS_MIN)
-            fdmi%rhs_b(1:idl + 1, ik, ii, 1:ndl) = fdmi%rhs(1:idl + 1, ik, ii, 1:ndl)
-            do ir = 1, idr - 1              ! change sign in b^R_{21} for nonzero bc
-                fdmi%rhs_b(1 + ir, ik, ii, idl - ir) = -rhsr_b(1 + ir, idr - ir)
-            end do
+    !     fdmi%rhs_b(1:5, ik, ii, 0:7) = 0.0_wp
+    !     fdmi%rhs_t(0:4, ik, ii, 1:8) = 0.0_wp
+    !     select case (fdmi%bc(ik, ii))
+    !     case (BCS_MIN)
+    !         fdmi%rhs_b(1:idl + 1, ik, ii, 1:ndl) = fdmi%rhs(1:idl + 1, ik, ii, 1:ndl)
+    !         do ir = 1, idr - 1              ! change sign in b^R_{21} for nonzero bc
+    !             fdmi%rhs_b(1 + ir, ik, ii, idl - ir) = -rhsr_b(1 + ir, idr - ir)
+    !         end do
 
-        case (BCS_MAX)
-            fdmi%rhs_t(0:idl, ik, ii, 1:ndl) = fdmi%rhs(nx - idl:nx, ik, ii, 1:ndl)
-            do ir = 1, idr - 1              ! change sign in b^R_{21} for nonzero bc
-                fdmi%rhs_t(idl - ir, ik, ii, idl + ir) = -rhsr_t(idr - ir, idr + ir)
-            end do
+    !     case (BCS_MAX)
+    !         fdmi%rhs_t(0:idl, ik, ii, 1:ndl) = fdmi%rhs(nx - idl:nx, ik, ii, 1:ndl)
+    !         do ir = 1, idr - 1              ! change sign in b^R_{21} for nonzero bc
+    !             fdmi%rhs_t(idl - ir, ik, ii, idl + ir) = -rhsr_t(idr - ir, idr + ir)
+    !         end do
 
-        end select
+    !     end select
 
-        ! -------------------------------------------------------------------
-        ! new lhs diagonals (array C = B + h \lambda A), dependent on lambda
-        fdmi%lhs(:, ik, ii, :) = g%rhs(:, 1:ndr)
+    !     ! -------------------------------------------------------------------
+    !     ! new lhs diagonals (array C = B + h \lambda A), dependent on lambda
+    !     fdmi%lhs(:, ik, ii, :) = g%rhs(:, 1:ndr)
 
-        fdmi%lhs(:, ik, ii, idr) = fdmi%lhs(:, ik, ii, idr) + lambda*g%lhs(:, idl)                ! center diagonal
-        do i = 1, idl - 1                                                       ! off-diagonals
-            fdmi%lhs(1 + i:nx, ik, ii, idr - i) = fdmi%lhs(1 + i:nx, ik, ii, idr - i) + lambda*g%lhs(1 + i:nx, idl - i)
-            fdmi%lhs(1:nx - i, ik, ii, idr + i) = fdmi%lhs(1:nx - i, ik, ii, idr + i) + lambda*g%lhs(1:nx - i, idl + i)
-        end do
+    !     fdmi%lhs(:, ik, ii, idr) = fdmi%lhs(:, ik, ii, idr) + lambda*g%lhs(:, idl)                ! center diagonal
+    !     do i = 1, idl - 1                                                       ! off-diagonals
+    !         fdmi%lhs(1 + i:nx, ik, ii, idr - i) = fdmi%lhs(1 + i:nx, ik, ii, idr - i) + lambda*g%lhs(1 + i:nx, idl - i)
+    !         fdmi%lhs(1:nx - i, ik, ii, idr + i) = fdmi%lhs(1:nx - i, ik, ii, idr + i) + lambda*g%lhs(1:nx - i, idl + i)
+    !     end do
 
-        select case (fdmi%bc(ik, ii))
-        case (BCS_MIN)
-            fdmi%lhs(1:idr, ik, ii, 1:ndr) = rhsr_b(1:idr, 1:ndr)
-            fdmi%lhs(1, ik, ii, idr + 1:idr + idl - 1) = fdmi%lhs(1, ik, ii, idr + 1:idr + idl - 1) - lambda*fdmi%rhs_b(1, ik, ii, idl + 1:ndl)
-            ! fdmi%lhs(2:idr, 1:ndr) = rhsr_b(2:idr, 1:ndr)
-            do ir = 1, idr - 1
-                fdmi%lhs(1 + ir, ik, ii, idr - idl + 1:idr + idl - 1) = fdmi%lhs(1 + ir, ik, ii, idr - idl + 1:idr + idl - 1) + lambda*fdmi%rhs_b(1 + ir, ik, ii, 1:ndl)
-            end do
-        case (BCS_MAX)
-            fdmi%lhs(nx - idr + 1:nx, ik, ii, 1:ndr) = rhsr_t(1:idr, 1:ndr)
-            fdmi%lhs(nx, ik, ii, idr - idl + 1:idr - 1) = fdmi%lhs(nx, ik, ii, idr - idl + 1:idr - 1) - lambda*fdmi%rhs_t(idl, ik, ii, 1:idl - 1)
-            ! fdmi%lhs(nx - idr + 1:nx - 1, 1:ndr) = rhsr_t(1:idr - 1, 1:ndr)
-            do ir = 1, idr - 1
-                fdmi%lhs(nx - ir, ik, ii, idr - idl + 1:idr + idl - 1) = fdmi%lhs(nx - ir, ik, ii, idr - idl + 1:idr + idl - 1) + lambda*fdmi%rhs_t(idl - ir, ik, ii, 1:ndl)
-            end do
-        end select
+    !     select case (fdmi%bc(ik, ii))
+    !     case (BCS_MIN)
+    !         fdmi%lhs(1:idr, ik, ii, 1:ndr) = rhsr_b(1:idr, 1:ndr)
+    !         fdmi%lhs(1, ik, ii, idr + 1:idr + idl - 1) = fdmi%lhs(1, ik, ii, idr + 1:idr + idl - 1) - lambda*fdmi%rhs_b(1, ik, ii, idl + 1:ndl)
+    !         ! fdmi%lhs(2:idr, 1:ndr) = rhsr_b(2:idr, 1:ndr)
+    !         do ir = 1, idr - 1
+    !             fdmi%lhs(1 + ir, ik, ii, idr - idl + 1:idr + idl - 1) = fdmi%lhs(1 + ir, ik, ii, idr - idl + 1:idr + idl - 1) + lambda*fdmi%rhs_b(1 + ir, ik, ii, 1:ndl)
+    !         end do
+    !     case (BCS_MAX)
+    !         fdmi%lhs(nx - idr + 1:nx, ik, ii, 1:ndr) = rhsr_t(1:idr, 1:ndr)
+    !         fdmi%lhs(nx, ik, ii, idr - idl + 1:idr - 1) = fdmi%lhs(nx, ik, ii, idr - idl + 1:idr - 1) - lambda*fdmi%rhs_t(idl, ik, ii, 1:idl - 1)
+    !         ! fdmi%lhs(nx - idr + 1:nx - 1, 1:ndr) = rhsr_t(1:idr - 1, 1:ndr)
+    !         do ir = 1, idr - 1
+    !             fdmi%lhs(nx - ir, ik, ii, idr - idl + 1:idr + idl - 1) = fdmi%lhs(nx - ir, ik, ii, idr - idl + 1:idr + idl - 1) + lambda*fdmi%rhs_t(idl - ir, ik, ii, 1:ndl)
+    !         end do
+    !     end select
 
-        ! -------------------------------------------------------------------
-        ! normalization such that new central diagonal in rhs is 1
-        do ir = 1, max(idr, idl + 1)
-            dummy = 1.0_wp/fdmi%rhs(ir, ik, ii, idl)
-            fdmi%rhs_b(ir, ik, ii, 0:ndl) = fdmi%rhs_b(ir, ik, ii, 0:ndl)*dummy
+    !     ! -------------------------------------------------------------------
+    !     ! normalization such that new central diagonal in rhs is 1
+    !     do ir = 1, max(idr, idl + 1)
+    !         dummy = 1.0_wp/fdmi%rhs(ir, ik, ii, idl)
+    !         fdmi%rhs_b(ir, ik, ii, 0:ndl) = fdmi%rhs_b(ir, ik, ii, 0:ndl)*dummy
 
-            dummy = 1.0_wp/fdmi%rhs(nx - ir + 1, ik, ii, idl)
-            fdmi%rhs_t(idl - ir + 1, ik, ii, 1:ndl + 1) = fdmi%rhs_t(idl - ir + 1, ik, ii, 1:ndl + 1)*dummy
+    !         dummy = 1.0_wp/fdmi%rhs(nx - ir + 1, ik, ii, idl)
+    !         fdmi%rhs_t(idl - ir + 1, ik, ii, 1:ndl + 1) = fdmi%rhs_t(idl - ir + 1, ik, ii, 1:ndl + 1)*dummy
 
-            dummy = 1.0_wp/fdmi%rhs(ir, ik, ii, idl)
-            fdmi%rhs(ir, ik, ii, 1:ndl) = fdmi%rhs(ir, ik, ii, 1:ndl)*dummy
-            fdmi%lhs(ir, ik, ii, 1:ndr) = fdmi%lhs(ir, ik, ii, 1:ndr)*dummy
+    !         dummy = 1.0_wp/fdmi%rhs(ir, ik, ii, idl)
+    !         fdmi%rhs(ir, ik, ii, 1:ndl) = fdmi%rhs(ir, ik, ii, 1:ndl)*dummy
+    !         fdmi%lhs(ir, ik, ii, 1:ndr) = fdmi%lhs(ir, ik, ii, 1:ndr)*dummy
 
-            dummy = 1.0_wp/fdmi%rhs(nx - ir + 1, ik, ii, idl)
-            fdmi%rhs(nx - ir + 1, ik, ii, 1:ndl) = fdmi%rhs(nx - ir + 1, ik, ii, 1:ndl)*dummy
-            fdmi%lhs(nx - ir + 1, ik, ii, 1:ndr) = fdmi%lhs(nx - ir + 1, ik, ii, 1:ndr)*dummy
+    !         dummy = 1.0_wp/fdmi%rhs(nx - ir + 1, ik, ii, idl)
+    !         fdmi%rhs(nx - ir + 1, ik, ii, 1:ndl) = fdmi%rhs(nx - ir + 1, ik, ii, 1:ndl)*dummy
+    !         fdmi%lhs(nx - ir + 1, ik, ii, 1:ndr) = fdmi%lhs(nx - ir + 1, ik, ii, 1:ndr)*dummy
 
-        end do
+    !     end do
 
-        ! interior points: normalization such that 1. upper-diagonal is 1
-        do ir = max(idr, idl + 1) + 1, nx - max(idr, idl + 1)
-            dummy = 1.0_wp/fdmi%rhs(ir, ik, ii, idl + 1)
+    !     ! interior points: normalization such that 1. upper-diagonal is 1
+    !     do ir = max(idr, idl + 1) + 1, nx - max(idr, idl + 1)
+    !         dummy = 1.0_wp/fdmi%rhs(ir, ik, ii, idl + 1)
 
-            fdmi%rhs(ir, ik, ii, 1:ndl) = fdmi%rhs(ir, ik, ii, 1:ndl)*dummy
-            fdmi%lhs(ir, ik, ii, 1:ndr) = fdmi%lhs(ir, ik, ii, 1:ndr)*dummy
+    !         fdmi%rhs(ir, ik, ii, 1:ndl) = fdmi%rhs(ir, ik, ii, 1:ndl)*dummy
+    !         fdmi%lhs(ir, ik, ii, 1:ndr) = fdmi%lhs(ir, ik, ii, 1:ndr)*dummy
 
-        end do
+    !     end do
 
-        ! -------------------------------------------------------------------
-        ! reducing system in the opposite end to account for the case of extended stencils
-        ! to move it up, you need to recalculate the expression for p_1 and p_n because they assume division by a_11
-        select case (fdmi%bc(ik, ii))
-        case (BCS_MIN)
-            call FDM_Bcs_Reduce_APU(ik, ndl, ndr, BCS_MAX, fdmi%lhs(1:nx, ik, ii, 1:ndl), fdmi%rhs(1:nx, ik, ii, 1:ndr), rhs_t=fdmi%rhs_t(0:4, ik, ii, 1:8))
-        case (BCS_MAX)
-            call FDM_Bcs_Reduce_APU(ik, ndl, ndr, BCS_MIN, fdmi%lhs(1:nx, ik, ii, 1:ndl), fdmi%rhs(1:nx, ik, ii, 1:ndr), rhs_b=fdmi%rhs_b(1:5, ik, ii, 0:7))
-        end select
+    !     ! -------------------------------------------------------------------
+    !     ! reducing system in the opposite end to account for the case of extended stencils
+    !     ! to move it up, you need to recalculate the expression for p_1 and p_n because they assume division by a_11
+    !     select case (fdmi%bc(ik, ii))
+    !     case (BCS_MIN)
+    !         call FDM_Bcs_Reduce_APU(ik, ndl, ndr, BCS_MAX, fdmi%lhs(1:nx, ik, ii, 1:ndl), fdmi%rhs(1:nx, ik, ii, 1:ndr), rhs_t=fdmi%rhs_t(0:4, ik, ii, 1:8))
+    !     case (BCS_MAX)
+    !         call FDM_Bcs_Reduce_APU(ik, ndl, ndr, BCS_MIN, fdmi%lhs(1:nx, ik, ii, 1:ndl), fdmi%rhs(1:nx, ik, ii, 1:ndr), rhs_b=fdmi%rhs_b(1:5, ik, ii, 0:7))
+    !     end select
 
-        return
-    end subroutine FDM_Int1_CreateSystem_APU
+    !     return
+    ! end subroutine FDM_Int1_CreateSystem_APU
 
     !########################################################################
     !########################################################################
@@ -916,19 +916,19 @@ contains
         call FDM_Int2_CreateSystem_APU(k, i, x, g, lambda2, ibc, fdmi_int2)
 
         ! LU decomposition
-        nx = size(fdmi_int2%lhs, 1)              ! # of grid points
+        nx = size(fdmi_int2%lhs, 3)              ! # of grid points
         nd = size(fdmi_int2%lhs, 4)              ! # of diagonals
 
         select case (nd)
         case (3)
-            call TRIDFS(nx - 2, fdmi_int2%lhs(2:nx-1, k, i, 1), fdmi_int2%lhs(2:nx-1, k, i, 2), fdmi_int2%lhs(2:nx-1, k, i, 3))
+            call TRIDFS(nx - 2, fdmi_int2%lhs(k, i, 2:nx-1, 1), fdmi_int2%lhs(k, i, 2:nx-1, 2), fdmi_int2%lhs(k, i, 2:nx-1, 3))
         case (5)
             ! We rely on this routines not changing a(2:3), b(2), e(ny-2:ny-1), d(ny-1)
-            call PENTADFS(nx - 2, fdmi_int2%lhs(2:nx-1, k, i, 1), fdmi_int2%lhs(2:nx-1, k, i, 2), fdmi_int2%lhs(2:nx-1, k, i, 3), &
-                          fdmi_int2%lhs(2:nx-1, k, i, 4), fdmi_int2%lhs(2:nx-1, k, i, 5))
+            call PENTADFS(nx - 2, fdmi_int2%lhs(k, i, 2:nx-1, 1), fdmi_int2%lhs(k, i, 2:nx-1, 2), fdmi_int2%lhs(k, i, 2:nx-1, 3), &
+                          fdmi_int2%lhs(k, i, 2:nx-1, 4), fdmi_int2%lhs(k, i, 2:nx-1, 5))
         case (7)
-            call HEPTADFS(nx - 2, fdmi_int2%lhs(2:nx-1, k, i, 1), fdmi_int2%lhs(2:nx-1, k, i, 2), fdmi_int2%lhs(2:nx-1, k, i, 3), &
-                          fdmi_int2%lhs(2:nx-1, k, i, 4), fdmi_int2%lhs(2:nx-1, k, i, 5), fdmi_int2%lhs(2:nx-1, k, i, 6), fdmi_int2%lhs(2:nx-1, k, i, 7))    
+            call HEPTADFS(nx - 2, fdmi_int2%lhs(k, i, 2:nx-1, 1), fdmi_int2%lhs(k, i, 2:nx-1, 2), fdmi_int2%lhs(k, i, 2:nx-1, 3), &
+                          fdmi_int2%lhs(k, i, 2:nx-1, 4), fdmi_int2%lhs(k, i, 2:nx-1, 5), fdmi_int2%lhs(k, i, 2:nx-1, 6), fdmi_int2%lhs(k, i, 2:nx-1, 7))    
         end select
 
         return
@@ -968,45 +968,45 @@ contains
 
         ! -------------------------------------------------------------------
         ! new rhs diagonals (array A22R), independent of lambda
-        fdmi_int2%rhs(:, ik, ii, 1:ndl) = g%lhs(:, 1:ndl)
+        fdmi_int2%rhs(ik, ii, :, 1:ndl) = g%lhs(:, 1:ndl)
 
-        call FDM_Bcs_Reduce_APU(nx, ndl, ndr, BCS_BOTH, fdmi_int2%rhs(1:nx, ik, ii, 1:ndl), g%rhs(:, 1:ndr), rhsr_b, rhsr_t)
+        call FDM_Bcs_Reduce_APU(nx, ndl, ndr, BCS_BOTH, fdmi_int2%rhs(ik, ii, 1:nx, 1:ndl), g%rhs(:, 1:ndr), rhsr_b, rhsr_t)
 
-        fdmi_int2%rhs_b = 0.0_wp
-        fdmi_int2%rhs_t = 0.0_wp
+        ! fdmi_int2%rhs_b = 0.0_wp
+        ! fdmi_int2%rhs_t = 0.0_wp
 
-        fdmi_int2%rhs_b(1:idl + 1, ik, ii, 1:ndl) = fdmi_int2%rhs(1:idl + 1, ik , ii, 1:ndl)
+        fdmi_int2%rhs_b(ik, ii, 1:idl + 1, 1:ndl) = fdmi_int2%rhs(ik, ii, 1:idl + 1, 1:ndl)
         do ir = 1, idr - 1              ! change sign in b^R_{21} for nonzero bc
-            fdmi_int2%rhs_b(1 + ir, ik, ii, idl - ir) = -rhsr_b(1 + ir, idr - ir)
+            fdmi_int2%rhs_b(ik, ii, 1 + ir, idl - ir) = -rhsr_b(1 + ir, idr - ir)
         end do
 
-        fdmi_int2%rhs_t(0:idl, ik, ii, 1:ndl) = fdmi_int2%rhs(nx - idl:nx, ik, ii, 1:ndl)
+        fdmi_int2%rhs_t(ik, ii, 0:idl, 1:ndl) = fdmi_int2%rhs(ik, ii, nx - idl:nx, 1:ndl)
         do ir = 1, idr - 1              ! change sign in b^R_{2n} for nonzero bc
-            fdmi_int2%rhs_t(idl - ir, ik, ii, idl + ir) = -rhsr_t(idr - ir, idr + ir)
+            fdmi_int2%rhs_t(ik, ii, idl - ir, idl + ir) = -rhsr_t(idr - ir, idr + ir)
         end do
 
         ! -------------------------------------------------------------------
         ! new lhs diagonals (array C22R); remember rhs center diagonal is not saved because it was 1
-        fdmi_int2%lhs(:, ik, ii, :) = g%rhs(:, 1:ndr)
+        fdmi_int2%lhs(ik, ii, :, 1:ndr) = g%rhs(:, 1:ndr)
 
-        fdmi_int2%lhs(:, ik, ii, idr) = fdmi_int2%lhs(:, ik, ii, idr) - lambda2*g%lhs(:, idl)               ! center diagonal
+        fdmi_int2%lhs(ik, ii, :, idr) = fdmi_int2%lhs(ik, ii, :, idr) - lambda2*g%lhs(:, idl)               ! center diagonal
         do i = 1, idl - 1                                                       ! off-diagonals
-            fdmi_int2%lhs(1 + i:nx, ik, ii, idr - i) = fdmi_int2%lhs(1 + i:nx, ik, ii, idr - i) - lambda2*g%lhs(1 + i:nx, idl - i)
-            fdmi_int2%lhs(1:nx - i, ik, ii, idr + i) = fdmi_int2%lhs(1:nx - i, ik, ii, idr + i) - lambda2*g%lhs(1:nx - i, idl + i)
+            fdmi_int2%lhs(ik, ii, 1 + i:nx, idr - i) = fdmi_int2%lhs(ik, ii, 1 + i:nx, idr - i) - lambda2*g%lhs(1 + i:nx, idl - i)
+            fdmi_int2%lhs(ik, ii, 1:nx - i, idr + i) = fdmi_int2%lhs(ik, ii, 1:nx - i, idr + i) - lambda2*g%lhs(1:nx - i, idl + i)
         end do
 
         ! fdmi%lhs(1:idr, 1:ndr) = rhsr_b(1:idr, 1:ndr)
         ! fdmi%lhs(1, idr + 1:idr + idl - 1) = fdmi%lhs(1, idr + 1:idr + idl - 1) + lambda2*fdmi%rhs_b(1, idl + 1:ndl)
-        fdmi_int2%lhs(2:idr, ik, ii, 1:ndr) = rhsr_b(2:idr, 1:ndr)
+        fdmi_int2%lhs(ik, ii, 2:idr, 1:ndr) = rhsr_b(2:idr, 1:ndr)
         do ir = 1, idr - 1
-            fdmi_int2%lhs(1 + ir, ik, ii, idr - idl + 1:idr + idl - 1) = fdmi_int2%lhs(1 + ir, ik, ii, idr - idl + 1:idr + idl - 1) - lambda2*fdmi_int2%rhs_b(1 + ir, ik, ii, 1:ndl)
+            fdmi_int2%lhs(ik, ii, 1 + ir, idr - idl + 1:idr + idl - 1) = fdmi_int2%lhs(ik, ii, 1 + ir, idr - idl + 1:idr + idl - 1) - lambda2*fdmi_int2%rhs_b(ik, ii, 1 + ir, 1:ndl)
         end do
 
         ! fdmi%lhs(nx - idr + 1:nx, 1:ndr) = rhsr_t(1:idr, 1:ndr)
         ! fdmi%lhs(nx, idr - idl + 1:idr - 1) = fdmi%lhs(nx, idr - idl + 1:idr - 1) + lambda2*fdmi%rhs_t(idl, 1:idl - 1)
-        fdmi_int2%lhs(nx - idr + 1:nx - 1, ik, ii, 1:ndr) = rhsr_t(1:idr - 1, 1:ndr)
+        fdmi_int2%lhs(ik, ii, nx - idr + 1:nx - 1, 1:ndr) = rhsr_t(1:idr - 1, 1:ndr)
         do ir = 1, idr - 1
-            fdmi_int2%lhs(nx - ir, ik, ii, idr - idl + 1:idr + idl - 1) = fdmi_int2%lhs(nx - ir, ik, ii, idr - idl + 1:idr + idl - 1) - lambda2*fdmi_int2%rhs_t(idl - ir, ik, ii, 1:ndl)
+            fdmi_int2%lhs(ik, ii, nx - ir, idr - idl + 1:idr + idl - 1) = fdmi_int2%lhs(ik, ii, nx - ir, idr - idl + 1:idr + idl - 1) - lambda2*fdmi_int2%rhs_t(ik, ii, idl - ir, 1:ndl)
         end do
 
         ! -------------------------------------------------------------------
@@ -1019,14 +1019,14 @@ contains
             coef(1:5) = coef_c1n4_biased(x, 1)                  ! fourth-order
 
             ! Solve for p_1 (see notes)
-            fdmi_int2%lhs(1, ik, ii, :) = 0.0_wp
-            fdmi_int2%lhs(1, ik, ii, 1:3) = -coef(2:4)/coef(1)               ! vector d_2
-            fdmi_int2%rhs_b(1, ik, ii, :) = 0.0_wp
-            fdmi_int2%rhs_b(1, ik, ii, idl) = 1.0_wp/coef(1)                 ! coefficient d_1
-            fdmi_int2%rhs_b(1, ik, ii, idl + 1) = -coef(5)/coef(1)           ! vector e_2, only 1 component
+            fdmi_int2%lhs(ik, ii, 1, :) = 0.0_wp
+            fdmi_int2%lhs(ik, ii, 1, 1:3) = -coef(2:4)/coef(1)               ! vector d_2
+            fdmi_int2%rhs_b(ik, ii, 1, :) = 0.0_wp
+            fdmi_int2%rhs_b(ik, ii, 1, idl) = 1.0_wp/coef(1)                 ! coefficient d_1
+            fdmi_int2%rhs_b(ik, ii, 1, idl + 1) = -coef(5)/coef(1)           ! vector e_2, only 1 component
 
             ! Construct vector d + lambda^2h^2 e, e only 1 component
-            fdmi_int2%lhs(1, ik, ii, 1) = fdmi_int2%lhs(1, ik, ii, 1) + lambda2*fdmi_int2%rhs_b(1, ik, ii, idl + 1)
+            fdmi_int2%lhs(ik, ii, 1, 1) = fdmi_int2%lhs(ik, ii, 1, 1) + lambda2*fdmi_int2%rhs_b(ik, ii, 1, idl + 1)
 
             ! Derived coefficients; contribution from -b^R_{21} (see notes)
             ! fdmi_int2%lhs(2, 3:5) = fdmi_int2%lhs(2, 3:5) - fdmi_int2%rhs_b(1 + 1, idl - 1)*fdmi_int2%lhs(1, 1:3)           ! in reduced C matrix
@@ -1036,13 +1036,13 @@ contains
             ! fdmi_int2%rhs_b(3, 1) = fdmi_int2%rhs_b(3, 1) + fdmi_int2%rhs_b(1 + 2, idl - 2)*fdmi_int2%rhs_b(1, idl + 1)
 
             do ir = 1, idr - 1
-                fdmi_int2%lhs(1 + ir, ik, ii, idr - ir + 1:idr - ir + 1 + 2) = fdmi_int2%lhs(1 + ir, ik, ii, idr - ir + 1:idr - ir + 1 + 2) &
-                                                   - fdmi_int2%rhs_b(1 + ir, ik, ii, idl - ir)*fdmi_int2%lhs(1, ik, ii, 1:3)       ! in reduced C matrix
+                fdmi_int2%lhs(ik, ii, 1 + ir, idr - ir + 1:idr - ir + 1 + 2) = fdmi_int2%lhs(ik, ii, 1 + ir, idr - ir + 1:idr - ir + 1 + 2) &
+                                                   - fdmi_int2%rhs_b(ik, ii, 1 + ir, idl - ir)*fdmi_int2%lhs(ik, ii, 1, 1:3)       ! in reduced C matrix
 
-                fdmi_int2%rhs_b(1 + ir, ik, ii, idl - ir + 1) = fdmi_int2%rhs_b(1 + ir, ik, ii, idl - ir + 1) &
-                                                   + fdmi_int2%rhs_b(1 + ir, ik, ii, idl - ir)*fdmi_int2%rhs_b(1, ik, ii, idl + 1)                ! in reduced A matrix
+                fdmi_int2%rhs_b(ik, ii, 1 + ir, idl - ir + 1) = fdmi_int2%rhs_b(ik, ii, 1 + ir, idl - ir + 1) &
+                                                   + fdmi_int2%rhs_b(ik, ii, 1 + ir, idl - ir)*fdmi_int2%rhs_b(ik, ii, 1, idl + 1)                ! in reduced A matrix
 
-                fdmi_int2%rhs_b(1 + ir, ik, ii, idl - ir) = fdmi_int2%rhs_b(1 + ir, ik, ii, idl - ir)*fdmi_int2%rhs_b(1, ik, ii, idl)                          ! d_1 b^R_{21}
+                fdmi_int2%rhs_b(ik, ii, 1 + ir, idl - ir) = fdmi_int2%rhs_b(ik, ii, 1 + ir, idl - ir)*fdmi_int2%rhs_b(ik, ii, 1, idl)                          ! d_1 b^R_{21}
             end do
 
         end if
@@ -1055,14 +1055,14 @@ contains
             coef(1:5) = coef_c1n4_biased(x, nx, backwards=.true.)
 
             ! Solve for p_n (see notes)
-            fdmi_int2%lhs(nx, ik ,ii, :) = 0.0_wp
-            fdmi_int2%lhs(nx, ik, ii, ndr - 2:ndr) = -coef([4, 3, 2])/coef(1)  ! vector d_n-1
-            fdmi_int2%rhs_t(idl, ik, ii, :) = 0.0_wp
-            fdmi_int2%rhs_t(idl, ik, ii, idl) = 1.0_wp/coef(1)                 ! coefficient d_n
-            fdmi_int2%rhs_t(idl, ik, ii, idl - 1) = -coef(5)/coef(1)           ! vector e_n-1, only 1 component
+            fdmi_int2%lhs(ik, ii, nx, :) = 0.0_wp
+            fdmi_int2%lhs(ik, ii, nx, ndr - 2:ndr) = -coef([4, 3, 2])/coef(1)  ! vector d_n-1
+            fdmi_int2%rhs_t(ik, ii, idl, :) = 0.0_wp
+            fdmi_int2%rhs_t(ik, ii, idl, idl) = 1.0_wp/coef(1)                 ! coefficient d_n
+            fdmi_int2%rhs_t(ik, ii, idl, idl - 1) = -coef(5)/coef(1)           ! vector e_n-1, only 1 component
 
             ! Construct vector d + lambda^2h^2 e, e only 1 component
-            fdmi_int2%lhs(nx, ik, ii, ndr) = fdmi_int2%lhs(nx, ik, ii, ndr) + lambda2*fdmi_int2%rhs_t(idl, ik, ii, idl - 1)
+            fdmi_int2%lhs(ik, ii, nx, ndr) = fdmi_int2%lhs(ik, ii, nx, ndr) + lambda2*fdmi_int2%rhs_t(ik, ii, idl, idl - 1)
 
             ! Derived coefficients; contribution from -b^R_{2n} (see notes)
             ! fdmi_int2%lhs(nx - 1, 1:3) = fdmi_int2%lhs(nx - 1, 1:3) - fdmi_int2%rhs_t(idl - 1, idl + 1)*fdmi_int2%lhs(nx, ndr - 2:ndr)              ! in reduced C matrix
@@ -1072,13 +1072,13 @@ contains
             ! fdmi_int2%rhs_t(idl - 2, idl + 1) = fdmi_int2%rhs_t(idl - 2, idl + 1) + fdmi_int2%rhs_t(idl - 2, idl + 2)*fdmi_int2%rhs_t(idl, idl - 1)
 
             do ir = 1, idr - 1
-                fdmi_int2%lhs(nx - ir, ik, ii, ir - 1 + 1:ir - 1 + 3) = fdmi_int2%lhs(nx - ir, ik, ii, ir - 1 + 1:ir - 1 + 3) &
-                                                     - fdmi_int2%rhs_t(idl - ir, ik, ii, idl + ir)*fdmi_int2%lhs(nx, ik, ii, ndr - 2:ndr)              ! in reduced C matrix
+                fdmi_int2%lhs(ik, ii, nx - ir, ir - 1 + 1:ir - 1 + 3) = fdmi_int2%lhs(ik, ii, nx - ir, ir - 1 + 1:ir - 1 + 3) &
+                                                     - fdmi_int2%rhs_t(ik, ii, idl - ir, idl + ir)*fdmi_int2%lhs(ik, ii, nx, ndr - 2:ndr)              ! in reduced C matrix
 
-                fdmi_int2%rhs_t(idl - ir, ik, ii, idl + ir - 1) = fdmi_int2%rhs_t(idl - ir, ik, ii, idl + ir - 1) &
-                                                     + fdmi_int2%rhs_t(idl - ir, ik, ii, idl + ir)*fdmi_int2%rhs_t(idl, ik, ii, idl - 1)      ! in reduced A matrix
+                fdmi_int2%rhs_t(ik, ii, idl - ir, idl + ir - 1) = fdmi_int2%rhs_t(ik, ii, idl - ir, idl + ir - 1) &
+                                                     + fdmi_int2%rhs_t(ik, ii, idl - ir, idl + ir)*fdmi_int2%rhs_t(ik, ii, idl, idl - 1)      ! in reduced A matrix
 
-                fdmi_int2%rhs_t(idl - ir, ik, ii, idl + ir) = fdmi_int2%rhs_t(idl - ir, ik, ii, idl + ir)*fdmi_int2%rhs_t(idl, ik, ii, idl)                ! d_n b^R_{2n}
+                fdmi_int2%rhs_t(ik, ii, idl - ir, idl + ir) = fdmi_int2%rhs_t(ik, ii, idl - ir, idl + ir)*fdmi_int2%rhs_t(ik, ii, idl, idl)                ! d_n b^R_{2n}
             end do
 
         end if
@@ -1086,28 +1086,28 @@ contains
         ! -------------------------------------------------------------------
         ! normalization such that new central diagonal in rhs is 1
         do ir = 2, max(idr, idl + 1)
-            dummy = 1.0_wp/fdmi_int2%rhs(ir, ik, ii, idl)
-            fdmi_int2%rhs_b(ir, ik, ii, 0:ndl) = fdmi_int2%rhs_b(ir, ik, ii, 0:ndl)*dummy
+            dummy = 1.0_wp/fdmi_int2%rhs(ik, ii, ir, idl)
+            fdmi_int2%rhs_b(ik, ii, ir, 0:ndl) = fdmi_int2%rhs_b(ik, ii, ir,0:ndl)*dummy
 
-            dummy = 1.0_wp/fdmi_int2%rhs(nx - ir + 1, ik, ii, idl)
-            fdmi_int2%rhs_t(idl - ir + 1, ik, ii, 1:ndl + 1) = fdmi_int2%rhs_t(idl - ir + 1, ik, ii, 1:ndl + 1)*dummy
+            dummy = 1.0_wp/fdmi_int2%rhs(ik, ii, nx - ir + 1, idl)
+            fdmi_int2%rhs_t(ik, ii, idl - ir + 1, 1:ndl + 1) = fdmi_int2%rhs_t(ik, ii, idl - ir + 1, 1:ndl + 1)*dummy
 
-            dummy = 1.0_wp/fdmi_int2%rhs(ir, ik, ii, idl)
-            fdmi_int2%rhs(ir, ik, ii, 1:ndl) = fdmi_int2%rhs(ir, ik, ii, 1:ndl)*dummy
-            fdmi_int2%lhs(ir, ik, ii, 1:ndr) = fdmi_int2%lhs(ir, ik, ii, 1:ndr)*dummy
+            dummy = 1.0_wp/fdmi_int2%rhs(ik, ii, ir, idl)
+            fdmi_int2%rhs(ik, ii, ir, 1:ndl) = fdmi_int2%rhs(ik, ii, ir, 1:ndl)*dummy
+            fdmi_int2%lhs(ik, ii, ir, 1:ndr) = fdmi_int2%lhs(ik, ii, ir, 1:ndr)*dummy
 
-            dummy = 1.0_wp/fdmi_int2%rhs(nx - ir + 1, ik, ii, idl)
-            fdmi_int2%rhs(nx - ir + 1, ik, ii, 1:ndl) = fdmi_int2%rhs(nx - ir + 1, ik, ii, 1:ndl)*dummy
-            fdmi_int2%lhs(nx - ir + 1, ik, ii, 1:ndr) = fdmi_int2%lhs(nx - ir + 1, ik, ii, 1:ndr)*dummy
+            dummy = 1.0_wp/fdmi_int2%rhs(ik, ii, nx - ir + 1, idl)
+            fdmi_int2%rhs(ik, ii, nx - ir + 1, 1:ndl) = fdmi_int2%rhs(ik, ii, nx - ir + 1, 1:ndl)*dummy
+            fdmi_int2%lhs(ik, ii, nx - ir + 1, 1:ndr) = fdmi_int2%lhs(ik, ii, nx - ir + 1, 1:ndr)*dummy
 
         end do
 
         ! interior points: normalization such that 1. upper-diagonal is 1
         do ir = max(idr, idl + 1) + 1, nx - max(idr, idl + 1)
-            dummy = 1.0_wp/fdmi_int2%rhs(ir, ik, ii, idl + 1)
+            dummy = 1.0_wp/fdmi_int2%rhs(ik, ii, ir, idl + 1)
 
-            fdmi_int2%rhs(ir, ik, ii, 1:ndl) = fdmi_int2%rhs(ir, ik, ii, 1:ndl)*dummy
-            fdmi_int2%lhs(ir, ik, ii, 1:ndr) = fdmi_int2%lhs(ir, ik, ii, 1:ndr)*dummy
+            fdmi_int2%rhs(ik, ii, ir, 1:ndl) = fdmi_int2%rhs(ik, ii, ir, 1:ndl)*dummy
+            fdmi_int2%lhs(ik, ii, ir, 1:ndr) = fdmi_int2%lhs(ik, ii, ir, 1:ndr)*dummy
 
         end do
 
@@ -1245,8 +1245,8 @@ contains
         integer(wi) nlines, ilines, klines
         type(fdm_integral_dt2), intent(in) :: fdmi_int2
         real(wp), intent(in) :: rhsi(:, :)
-        real(wp), intent(in) :: f(1:2*size(fdmi_int2%lhs, 1), 1:klines, 1:ilines)
-        real(wp), intent(inout) :: result(1:nlines, 1:size(fdmi_int2%lhs, 1), 1:klines, 1:ilines)   ! contains bcs
+        real(wp), intent(in) :: f(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines)
+        real(wp), intent(inout) :: result(1:nlines, 1:size(fdmi_int2%lhs, 3), 1:klines, 1:ilines)   ! contains bcs
         real(wp), intent(inout) :: wrk2d(nlines, 2, klines, ilines)
 
         ! -------------------------------------------------------------------
@@ -1254,7 +1254,7 @@ contains
         integer(wi) :: clock_0, clock_1, clock_cycle
 
         ! ###################################################################
-        nx = size(fdmi_int2%lhs, 1)
+        nx = size(fdmi_int2%lhs, 3)
         ndl = size(fdmi_int2%lhs, 4)
         ndr = size(rhsi, 2)
 
@@ -1265,10 +1265,10 @@ contains
 
         select case (ndr)
         case (3)
-            call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:2*size(fdmi_int2%lhs, 1), 1:klines, 1:ilines), &
+            call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines), &
             result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(1:nlines, 1, 1:klines, 1:ilines), bcs_t=wrk2d(1:nlines, 2, 1:klines, 1:ilines))
         case (5)
-            call MatMul_5d_APU(nlines, ilines, klines, nx, fdmi_int2, rhsi(:, 1:5), f(1:2*size(fdmi_int2%lhs, 1), 1:klines, 1:ilines), &
+            call MatMul_5d_APU(nlines, ilines, klines, nx, fdmi_int2, rhsi(:, 1:5), f(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines), &
             result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(1:nlines, 1, 1:klines, 1:ilines), bcs_t=wrk2d(1:nlines, 2, 1:klines, 1:ilines))
         end select
 
@@ -1302,15 +1302,15 @@ contains
                 if ((BCS_ND == bcs) .or. (BCS_NN == bcs) ) then
                     do j = 1, nlines
                         result(j, 1, k, i) = wrk2d(j, 1, k, i) &
-                                + fdmi_int2%lhs(1, k, i, 1)*result(j, 2, k, i) + fdmi_int2%lhs(1, k, i, 2)*result(j, 3, k, i) + fdmi_int2%lhs(1, k, i, 3)*result(j, 4, k, i)
+                                + fdmi_int2%lhs(k, i, 1, 1)*result(j, 2, k, i) + fdmi_int2%lhs(k, i, 1, 2)*result(j, 3, k, i) + fdmi_int2%lhs(k, i, 1, 3)*result(j, 4, k, i)
                     end do
                 end if
 
                 if ((BCS_DN == bcs) .or. (BCS_NN == bcs)) then
                     do j = 1, nlines
                         result(j, nx, k, i) = wrk2d(j, 2, k, i) &
-                                    + fdmi_int2%lhs(nx, k, i, ndl)*result(j, nx - 1, k, i) + fdmi_int2%lhs(nx, k, i, ndl - 1)*result(j, nx - 2, k, i) &
-                                    + fdmi_int2%lhs(nx, k, i, ndl - 2)*result(j, nx - 3, k, i)
+                                    + fdmi_int2%lhs(k, i, nx, ndl)*result(j, nx - 1, k, i) + fdmi_int2%lhs(k, i, nx, ndl - 1)*result(j, nx - 2, k, i) &
+                                    + fdmi_int2%lhs(k, i, nx, ndl - 2)*result(j, nx - 3, k, i)
                     end do
                 end if
             end do

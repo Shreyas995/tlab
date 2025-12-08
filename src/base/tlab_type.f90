@@ -29,7 +29,7 @@ module Tlab_Type
         real(wp), allocatable :: rhs(:, :)
     end type fdm_integral_dt
 
-        type, public :: fdm_integral_dt2
+    type, public :: fdm_integral_dt2
         sequence
         integer mode_fdm                               ! original finite-difference method; only informative
         real(wp), allocatable :: lambda(:,:)                           ! constant of the equation
