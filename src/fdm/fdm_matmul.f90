@@ -10,6 +10,7 @@ module FDM_MatMul
     use TLab_Constants, only: BCS_NONE, BCS_MIN, BCS_MAX, BCS_BOTH
     use TLab_Constants, only: BCS_PERIODIC
     use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
+    use TLab_Debug
     implicit none
     private
 
@@ -320,6 +321,7 @@ contains
         integer(wi) pa, pb, pc, pd, pe, pf
         integer(wi) lp0, lp1, lp2, lp3, lp4, lp5, lp6, lp7
         ! #######################################################################
+
         len = size(f,1)
 
         lp0 = 2*nx; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3 
@@ -335,6 +337,10 @@ contains
                     !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
                     !$omp if (ilines*klines*nx > mas)
 #endif
+                    call TLab_Debug_Print_3D('MatMul_3d_APU bcs_b 1 : ', bcs_b)
+                    call TLab_Debug_Print_4D('MatMul_3d_APU f 1 : ', f)
+                    call TLab_Debug_Print_3D('MatMul_3d_APU bcs_t 1 : ', bcs_t)
+
                     do i = 1, ilines
                         do k = 1, klines
                             bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
@@ -350,6 +356,10 @@ contains
                             bcs_t(:, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(:, nx, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
                         end do
                     end do
+                    call TLab_Debug_Print_3D('MatMul_3d_APU bcs_b 2 : ', bcs_b)
+                    call TLab_Debug_Print_4D('MatMul_3d_APU f 2 : ', f)
+                    call TLab_Debug_Print_3D('MatMul_3d_APU bcs_t 2 : ', bcs_t)
+                    print *, 'this should be printed'
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -373,6 +383,7 @@ contains
                             f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
                         end do
                     end do
+                    print *, 'this should not be printed'
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -397,6 +408,8 @@ contains
                             bcs_t(:, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(:, nx, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
                         end do
                     end do
+                    print *, 'this should not be printed'
+
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -420,6 +433,8 @@ contains
                             f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
                         end do
                     end do
+                    print *, 'this should not be printed'
+
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -447,6 +462,8 @@ contains
                             f(:, nx, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
                         end do
                     end do
+                    print *, 'this should not be printed'
+
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -471,6 +488,8 @@ contains
                             f(:, nx, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
                         end do
                     end do
+                    print *, 'this should not be printed'
+
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -499,6 +518,8 @@ contains
                             bcs_t(:, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(:, nx, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
                         end do
                     end do
+                    print *, 'this should not be printed'
+
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -522,6 +543,8 @@ contains
                             f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
                         end do
                     end do
+                    print *, 'this should not be printed'
+
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -547,6 +570,8 @@ contains
                         f(:, nx, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
                     end do
                 end do
+                    print *, 'this should not be printed'
+
 #ifdef USE_APU
                 !$omp end target teams distribute parallel do
 #endif

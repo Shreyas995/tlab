@@ -1262,7 +1262,7 @@ contains
         call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 2, result: ', result)
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 3, bcs_b: ', p2_wrk2d(:,:,:,1))
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 4, bcs_t: ', p2_wrk2d(:,:,:,2))
-
+        print *, ndr, ndl, nx
         select case (ndr)
         case (3)
             call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines), &
