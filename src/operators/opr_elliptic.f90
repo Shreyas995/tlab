@@ -11,7 +11,7 @@ module OPR_Elliptic
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop, stagger_on
     use TLab_Arrays, only: wrk1d, wrk2d, wrk3d
     use TLab_Pointers_C, only: c_wrk3d
-    use TLab_Pointers_3D, only: p_wrk2d
+    use TLab_Pointers_3D, only: p_wrk2d, p2_wrk2d
     use TLab_Grid, only: y
     use Tlab_Type
     use Tlab_Debug
@@ -414,7 +414,7 @@ contains
         call c_f_pointer(c_loc(tmp1), c_tmp1, shape=[isize_txc_field])
         call c_f_pointer(c_loc(tmp2), c_tmp2, shape=[isize_txc_field])
         p_wrk3d(1:2*ny, 1:nz, 1:nx/2 + 1) => wrk3d(1:isize_txc_field)
-        call c_f_pointer(c_loc(wrk2d), p_wrk2d, shape=[4,isize_line, nz])
+        call c_f_pointer(c_loc(wrk2d), p2_wrk2d, shape=[2, isize_line, nz, 2])
         
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 0, tmp2 ',tmp2)
 
@@ -484,7 +484,7 @@ contains
             call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 13, u ', u(:,:,:))
             call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 14, f ', f(:,:,:))
 
-            call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2, rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p_wrk2d(:,:,:))
+            call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2, rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p2_wrk2d(1:2, 1:nz, 1:i_max, 1:2))
             
             call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 15, u ', u(:,:,:))
             

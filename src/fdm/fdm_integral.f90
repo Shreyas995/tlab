@@ -1239,7 +1239,7 @@ contains
         return
     end subroutine FDM_Int2_Solve
 
-    subroutine FDM_Int2_Solve_APU(nlines, ilines, klines, fdmi_int2, rhsi, f, result, wrk2d)
+    subroutine FDM_Int2_Solve_APU(nlines, ilines, klines, fdmi_int2, rhsi, f, result, p2_wrk2d)
         use TLab_Time, only: fdm_solve2_time
         use TLab_Debug
         integer(wi) nlines, ilines, klines
@@ -1247,7 +1247,7 @@ contains
         real(wp), intent(in) :: rhsi(:, :)
         real(wp), intent(in) :: f(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines)
         real(wp), intent(inout) :: result(1:nlines, 1:size(fdmi_int2%lhs, 3), 1:klines, 1:ilines)   ! contains bcs
-        real(wp), intent(inout) :: wrk2d(nlines, 2, klines, ilines)
+        real(wp), intent(inout) :: p2_wrk2d(nlines, klines, ilines, 2)
 
         ! -------------------------------------------------------------------
         integer(wi) :: nx, ndl, ndr, i, j, k, bcs
@@ -1260,22 +1260,22 @@ contains
 
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 1, f: ', f)
         call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 2, result: ', result)
-        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 3, bcs_b: ', wrk2d(:,1,:,:))
-        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 4, bcs_t: ', wrk2d(:,2,:,:))
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 3, bcs_b: ', p2_wrk2d(:,:,:,1))
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 4, bcs_t: ', p2_wrk2d(:,:,:,2))
 
         select case (ndr)
         case (3)
             call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines), &
-            result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(1:nlines, 1, 1:klines, 1:ilines), bcs_t=wrk2d(1:nlines, 2, 1:klines, 1:ilines))
+            result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 1), bcs_t=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 2))
         case (5)
             call MatMul_5d_APU(nlines, ilines, klines, nx, fdmi_int2, rhsi(:, 1:5), f(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines), &
-            result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=wrk2d(1:nlines, 1, 1:klines, 1:ilines), bcs_t=wrk2d(1:nlines, 2, 1:klines, 1:ilines))
+            result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 1), bcs_t=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 2))
         end select
 
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 5, f: ', f)
         call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 6, result: ', result)
-        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 7, bcs_b: ', wrk2d(:,1,:,:))
-        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 8, bcs_t: ', wrk2d(:,2,:,:))
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 7, bcs_b: ', p2_wrk2d(:,:,:,1))
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 8, bcs_t: ', p2_wrk2d(:,:,:,2))
         
         ! Solve pentadiagonal linear system
         select case (ndl)
@@ -1306,14 +1306,14 @@ contains
                 !   Corrections to the BCS_DD to account for Neumann
                 if ((BCS_ND == bcs) .or. (BCS_NN == bcs) ) then
                     do j = 1, nlines
-                        result(j, 1, k, i) = wrk2d(j, 1, k, i) &
+                        result(j, 1, k, i) = p2_wrk2d(j, k, i, 1) &
                                 + fdmi_int2%lhs(k, i, 1, 1)*result(j, 2, k, i) + fdmi_int2%lhs(k, i, 1, 2)*result(j, 3, k, i) + fdmi_int2%lhs(k, i, 1, 3)*result(j, 4, k, i)
                     end do
                 end if
 
                 if ((BCS_DN == bcs) .or. (BCS_NN == bcs)) then
                     do j = 1, nlines
-                        result(j, nx, k, i) = wrk2d(j, 2, k, i) &
+                        result(j, nx, k, i) = p2_wrk2d(j, k, i, 2) &
                                     + fdmi_int2%lhs(k, i, nx, ndl)*result(j, nx - 1, k, i) + fdmi_int2%lhs(k, i, nx, ndl - 1)*result(j, nx - 2, k, i) &
                                     + fdmi_int2%lhs(k, i, nx, ndl - 2)*result(j, nx - 3, k, i)
                     end do

@@ -88,6 +88,7 @@ module TLab_Pointers_3D
     real(wp), pointer :: tmp8(:, :, :) => null()
     real(wp), pointer :: tmp9(:, :, :) => null()
 
+    real(wp), pointer :: p2_wrk2d(:, :, :, :) => null()
 end module TLab_Pointers_3D
 
 ! ###################################################################
@@ -124,7 +125,7 @@ module TLab_Memory
     integer(wi), public :: isize_wrk3d = 0                      ! 3D scratch array (only 1)
     integer(wi), public :: isize_txc_field = 0, inb_txc         ! 3D arrays for intermediate calculations
     integer(wi), public :: isize_txc_dimz                       ! partition for MPI data transposition
-    integer(wi), public :: isize_line                           ! max size of a line in opr_elleptic
+    integer(wi), public :: isize_line                           ! max size of a line in opr_elliptic
 
     character*128 :: str, line
     integer :: ierr
@@ -271,8 +272,8 @@ contains
         ! if (allocated(q)) p_q(1:imax, 1:jmax, 1:kmax, 1:inb_flow_array) => q(1:isize_field*inb_flow_array, 1)
         ! if (allocated(s)) p_s(1:imax, 1:jmax, 1:kmax, 1:inb_scal_array) => s(1:isize_field*inb_scal_array, 1)
         if (allocated(wrk3d)) call c_f_pointer(c_loc(wrk3d), p_wrk3d, shape=[imax, jmax, kmax])
-        !p_wrk3d(1:imax, 1:jmax, 1:kmax) => wrk3d(1:isize_field)
         if (allocated(wrk2d)) p_wrk2d(1:imax, 1:kmax, 1:inb_wrk2d) => wrk2d(1:imax*kmax*inb_wrk2d, 1)    ! this is the most common wrk2d dimensions
+        ! if (allocated(wrk2d)) p2_wrk2d(1:2,1:imax/2,1:kmax,1:inb_wrk2d) => wrk2d(1:imax*kmax*inb_wrk2d, 1)
         if (allocated(wrk1d)) p_wrk1d(1:jmax, 1:inb_wrk1d) => wrk1d(1:jmax*inb_wrk1d, 1)                 ! this is the most common wrk1d dimensions
 
         idummy = shape(txc)
