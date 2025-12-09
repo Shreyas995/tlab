@@ -8,6 +8,7 @@
 !#              Created
 !# 2011/11/01 - C. Ansorge
 !#              OpenMP Optimization
+!# 2025/12/08 - S. Deshpande
 !#
 !########################################################################
 !# DESCRIPTION
@@ -51,11 +52,6 @@ contains
 
     ! -------------------------------------------------------------------
         integer(wi) ::  i, k, n, l    
-    ! -------------------------------------------------------------------
-    ! Profiling
-    ! -------------------------------------------------------------------
-        integer(wi) :: clock_0, clock_1, clock_cycle
-        CALL SYSTEM_CLOCK(clock_0,clock_cycle)
     ! ###################################################################
     ! -----------------------------------------------------------------------
     ! Forward sweep
@@ -73,7 +69,7 @@ contains
             do k = 1, klen
                 do l = 1, len
                     do n = 3, nmax
-                        f(l, n, k, i) = f(l, n, k, i) + fdmi%lhs(n, k, i ,1)*f(l, n-1, k, i)
+                        f(l, n, k, i) = f(l, n, k, i) + fdmi%lhs(k, i ,n ,1)*f(l, n-1, k, i)
                     end do
                 end do
         ! -----------------------------------------------------------------------
@@ -81,12 +77,12 @@ contains
         ! -----------------------------------------------------------------------
                 n = nmax - 1
                 do l = 1, len
-                    f(l, nmax, k, i) = f(l, nmax, k, i)*fdmi%lhs(nmax, k, i, 2)
+                    f(l, nmax, k, i) = f(l, nmax, k, i)*fdmi%lhs(k, i, nmax, 2)
                 end do
 
                 do l = 1, len
                     do n = nmax - 2, 1, -1
-                        f(l, n, k, i) = f(l, n, k, i) + fdmi%lhs(n, k, i, 3)*f(l, n+1, k, i)*fdmi%lhs(n, k, i, 2)
+                        f(l, n, k, i) = f(l, n, k, i) + fdmi%lhs(k, i, n, 3)*f(l, n+1, k, i)*fdmi%lhs(k, i, n, 2)
                     end do
                 end do
             end do
@@ -95,8 +91,6 @@ contains
         !$omp end target teams distribute parallel do
 #endif
         999 continue
-        CALL SYSTEM_CLOCK(clock_1,clock_cycle)
-        tridss_time = tridss_time + real(clock_1 - clock_0)/real(clock_cycle)
         return
     end subroutine TRIDSS_APU
 !########################################################################
@@ -111,12 +105,6 @@ contains
         ! -----------------------------------------------------------------------
         integer(wi) n, i, k, l
         ! -----------------------------------------------------------------------
-        ! Profiling
-        ! -----------------------------------------------------------------------
-        integer(wi) :: clock_0, clock_1, clock_cycle
-        ! #######################################################################
-        CALL SYSTEM_CLOCK(clock_0,clock_cycle) 
-        ! -----------------------------------------------------------------------
         ! Solve Ly=f, forward
         ! -----------------------------------------------------------------------
 #ifdef USE_APU
@@ -128,9 +116,9 @@ contains
         do i = 1, ilen
             do k = 1, klen
                 do l = 1, len
-                    f(l, 3, k, i) = f(l, 3, k, i) + f(l, 3 - 1, k, i)*fdmi%lhs(3, k, i, 2)
+                    f(l, 3, k, i) = f(l, 3, k, i) + f(l, 3 - 1, k, i)*fdmi%lhs(k, i, 3, 2)
                     do n = 4, nmax - 1
-                        f(l, n, k, i) = f(l, n, k, i) + f(l, n - 1, k, i)*fdmi%lhs(n, k, i, 2) + f(l, n - 2, k, i)*fdmi%lhs(n, k, i, 1)
+                        f(l, n, k, i) = f(l, n, k, i) + f(l, n - 1, k, i)*fdmi%lhs(k, i, n, 2) + f(l, n - 2, k, i)*fdmi%lhs(k, i, n, 1)
                     end do
                 ! end do
 
@@ -138,10 +126,10 @@ contains
                 ! Solve Ux=y, backward
                 ! -----------------------------------------------------------------------
                 ! do l = 1, len
-                    f(l, nmax - 1, k, i) = f(l, nmax - 1, k, i)*fdmi%lhs(nmax - 1, k, i, 3)
-                    f(l, nmax - 2, k, i) = (f(l, nmax - 2, k, i) + f(l, nmax - 2 + 1, k, i)*fdmi%lhs(nmax - 2, k, i, 4))*fdmi%lhs(nmax - 2, k, i, 3)
+                    f(l, nmax - 1, k, i) = f(l, nmax - 1, k, i)*fdmi%lhs(k, i, nmax - 1, 3)
+                    f(l, nmax - 2, k, i) = (f(l, nmax - 2, k, i) + f(l, nmax - 2 + 1, k, i)*fdmi%lhs(k, i, nmax - 2, 4))*fdmi%lhs(k, i, nmax - 2, 3)
                     do n = nmax - 3, 2, -1
-                        f(l, n, k, i) = (f(l, n, k, i) + f(l, n + 1, k, i)*fdmi%lhs(n, k, i, 4) + f(l, n + 2, k, i)*fdmi%lhs(n, k, i, 5))*fdmi%lhs(n, k, i, 3)
+                        f(l, n, k, i) = (f(l, n, k, i) + f(l, n + 1, k, i)*fdmi%lhs(k, i, n, 4) + f(l, n + 2, k, i)*fdmi%lhs(k, i, n, 5))*fdmi%lhs(k, i, n, 3)
                     end do
                 end do
             end do
@@ -149,8 +137,6 @@ contains
 #ifdef USE_APU
         !$omp end target teams distribute parallel do
 #endif
-        CALL SYSTEM_CLOCK(clock_1,clock_cycle) 
-        pentadss_time = pentadss_time + real(clock_1 - clock_0)/real(clock_cycle)
         return
     end subroutine PENTADSS_APU
 !########################################################################
@@ -164,11 +150,6 @@ contains
 
     ! -----------------------------------------------------------------------
         integer(wi) n, ij, i, k
-    ! -----------------------------------------------------------------------
-    ! Profiling
-    ! -----------------------------------------------------------------------
-        integer(wi) :: clock_0, clock_1, clock_cycle
-        CALL SYSTEM_CLOCK(clock_0,clock_cycle)
     ! #######################################################################
     ! -----------------------------------------------------------------------
     ! Solve Ly=frc, forward
@@ -180,14 +161,14 @@ contains
         do i = 1, ilen
             do k = 1, klen
                 do ij = 1, len
-                    frc(ij, 2, k, i) = frc(ij, 2, k, i)*fdmi%lhs(1, k, i, 3) ! Normalize first eqn. See HEPTADFS
-                    frc(ij, 3, k, i) = frc(ij, 3, k, i) - frc(ij, 2, k, i)*fdmi%lhs(2, k, i, 3)
-                    frc(ij, 4, k, i) = frc(ij, 4, k, i) - frc(ij, 3, k, i)*fdmi%lhs(3, k, i, 3) - frc(ij, 2, k, i)*fdmi%lhs(3, k, i, 2)
+                    frc(ij, 2, k, i) = frc(ij, 2, k, i)*fdmi%lhs(k, i, 1, 3) ! Normalize first eqn. See HEPTADFS
+                    frc(ij, 3, k, i) = frc(ij, 3, k, i) - frc(ij, 2, k, i)*fdmi%lhs(k, i, 2, 3)
+                    frc(ij, 4, k, i) = frc(ij, 4, k, i) - frc(ij, 3, k, i)*fdmi%lhs(k, i, 3, 3) - frc(ij, 2, k, i)*fdmi%lhs(k, i, 3, 2)
                 end do
 
                 do n = 5, nmax-1
                     do ij = 1, len
-                        frc(ij, n, k, i) = frc(ij, n, k, i) - frc(ij, n-1, k, i)*fdmi%lhs(n, k, i, 3) - frc(ij, n-2, k, i)*fdmi%lhs(n, k, i, 2) - frc(ij, n - 3, k, i)*fdmi%lhs(n, k, i, 1)
+                        frc(ij, n, k, i) = frc(ij, n, k, i) - frc(ij, n-1, k, i)*fdmi%lhs(k, i, n, 3) - frc(ij, n-2, k, i)*fdmi%lhs(k, i, n, 2) - frc(ij, n - 3, k, i)*fdmi%lhs(k, i, n, 1)
                     end do
                 end do
                 ! -----------------------------------------------------------------------
@@ -195,9 +176,9 @@ contains
                 ! -----------------------------------------------------------------------
                 n = nmax - 1
                 do ij = 1, len
-                    frc(ij, n, k, i) = frc(ij, n, k, i)/fdmi%lhs(n, k, i, 4)
-                    frc(ij, n-1, k, i) = (frc(ij, n-1, k, i) - frc(ij, n, k, i)*fdmi%lhs(n-1, k, i, 5))/fdmi%lhs(n-1, k, i, 4)
-                    frc(ij, n-2, k, i) = (frc(ij, n-2, k, i) - frc(ij, n-1, k, i)*fdmi%lhs(n-2, k, i, 5) - frc(ij, n, k, i)*fdmi%lhs(n-2, k, i, 6))/fdmi%lhs(n-2, k, i, 4)
+                    frc(ij, n, k, i) = frc(ij, n, k, i)/fdmi%lhs(k, i, n, 4)
+                    frc(ij, n-1, k, i) = (frc(ij, n-1, k, i) - frc(ij, n, k, i)*fdmi%lhs(k, i, n-1, 5))/fdmi%lhs(k, i, n-1, 4)
+                    frc(ij, n-2, k, i) = (frc(ij, n-2, k, i) - frc(ij, n-1, k, i)*fdmi%lhs(k, i, n-2, 5) - frc(ij, n, k, i)*fdmi%lhs(k, i, n-2, 6))/fdmi%lhs(k, i, n-2, 4)
                 end do
 
                 do n = nmax - 4, 1, -1
@@ -205,7 +186,7 @@ contains
                     !$omp simd
 #endif
                     do ij = 1, len
-                        frc(ij, n, k, i) = (frc(ij, n, k, i) - frc(ij, n + 1, k, i)*fdmi%lhs(n, k, i, 5) - frc(ij, n + 2, k ,i)*fdmi%lhs(n, k, i, 6) - frc(ij, n + 3, k, i)*fdmi%lhs(n, k, i, 7))/fdmi%lhs(n, k, i, 4)
+                        frc(ij, n, k, i) = (frc(ij, n, k, i) - frc(ij, n + 1, k, i)*fdmi%lhs(k, i, n, 5) - frc(ij, n + 2, k ,i)*fdmi%lhs(k, i, n, 6) - frc(ij, n + 3, k, i)*fdmi%lhs(k, i, n, 7))/fdmi%lhs(k, i, n, 4)
                     end do
                 end do
             end do
@@ -213,8 +194,6 @@ contains
 #ifdef USE_APU
         !$omp end target teams distribute parallel do
 #endif
-        CALL SYSTEM_CLOCK(clock_1,clock_cycle)
-        heptadss_time = heptadss_time + real(clock_1 - clock_0)/real(clock_cycle)
         return
     end subroutine HEPTADSS_APU
 end module LinearDss
