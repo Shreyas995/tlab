@@ -78,7 +78,7 @@ module OPR_Elliptic
     real(wp), allocatable, target :: rhs_b(:, :), rhs_t(:, :)       ! rhs to free memory space
     type(fdm_integral_dt) :: fdm_int1_loc(2)
 
-    type(fdm_integral_dt2) :: fdm_int2                 ! direct method (moving 2D dimneions into the type)
+    type(fdm_integral_dt2), allocatable :: fdm_int2            ! direct method (moving 2D dimneions into the type)
     real(wp), allocatable, target :: rhs_d(:, :)                    ! rhs to free memory space
     type(fdm_integral_dt) :: fdm_int2_loc
 
@@ -164,8 +164,8 @@ contains
             ndl = fdm_loc%der2%nb_diag(1)
             ndr = fdm_loc%der2%nb_diag(2)
             nd = ndl
-            ! if (allocated(fdm_int2)) deallocate(fdm_int2)                       !(kmax, isize_line) moving the dimension inside fdm_int2
-            ! allocate (fdm_int2)
+            if (allocated(fdm_int2)) deallocate(fdm_int2)                       !(kmax, isize_line) moving the dimension inside fdm_int2
+            allocate (fdm_int2)
             allocate (fdm_int2%lambda(kmax, isize_line))
             allocate (fdm_int2%bc(kmax, isize_line))
             allocate (fdm_int2%rhs_b(kmax, isize_line ,1:5 ,0:7))                 ! # of diagonals is 7, # rows is 7/2+1
