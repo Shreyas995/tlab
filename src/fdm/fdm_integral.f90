@@ -1287,13 +1287,8 @@ contains
             call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines*nx, 1:klines, 1:ilines))
         end select
         
-        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 9, result: ', result)
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU: 9a fdm_int2%lhs ', fdmi_int2%lhs)
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU: 9c fdm_int2%rhs_b ', fdmi_int2%rhs_b)
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU: 9d fdm_int2%rhs_t ', fdmi_int2%rhs_t)
-        call TLab_Debug_Print_2D('FDM_Int2_Solve_APU: 9e fdm_int2%lambda ', fdmi_int2%lambda)
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 9 , after pentadiagonal solve, result: ', result)
 
-        
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i,j,k,bcs) &
@@ -1320,11 +1315,9 @@ contains
                 end if
             end do
         end do
-        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 10, result: ', result)
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU: 10a fdm_int2%lhs ', fdmi_int2%lhs)
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU: 10c fdm_int2%rhs_b ', fdmi_int2%rhs_b)
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU: 10d fdm_int2%rhs_t ', fdmi_int2%rhs_t)
-        call TLab_Debug_Print_2D('FDM_Int2_Solve_APU: 10e fdm_int2%lambda ', fdmi_int2%lambda)
+
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 9 , after pentadiagonal solve, result: ', result)
+
 #ifdef USE_APU
         !$omp end target teams distribute parallel do
 #endif
