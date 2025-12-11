@@ -312,7 +312,7 @@ contains
         type(fdm_integral_dt2), intent(in) :: fdmi                          ! rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
         real(wp), intent(in) :: rhs(:, :)                                   ! diagonals of B
         real(wp), intent(in) :: u(1:2*nx, 1:klines, 1:ilines)                                     ! vector u
-        real(wp), intent(out) :: f(1:2, 1:nx, 1:klines, 1:ilines)                                 ! vector f = B u
+        real(wp), intent(out) :: f(1:2*nx, 1:klines, 1:ilines)                                 ! vector f = B u
         integer, intent(in), optional :: ibc
         real(wp), intent(out), optional :: bcs_b(1:nlines, 1:klines, 1:ilines), bcs_t(1:nlines, 1:klines, 1:ilines)
 
@@ -321,11 +321,10 @@ contains
         integer(wi) pa, pb, pc, pd, pe, pf
         integer(wi) lp0, lp1, lp2, lp3, lp4, lp5, lp6, lp7
         ! #######################################################################
-
         len = size(f,1)
 
-        lp0 = 2*nx; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3 
-        lp5 = 2*nx - 5; lp4 = 2*nx - 4; lp7 = 2*nx - 7; lp6 = 2*nx - 6 
+        lp0 = lp0; lp1 = lp0 - 1; lp2 = lp0 - 2; lp3 = lp0 - 3 
+        lp5 = lp0 - 5; lp4 = lp0 - 4; lp7 = lp0 - 7; lp6 = lp0 - 6 
 
         ! -------------------------------------------------------------------
         ! Boundary; the first 3/2+1+1=3 rows might be different
@@ -338,28 +337,27 @@ contains
                     !$omp if (ilines*klines*nx > mas)
 #endif
                     call TLab_Debug_Print_3D('MatMul_3d_APU bcs_b 1 : ', bcs_b)
-                    call TLab_Debug_Print_4D('MatMul_3d_APU f 1 : ', f)
+                    call TLab_Debug_Print_3D('MatMul_3d_APU f 1 : ', f)
                     call TLab_Debug_Print_3D('MatMul_3d_APU bcs_t 1 : ', bcs_t)
 
                     do i = 1, ilines
                         do k = 1, klines
-                            bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
+                            bcs_b(1:2, k, i) = f(1:2, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
                             ! f(1) contains the boundary condition
-                            f(:, 2, k, i) = f(:, 1, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
-                            f(:, 3, k, i) = f(:, 1, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
+                            f(3:4, k, i) = f(1:2, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
+                            f(5:6, k, i) = f(1:2, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
                             do n = 4, nx - 3
                                 pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
-                                f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                                f(pc:pd, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
                             end do
-                            f(:, nx - 2, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(:, nx, k, i)*r4t(k, i, 0)
-                            f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
-                            bcs_t(:, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(:, nx, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
+                            f(lp5:lp4, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(lp1:lp0, k, i)*r4t(k, i, 0)
+                            f(lp3:lp2, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(lp1:lp0, k, i)*r3t(k, i, 1)
+                            bcs_t(1:2, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(lp1:lp0, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
                         end do
                     end do
                     call TLab_Debug_Print_3D('MatMul_3d_APU bcs_b 2 : ', bcs_b)
-                    call TLab_Debug_Print_4D('MatMul_3d_APU f 2 : ', f)
+                    call TLab_Debug_Print_3D('MatMul_3d_APU f 2 : ', f)
                     call TLab_Debug_Print_3D('MatMul_3d_APU bcs_t 2 : ', bcs_t)
-                    print *, 'this should be printed'
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -371,19 +369,19 @@ contains
 #endif
                     do i = 1, ilines
                         do k = 1, klines
-                            bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
+                            bcs_b(1:2, k, i) = f(1:2, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
                             ! f(1) contains the boundary condition
-                            f(:, 2, k, i) = f(:, 1, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
-                            f(:, 3, k, i) = f(:, 1, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
+                            f(3:4, k, i) = f(1:2, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
+                            f(5:6, k, i) = f(1:2, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
                             do n = 4, nx - 3
                                 pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
-                                f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                                f(pc:pd, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
                             end do
-                            f(:, nx - 2, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(:, nx, k, i)*r4t(k, i, 0)
-                            f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
+                            f(lp5:lp4, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(lp1:lp0, k, i)*r4t(k, i, 0)
+                            f(lp3:lp2, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(lp1:lp0, k, i)*r3t(k, i, 1)
                         end do
                     end do
-                    print *, 'this should not be printed'
+
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -397,19 +395,17 @@ contains
 #endif
                     do i = 1, ilines
                         do k = 1, klines
-                            f(:, 2, k, i) = f(:, 1, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
-                            f(:, 3, k, i) = f(:, 1, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
+                            f(3:4, k, i) = f(1:2, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
+                            f(5:6, k, i) = f(1:2, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
                             do n = 4, nx - 3
                                 pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
-                                f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                                f(pc:pd, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
                             end do
-                            f(:, nx - 2, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(:, nx, k, i)*r4t(k, i, 0)
-                            f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
-                            bcs_t(:, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(:, nx, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
+                            f(lp5:lp4, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(lp1:lp0, k, i)*r4t(k, i, 0)
+                            f(lp3:lp2, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(lp1:lp0, k, i)*r3t(k, i, 1)
+                            bcs_t(:, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(lp1:lp0, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
                         end do
                     end do
-                    print *, 'this should not be printed'
-
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -423,18 +419,16 @@ contains
                     do i = 1, ilines
                         do k = 1, klines
                             ! f(1) contains the boundary condition
-                            f(:, 2, k, i) = f(:, 1, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
-                            f(:, 3, k, i) = f(:, 1, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
+                            f(3:4, k, i) = f(1:2, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
+                            f(5:6, k, i) = f(1:2, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
                             do n = 4, nx - 3
                                 pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
-                                f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                                f(pc:pd, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
                             end do
-                            f(:, nx - 2, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(:, nx, k, i)*r4t(k, i, 0)
-                            f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
+                            f(lp5:lp4, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(lp1:lp0, k, i)*r4t(k, i, 0)
+                            f(lp3:lp2, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(lp1:lp0, k, i)*r3t(k, i, 1)
                         end do
                     end do
-                    print *, 'this should not be printed'
-
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -449,21 +443,19 @@ contains
 #endif
                     do i = 1, ilines
                         do k = 1, klines
-                            bcs_b(:, k, i) = f(:, 1, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
+                            bcs_b(:, k, i) = f(1:2, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
                             ! f(1) contains the boundary condition
-                            f(:, 2, k, i) = f(:, 1, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
-                            f(:, 3, k, i) = f(:, 1, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
+                            f(3:4, k, i) = f(1:2, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
+                            f(5:6, k, i) = f(1:2, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
                             do n = 4, nx - 3
                                 pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
-                                f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                                f(pc:pd, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
                             end do
-                            f(:, nx - 2, k, i) = u(lp7:lp6, k, i)*r1_i(nx - 2) + u(lp5:lp4, k, i)*r2_i(nx - 2) + u(lp3:lp2, k, i)*r3_i(nx - 2)
-                            f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1_i(nx - 1) + u(lp3:lp2, k, i)*r2_i(nx - 1) + u(lp1:lp0, k, i)*r3_i(nx - 1)
-                            f(:, nx, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
+                            f(lp5:lp4, k, i) = u(lp7:lp6, k, i)*r1_i(nx - 2) + u(lp5:lp4, k, i)*r2_i(nx - 2) + u(lp3:lp2, k, i)*r3_i(nx - 2)
+                            f(lp3:lp2, k, i) = u(lp5:lp4, k, i)*r1_i(nx - 1) + u(lp3:lp2, k, i)*r2_i(nx - 1) + u(lp1:lp0, k, i)*r3_i(nx - 1)
+                            f(lp1:lp0, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
                         end do
                     end do
-                    print *, 'this should not be printed'
-
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -477,19 +469,17 @@ contains
                     do i = 1, ilines
                         do k = 1, klines
                         ! f(1) contains the boundary condition
-                            f(:, 2, k, i) = f(:, 1, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
-                            f(:, 3, k, i) = f(:, 1, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
+                            f(3:4, k, i) = f(1:2, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
+                            f(5:6, k, i) = f(1:2, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
                             do n = 4, nx - 3
                                 pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
-                                f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                                f(pc:pd, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
                             end do
-                            f(:, nx - 2, k, i) = u(lp7:lp6, k, i)*r1_i(nx - 2) + u(lp5:lp4, k, i)*r2_i(nx - 2) + u(lp3:lp2, k, i)*r3_i(nx - 2)
-                            f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1_i(nx - 1) + u(lp3:lp2, k, i)*r2_i(nx - 1) + u(lp1:lp0, k, i)*r3_i(nx - 1)
-                            f(:, nx, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
+                            f(lp5:lp4, k, i) = u(lp7:lp6, k, i)*r1_i(nx - 2) + u(lp5:lp4, k, i)*r2_i(nx - 2) + u(lp3:lp2, k, i)*r3_i(nx - 2)
+                            f(lp3:lp2, k, i) = u(lp5:lp4, k, i)*r1_i(nx - 1) + u(lp3:lp2, k, i)*r2_i(nx - 1) + u(lp1:lp0, k, i)*r3_i(nx - 1)
+                            f(lp1:lp0, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
                         end do
                     end do
-                    print *, 'this should not be printed'
-
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -506,20 +496,18 @@ contains
 #endif
                     do i = 1, ilines
                         do k = 1, klines
-                            f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
-                            f(:, 2, k, i) = u(1:2, k, i)*r1_i(2) + u(3:4, k, i)*r2_i(2) + u(5:6, k, i)*r3_i(2)
-                            f(:, 3, k, i) = u(3:4, k, i)*r1_i(3) + u(5:6, k, i)*r2_i(3) + u(7:8, k, i)*r3_i(3)
+                            f(1:2, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
+                            f(3:4, k, i) = u(1:2, k, i)*r1_i(2) + u(3:4, k, i)*r2_i(2) + u(5:6, k, i)*r3_i(2)
+                            f(5:6, k, i) = u(3:4, k, i)*r1_i(3) + u(5:6, k, i)*r2_i(3) + u(7:8, k, i)*r3_i(3)
                             do n = 4, nx - 3
                                 pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
-                                f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                                f(pc:pd, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
                             end do
-                            f(:, nx - 2, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(:, nx, k, i)*r4t(k, i, 0)
-                            f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
-                            bcs_t(:, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(:, nx, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
+                            f(lp5:lp4, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(lp1:lp0, k, i)*r4t(k, i, 0)
+                            f(lp3:lp2, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(lp1:lp0, k, i)*r3t(k, i, 1)
+                            bcs_t(:, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(lp1:lp0, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
                         end do
                     end do
-                    print *, 'this should not be printed'
-
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -532,19 +520,17 @@ contains
 #endif
                     do i = 1, ilines
                         do k = 1, klines
-                            f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
-                            f(:, 2, k, i) = u(1:2, k, i)*r1_i(2) + u(3:4, k, i)*r2_i(2) + u(5:6, k, i)*r3_i(2)
-                            f(:, 3, k, i) = u(3:4, k, i)*r1_i(3) + u(5:6, k, i)*r2_i(3) + u(7:8, k, i)*r3_i(3)
+                            f(1:2, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
+                            f(3:4, k, i) = u(1:2, k, i)*r1_i(2) + u(3:4, k, i)*r2_i(2) + u(5:6, k, i)*r3_i(2)
+                            f(5:6, k, i) = u(3:4, k, i)*r1_i(3) + u(5:6, k, i)*r2_i(3) + u(7:8, k, i)*r3_i(3)
                             do n = 4, nx - 3
                                 pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
-                                f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                                f(pc:pd, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
                             end do
-                            f(:, nx - 2, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(:, nx, k, i)*r4t(k, i, 0)
-                            f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(:, nx, k, i)*r3t(k, i, 1)
+                            f(lp5:lp4, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(lp1:lp0, k, i)*r4t(k, i, 0)
+                            f(lp3:lp2, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(lp1:lp0, k, i)*r3t(k, i, 1)
                         end do
                     end do
-                    print *, 'this should not be printed'
-
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
@@ -558,20 +544,18 @@ contains
 #endif
                 do i = 1, ilines
                     do k = 1, klines
-                        f(:, 1, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
-                        f(:, 2, k, i) = u(1:2, k, i)*r1_i(2) + u(3:4, k, i)*r2_i(2) + u(5:6, k, i)*r3_i(2)
-                        f(:, 3, k, i) = u(3:4, k, i)*r1_i(3) + u(5:6, k, i)*r2_i(3) + u(7:8, k, i)*r3_i(3)
+                        f(1:2, k, i) = u(1:2, k, i)*r2_i(1) + u(3:4, k, i)*r3_i(1) + u(5:6, k, i)*r1_i(1)   ! r1(1) contains extended stencil
+                        f(3:4, k, i) = u(1:2, k, i)*r1_i(2) + u(3:4, k, i)*r2_i(2) + u(5:6, k, i)*r3_i(2)
+                        f(5:6, k, i) = u(3:4, k, i)*r1_i(3) + u(5:6, k, i)*r2_i(3) + u(7:8, k, i)*r3_i(3)
                         do n = 4, nx - 3
                             pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
-                            f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                            f(pc:pd, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
                         end do
-                        f(:, nx - 2, k, i) = u(lp7:lp6, k, i)*r1_i(nx - 2) + u(lp5:lp4, k, i)*r2_i(nx - 2) + u(lp3:lp2, k, i)*r3_i(nx - 2)
-                        f(:, nx - 1, k, i) = u(lp5:lp4, k, i)*r1_i(nx - 1) + u(lp3:lp2, k, i)*r2_i(nx - 1) + u(lp1:lp0, k, i)*r3_i(nx - 1)
-                        f(:, nx, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
+                        f(lp5:lp4, k, i) = u(lp7:lp6, k, i)*r1_i(nx - 2) + u(lp5:lp4, k, i)*r2_i(nx - 2) + u(lp3:lp2, k, i)*r3_i(nx - 2)
+                        f(lp3:lp2, k, i) = u(lp5:lp4, k, i)*r1_i(nx - 1) + u(lp3:lp2, k, i)*r2_i(nx - 1) + u(lp1:lp0, k, i)*r3_i(nx - 1)
+                        f(lp1:lp0, k, i) = u(lp5:lp4, k, i)*r3_i(nx) + u(lp3:lp2, k, i)*r1_i(nx) + u(lp1:lp0, k, i)*r2_i(nx) ! r3(nx) contains extended stencil
                     end do
                 end do
-                    print *, 'this should not be printed'
-
 #ifdef USE_APU
                 !$omp end target teams distribute parallel do
 #endif
@@ -1219,7 +1203,7 @@ contains
         type(fdm_integral_dt2), intent(in) :: fdmi   !rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
         real(wp), intent(in) :: rhs(:, :)
         real(wp), intent(in) :: u(1:2*nx, 1:klines, 1:ilines)           ! vector u
-        real(wp), intent(out) :: f(1:2, 1:nx, 1:klines, 1:ilines)       ! vector f = B u
+        real(wp), intent(out) :: f(1:2*nx, 1:klines, 1:ilines)       ! vector f = B u
         integer, intent(in) :: ibc
         real(wp), intent(out), optional :: bcs_b(:,:,:), bcs_t(:,:,:)
 
@@ -1247,15 +1231,15 @@ contains
 #endif
                 do i = 1, ilines
                     do k = 1, klines
-                        bcs_b(:, k, i) = f(:, 1, k, i)*r3b(k, i, 1) + u(3:4, k, i)*r4b(k, i, 1) + u(5:6, k, i)*r5b(k, i, 1) + u(7:8, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
-                        f(:, 2, k, i) = f(:, 1, k, i)*r2b(k, i, 2) + u(3:4, k, i)*r3b(k, i, 2) + u(5:6, k, i)*r4b(k, i, 2) + u(7:8, k, i)*r5b(k, i, 2)
-                        f(:, 3, k, i) = f(:, 1, k, i)*r1b(k, i, 3) + u(3:4, k, i)*r2b(k, i, 3) + u(5:6, k, i)*r3b(k, i, 3) + u(7:8, k, i)*r4b(k, i, 3) + u(9:10, k, i)*r5b(k, i, 3)
-                        f(:, 4, k, i) = f(:, 1, k, i)*r0b(k, i, 4)  + u(3:4, k, i)*r1b(k, i, 4) + u(5:6, k, i)*r2b(k, i, 4) + u(7:8, k, i)*r3b(k, i, 4) + u(9:10, k, i)*r4b(k, i, 4) + u(11:12, k, i)*r5b(k, i, 4)
+                        bcs_b(1:2, k, i) = f(1:2, k, i)*r3b(k, i, 1) + u(3:4, k, i)*r4b(k, i, 1) + u(5:6, k, i)*r5b(k, i, 1) + u(7:8, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
+                        f(3:4, k, i) = f(1:2, k, i)*r2b(k, i, 2) + u(3:4, k, i)*r3b(k, i, 2) + u(5:6, k, i)*r4b(k, i, 2) + u(7:8, k, i)*r5b(k, i, 2)
+                        f(5:6, k, i) = f(1:2, k, i)*r1b(k, i, 3) + u(3:4, k, i)*r2b(k, i, 3) + u(5:6, k, i)*r3b(k, i, 3) + u(7:8, k, i)*r4b(k, i, 3) + u(9:10, k, i)*r5b(k, i, 3)
+                        f(7:8, k, i) = f(1:2, k, i)*r0b(k, i, 4)  + u(3:4, k, i)*r1b(k, i, 4) + u(5:6, k, i)*r2b(k, i, 4) + u(7:8, k, i)*r3b(k, i, 4) + u(9:10, k, i)*r4b(k, i, 4) + u(11:12, k, i)*r5b(k, i, 4)
                         ! -------------------------------------------------------------------
                         ! Interior points; accelerate
                         do n = 5, nx - 4
                             pa = 2*n - 5; pb = 2*n - 4; pc = 2*n - 3; pd = 2*n - 2; pe = 2*n - 1; pf = 2*n; pg = 2*n + 1; ph = 2*n + 2; pi = 2*n + 3; pj = 2*n + 4
-                            f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)*r3_i(n) + u(pg:ph, k, i) + u(pi:pj, k, i)*r5_i(n)
+                            f(pe:pf, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)*r3_i(n) + u(pg:ph, k, i) + u(pi:pj, k, i)*r5_i(n)
                         end do
                     end do
                 end do  
@@ -1272,13 +1256,14 @@ contains
 #endif
                 do i = 1, ilines
                     do k = 1, klines
-                        f(:, 2, k, i) = f(:, 1, k, i)*r2b(k, i, 2) + u(3:4, k, i)*r3b(k, i, 2) + u(5:6, k, i)*r4b(k, i, 2) + u(7:8, k, i)*r5b(k, i, 2)
-                        f(:, 3, k, i) = f(:, 1, k, i)*r1b(k, i, 3) + u(3:4, k, i)*r2b(k, i, 3) + u(5:6, k, i)*r3b(k, i, 3) + u(7:8, k, i)*r4b(k, i, 3) + u(9:10, k, i)*r5b(k, i, 3)
-                        f(:, 4, k, i) = f(:, 1, k, i)*r0b(k, i, 4)  + u(3:4, k, i)*r1b(k, i, 4) + u(5:6, k, i)*r2b(k, i, 4) + u(7:8, k, i)*r3b(k, i, 4) + u(9:10, k, i)*r4b(k, i, 4) + u(11:12, k, i)*r5b(k, i, 4)
+                        f(3:4, k, i) = f(1:2, k, i)*r2b(k, i, 2) + u(3:4, k, i)*r3b(k, i, 2) + u(5:6, k, i)*r4b(k, i, 2) + u(7:8, k, i)*r5b(k, i, 2)
+                        f(5:6, k, i) = f(1:2, k, i)*r1b(k, i, 3) + u(3:4, k, i)*r2b(k, i, 3) + u(5:6, k, i)*r3b(k, i, 3) + u(7:8, k, i)*r4b(k, i, 3) + u(9:10, k, i)*r5b(k, i, 3)
+                        f(7:8, k, i) = f(1:2, k, i)*r0b(k, i, 4)  + u(3:4, k, i)*r1b(k, i, 4) + u(5:6, k, i)*r2b(k, i, 4) + u(7:8, k, i)*r3b(k, i, 4) + u(9:10, k, i)*r4b(k, i, 4) + u(11:12, k, i)*r5b(k, i, 4)
                         ! -------------------------------------------------------------------
                         ! Interior points; accelerate
                         do n = 5, nx - 4
-                            f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)*r3_i(n) + u(pg:ph, k, i) + u(pi:pj, k, i)*r5_i(n)
+                            pa = 2*n - 5; pb = 2*n - 4; pc = 2*n - 3; pd = 2*n - 2; pe = 2*n - 1; pf = 2*n; pg = 2*n + 1; ph = 2*n + 2; pi = 2*n + 3; pj = 2*n + 4
+                            f(pe:pf, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)*r3_i(n) + u(pg:ph, k, i) + u(pi:pj, k, i)*r5_i(n)
                         end do
                     end do
                 end do
@@ -1296,14 +1281,15 @@ contains
 #endif
             do i = 1, ilines
                 do k = 1, klines
-                    f(:, 1, k, i) = u(1:2, k, i)*r3_i(1) + u(3:4, k, i)*r4_i(1) + u(5:6, k, i)*r5_i(1) + u(7:8, k, i)*r1_i(1)   ! r1(1) contains extended stencil
-                    f(:, 2, k, i) = u(1:2, k, i)*r2_i(2) + u(3:4, k, i)*r3_i(2) + u(5:6, k, i)*r4_i(2) + u(7:8, k, i)*r5_i(2)
-                    f(:, 3, k, i) = u(1:2, k, i)*r1_i(3) + u(3:4, k, i)*r2_i(3) + u(5:6, k, i)*r3_i(3) + u(7:8, k, i)*r4_i(3) + u(9:10, k, i)*r5_i(3)
-                    f(:, 4, k, i) = u(3:4, k, i)*r1_i(4) + u(5:6, k, i)*r2_i(4) + u(7:8, k, i)*r3_i(4) + u(9:10, k, i)*r4_i(4) + u(11:12, k, i)*r5_i(4)
+                    f(1:2, k, i) = u(1:2, k, i)*r3_i(1) + u(3:4, k, i)*r4_i(1) + u(5:6, k, i)*r5_i(1) + u(7:8, k, i)*r1_i(1)   ! r1(1) contains extended stencil
+                    f(3:4, k, i) = u(1:2, k, i)*r2_i(2) + u(3:4, k, i)*r3_i(2) + u(5:6, k, i)*r4_i(2) + u(7:8, k, i)*r5_i(2)
+                    f(5:6, k, i) = u(1:2, k, i)*r1_i(3) + u(3:4, k, i)*r2_i(3) + u(5:6, k, i)*r3_i(3) + u(7:8, k, i)*r4_i(3) + u(9:10, k, i)*r5_i(3)
+                    f(7:8, k, i) = u(3:4, k, i)*r1_i(4) + u(5:6, k, i)*r2_i(4) + u(7:8, k, i)*r3_i(4) + u(9:10, k, i)*r4_i(4) + u(11:12, k, i)*r5_i(4)
                     ! -------------------------------------------------------------------
                     ! Interior points; accelerate
                     do n = 5, nx - 4
-                        f(:, n, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)*r3_i(n) + u(pg:ph, k, i) + u(pi:pj, k, i)*r5_i(n)
+                        pa = 2*n - 5; pb = 2*n - 4; pc = 2*n - 3; pd = 2*n - 2; pe = 2*n - 1; pf = 2*n; pg = 2*n + 1; ph = 2*n + 2; pi = 2*n + 3; pj = 2*n + 4
+                        f(pe:pf, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)*r3_i(n) + u(pg:ph, k, i) + u(pi:pj, k, i)*r5_i(n)
                     end do
                 end do
             end do
@@ -1324,10 +1310,10 @@ contains
 #endif
                 do i = 1, ilines
                     do k = 1, klines
-                        f(:, nx-3, k, i) = u(lp11:lp10, k, i)*r1t(i, k, 0) + u(lp9:lp8, k, i)*r2t(i, k, 0) + u(lp7:lp6, k, i)*r3t(i, k, 0) + u(lp5:lp4, k, i)*r4t(i, k, 0) + u(lp3:lp2, k, i)*r5t(i, k, 0) + f(:, nx, k, i)*r6t(i, k, 0)
-                        f(:, nx-2, k, i) = u(lp9:lp8, k, i)*r1t(i, k, 1) + u(lp7:lp6, k, i)*r2t(i, k, 1) + u(lp5:lp4, k, i)*r3t(i, k, 1) + u(lp3:lp2, k, i)*r4t(i, k, 1) + f(:, nx, k, i)*r5t(i, k, 1)
-                        f(:, nx-1, k, i) = u(lp7:lp6, k, i)*r1t(i, k, 2) + u(lp5:lp4, k, i)*r2t(i, k, 2) + u(lp3:lp2, k, i)*r3t(i, k, 2) + f(:, nx, k, i)*r4t(i, k, 2)
-                        bcs_t(:, k, i) = u(lp7:lp6, k, i)*r5t(i, k, 3) + u(lp5:lp4, k, i)*r1t(i, k, 3) + u(lp3:lp2, k, i)*r2t(i, k, 3) + f(:, nx, k, i)*r3t(i, k, 3) ! r5(nx) contains extended stencil
+                        f(lp7:lp6, k, i) = u(lp11:lp10, k, i)*r1t(i, k, 0) + u(lp9:lp8, k, i)*r2t(i, k, 0) + u(lp7:lp6, k, i)*r3t(i, k, 0) + u(lp5:lp4, k, i)*r4t(i, k, 0) + u(lp3:lp2, k, i)*r5t(i, k, 0) + f(lp1:lp0, k, i)*r6t(i, k, 0)
+                        f(lp4:lp5, k, i) = u(lp9:lp8, k, i)*r1t(i, k, 1) + u(lp7:lp6, k, i)*r2t(i, k, 1) + u(lp5:lp4, k, i)*r3t(i, k, 1) + u(lp3:lp2, k, i)*r4t(i, k, 1) + f(lp1:lp0, k, i)*r5t(i, k, 1)
+                        f(lp2:lp3, k, i) = u(lp7:lp6, k, i)*r1t(i, k, 2) + u(lp5:lp4, k, i)*r2t(i, k, 2) + u(lp3:lp2, k, i)*r3t(i, k, 2) + f(lp1:lp0, k, i)*r4t(i, k, 2)
+                        bcs_t(:, k, i) = u(lp7:lp6, k, i)*r5t(i, k, 3) + u(lp5:lp4, k, i)*r1t(i, k, 3) + u(lp3:lp2, k, i)*r2t(i, k, 3) + f(lp0:lp1, k, i)*r3t(i, k, 3) ! r5(nx) contains extended stencil
                     end do
                 end do
 #ifdef USE_APU
@@ -1342,9 +1328,9 @@ contains
 #endif
                 do i = 1, ilines
                     do k = 1, klines
-                        f(:, nx-3, k, i) = u(lp11:lp10, k, i)*r1t(i, k, 0) + u(lp9:lp8, k, i)*r2t(i, k, 0) + u(lp7:lp6, k, i)*r3t(i, k, 0) + u(lp5:lp4, k, i)*r4t(i, k, 0) + u(lp3:lp2, k, i)*r5t(i, k, 0) + f(:, nx, k, i)*r6t(i, k, 0)
-                        f(:, nx-2, k, i) = u(lp9:lp8, k, i)*r1t(i, k, 1) + u(lp7:lp6, k, i)*r2t(i, k, 1) + u(lp5:lp4, k, i)*r3t(i, k, 1) + u(lp3:lp2, k, i)*r4t(i, k, 1) + f(:, nx, k, i)*r5t(i, k, 1)
-                        f(:, nx, k, i) = u(lp7:lp6, k, i)*r1t(i, k, 2) + u(lp5:lp4, k, i)*r2t(i, k, 2) + u(lp3:lp2, k, i)*r3t(i, k, 2) + f(:, nx, k, i)*r4t(i, k, 2)
+                        f(lp7:lp6, k, i) = u(lp11:lp10, k, i)*r1t(i, k, 0) + u(lp9:lp8, k, i)*r2t(i, k, 0) + u(lp7:lp6, k, i)*r3t(i, k, 0) + u(lp5:lp4, k, i)*r4t(i, k, 0) + u(lp3:lp2, k, i)*r5t(i, k, 0) + f(lp1:lp0, k, i)*r6t(i, k, 0)
+                        f(lp5:lp4, k, i) = u(lp9:lp8, k, i)*r1t(i, k, 1) + u(lp7:lp6, k, i)*r2t(i, k, 1) + u(lp5:lp4, k, i)*r3t(i, k, 1) + u(lp3:lp2, k, i)*r4t(i, k, 1) + f(lp1:lp0, k, i)*r5t(i, k, 1)
+                        f(lp1:lp0, k, i) = u(lp7:lp6, k, i)*r1t(i, k, 2) + u(lp5:lp4, k, i)*r2t(i, k, 2) + u(lp3:lp2, k, i)*r3t(i, k, 2) + f(lp1:lp0, k, i)*r4t(i, k, 2)
                     end do
                 end do
 #ifdef USE_APU
@@ -1360,10 +1346,10 @@ contains
 #endif
             do i = 1, ilines
                 do k = 1, klines
-                    f(:, nx-3, k, i) = u(lp11:lp10, k, i)*r1_i(nx - 3) + u(lp9:lp8, k, i)*r2_i(nx - 3) + u(lp7:lp6, k, i)*r3_i(nx - 3) + u(lp5:lp4, k, i)*r4_i(nx - 3) + u(lp3:lp2, k, i)*r5_i(nx - 3)
-                    f(:, nx-2, k, i) = u(lp9:lp8, k, i)*r1_i(nx - 2) + u(lp7:lp6, k, i)*r2_i(nx - 2) + u(lp5:lp4, k, i)*r3_i(nx - 2) + u(lp3:lp2, k, i)*r4_i(nx - 2) + u(lp1:lp0, k, nx)*r5_i(nx - 2)
-                    f(:, nx-1, k, i) = u(lp7:lp6, k, i)*r1_i(nx - 1) + u(lp5:lp4, k, i)*r2_i(nx - 1) + u(lp3:lp2, k, i)*r3_i(nx - 1) + u(lp1:lp0, k, nx)*r4_i(nx - 1)
-                    f(:, nx, k, i) = u(lp7:lp6, k, i)*r5_i(nx) + u(lp5:lp4, k, i)*r1_i(nx) + u(lp3:lp2, k, i)*r2_i(nx) + u(lp1:lp0, k, nx)*r3_i(nx) ! r5(nx) contains extended stencil
+                    f(lp7:lp6, k, i) = u(lp11:lp10, k, i)*r1_i(nx - 3) + u(lp9:lp8, k, i)*r2_i(nx - 3) + u(lp7:lp6, k, i)*r3_i(nx - 3) + u(lp5:lp4, k, i)*r4_i(nx - 3) + u(lp3:lp2, k, i)*r5_i(nx - 3)
+                    f(lp5:lp4, k, i) = u(lp9:lp8, k, i)*r1_i(nx - 2) + u(lp7:lp6, k, i)*r2_i(nx - 2) + u(lp5:lp4, k, i)*r3_i(nx - 2) + u(lp3:lp2, k, i)*r4_i(nx - 2) + u(lp1:lp0, k, nx)*r5_i(nx - 2)
+                    f(lp3:lp2, k, i) = u(lp7:lp6, k, i)*r1_i(nx - 1) + u(lp5:lp4, k, i)*r2_i(nx - 1) + u(lp3:lp2, k, i)*r3_i(nx - 1) + u(lp1:lp0, k, nx)*r4_i(nx - 1)
+                    f(lp1:lp0, k, i) = u(lp7:lp6, k, i)*r5_i(nx) + u(lp5:lp4, k, i)*r1_i(nx) + u(lp3:lp2, k, i)*r2_i(nx) + u(lp1:lp0, k, nx)*r3_i(nx) ! r5(nx) contains extended stencil
                 end do
             end do
 #ifdef USE_APU

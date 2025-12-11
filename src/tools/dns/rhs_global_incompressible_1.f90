@@ -368,15 +368,19 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     ! pressure in tmp1, Oy derivative in tmp3
     call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
-
+    ! print *, 'rhs_global_incompressible1tmp1 cointains pressure ', sum(tmp1)
+    ! print *, 'rhs_global_incompressible1 tmp2 is a dummy ', sum(tmp2)
+    ! print *, 'rhs_global_incompressible1 tmp4 is a dummy ', sum(tmp4)
+    ! print *, 'rhs_global_incompressible1 tmp3 is dpdy ', sum(tmp3)
     !!call TLab_Debug_Print_1D('rhs_global_incompressible1 16', tmp3(:))
     
     ! filter pressure p and its vertical gradient dpdy
     if (any(PressureFilter(:)%type /= DNS_FILTER_NONE)) then
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp1, txc(1:isize_field,4:6))
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp3, txc(1:isize_field,4:6))
+        ! print *, 'rhs_global_incompressible1 After filtering: tmp1 cointains pressure ', sum(tmp1)
+        ! print *, 'rhs_global_incompressible1 After filtering: tmp3 is dpdy ', sum(tmp3)
     end if
-
     ! Saving pressure for towers to tmp array
     if (rkm_substep == rkm_endstep) then
         if (stagger_on .and. ( use_tower .or. PhAvg%active )) then ! Stagger pressure field back on velocity grid (only for towers)
@@ -395,13 +399,23 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     if (stagger_on) then
         !  vertical pressure derivative   dpdy - back on horizontal velocity nodes
         call OPR_Partial_Z(OPR_P0_INT_PV, imax, jmax, kmax, bcs, g(3), tmp3, tmp5)
+        ! print *, 'rhs_global_incompressible1 tmp3 cointains pressure ', sum(tmp3)
         call OPR_Partial_X(OPR_P0_INT_PV, imax, jmax, kmax, bcs, g(1), tmp5, tmp3)
+        ! print *, 'rhs_global_incompressible1 tmp5 cointains pressure ', sum(tmp5)
+
         !  horizontal pressure derivative dpdz - back on horizontal velocity nodes
         call OPR_Partial_Z(OPR_P1_INT_PV, imax, jmax, kmax, bcs, g(3), tmp1, tmp5)
+        ! print *, 'rhs_global_incompressible1 tmp1 cointains pressure ', sum(tmp1)
+
         call OPR_Partial_X(OPR_P0_INT_PV, imax, jmax, kmax, bcs, g(1), tmp5, tmp4)
+        ! print *, 'rhs_global_incompressible1 tmp5 cointains pressure ', sum(tmp5)
+
         !  horizontal pressure derivative dpdx - back on horizontal velocity nodes
         call OPR_Partial_Z(OPR_P0_INT_PV, imax, jmax, kmax, bcs, g(3), tmp1, tmp5)
+        ! print *, 'rhs_global_incompressible1 tmp1 cointains pressure ', sum(tmp1)
+
         call OPR_Partial_X(OPR_P1_INT_PV, imax, jmax, kmax, bcs, g(1), tmp5, tmp2)
+        ! print *, 'rhs_global_incompressible1 tmp5 cointains pressure ', sum(tmp5)
     else
         !  horizontal pressure derivatives
         call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp1, tmp2)
@@ -442,6 +456,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             hq(ij, 3) = hq(ij, 3) - tmp4(ij)
         end do
 #endif
+        ! print *, 'rhs_global_incompressible1 tmp3 cointains pressure ', sum(hq(:,1))
+        ! print *, 'rhs_global_incompressible1 tmp3 cointains pressure ', sum(hq(:,2))
+        ! print *, 'rhs_global_incompressible1 tmp3 cointains pressure ', sum(hq(:,3))
+
 
     end if
     !!call TLab_Debug_Print_1D('rhs_global_incompressible1 20', hq(:,2))

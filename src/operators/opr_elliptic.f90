@@ -254,7 +254,6 @@ contains
 
                     ! Compatibility constraint. The reference value of p at the lower boundary will be set to zero
                     if (any(i_sing == i) .and. any(k_sing == k)) then
-                        ! print *, k ,i , shape(fdm_loc%nodes), shape(fdm_loc%der2), shape(lambda), BCS_NN, shape(fdm_int2)
                         call FDM_Int2_Initialize_APU(k, i, fdm_loc%nodes(:), fdm_loc%der2, lambda(k, i), BCS_DN, fdm_int2)
                     else
                         call FDM_Int2_Initialize_APU(k, i, fdm_loc%nodes(:), fdm_loc%der2, lambda(k, i), BCS_NN, fdm_int2)
@@ -528,13 +527,14 @@ contains
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
         end if
+
         ! call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 22, dpdy ', dpdy)
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 23,  p ',  p)
-        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%lhs 24 ', fdm_int2%lhs)
-        call TLab_Debug_Print_2D('OPR_Elliptic_Initialize: rhs_d 25', rhs_d)
-        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%rhs_b 26 ', fdm_int2%rhs_b)
-        call TLab_Debug_Print_4D('OPR_Elliptic_Initialize: fdm_int2%rhs_t 27 ', fdm_int2%rhs_t)
-        call TLab_Debug_Print_2D('OPR_Elliptic_Initialize: fdm_int2%lambda 28 ', fdm_int2%lambda)
+        call TLab_Debug_Print_4D('OPR_Poisson_FourierXZ_Direct: fdm_int2%lhs 24 ', fdm_int2%lhs)
+        call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct: rhs_d 25', rhs_d)
+        call TLab_Debug_Print_4D('OPR_Poisson_FourierXZ_Direct: fdm_int2%rhs_b 26 ', fdm_int2%rhs_b)
+        call TLab_Debug_Print_4D('OPR_Poisson_FourierXZ_Direct: fdm_int2%rhs_t 27 ', fdm_int2%rhs_t)
+        call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct: fdm_int2%lambda 28 ', fdm_int2%lambda)
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)
 #undef f

@@ -972,8 +972,8 @@ contains
 
         call FDM_Bcs_Reduce_APU(nx, ndl, ndr, BCS_BOTH, fdmi_int2%rhs(ik, ii, 1:nx, 1:ndl), g%rhs(:, 1:ndr), rhsr_b, rhsr_t)
 
-        ! fdmi_int2%rhs_b = 0.0_wp
-        ! fdmi_int2%rhs_t = 0.0_wp
+        fdmi_int2%rhs_b(ik, ii, :, :) = 0.0_wp
+        fdmi_int2%rhs_t(ik, ii, :, :) = 0.0_wp
 
         fdmi_int2%rhs_b(ik, ii, 1:idl + 1, 1:ndl) = fdmi_int2%rhs(ik, ii, 1:idl + 1, 1:ndl)
         do ir = 1, idr - 1              ! change sign in b^R_{21} for nonzero bc
@@ -1246,7 +1246,7 @@ contains
         type(fdm_integral_dt2), intent(in) :: fdmi_int2
         real(wp), intent(in) :: rhsi(:, :)
         real(wp), intent(in) :: f(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines)
-        real(wp), intent(inout) :: result(1:nlines, 1:size(fdmi_int2%lhs, 3), 1:klines, 1:ilines)   ! contains bcs
+        real(wp), intent(inout) :: result(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines)   ! contains bcs
         real(wp), intent(inout) :: p2_wrk2d(nlines, klines, ilines, 2)
 
         ! -------------------------------------------------------------------
@@ -1259,35 +1259,35 @@ contains
         ndr = size(rhsi, 2)
 
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 1, f: ', f)
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 2, result: ', result)
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 2, result: ', result)
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 3, bcs_b: ', p2_wrk2d(:,:,:,1))
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 4, bcs_t: ', p2_wrk2d(:,:,:,2))
-        print *, ndr, ndl, nx
+
         select case (ndr)
         case (3)
-            call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines), &
-            result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 1), bcs_t=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 2))
+            call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:nlines*nx, 1:klines, 1:ilines), &
+            result(1:nlines*nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 1), bcs_t=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 2))
         case (5)
-            call MatMul_5d_APU(nlines, ilines, klines, nx, fdmi_int2, rhsi(:, 1:5), f(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines), &
-            result(1:nlines, 1:nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 1), bcs_t=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 2))
+            call MatMul_5d_APU(nlines, ilines, klines, nx, fdmi_int2, rhsi(:, 1:5), f(1:nlines*nx, 1:klines, 1:ilines), &
+            result(1:nlines*nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 1), bcs_t=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 2))
         end select
 
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 5, f: ', f)
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 6, result: ', result)
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 6, result: ', result)
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 7, bcs_b: ', p2_wrk2d(:,:,:,1))
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 8, bcs_t: ', p2_wrk2d(:,:,:,2))
         
         ! Solve pentadiagonal linear system
         select case (ndl)
         case (3)
-            call TRIDSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines, 1:nx, 1:klines, 1:ilines))
+            call TRIDSS_APU(  nlines, nx, klines, ilines, fdmi_int2, result(1:nlines*nx, 1:klines, 1:ilines))
         case (5)
-            call PENTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines, 1:nx, 1:klines, 1:ilines))  !%lhs(2:, 1), fdmi_int2%lhs(2:, 2), fdmi_int2%lhs(2:, 3), fdmi_int2%lhs(2:, 4), fdmi_int2%lhs(2:, 5), result(:, 2:))
+            call PENTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines*nx, 1:klines, 1:ilines))  !%lhs(2:, 1), fdmi_int2%lhs(2:, 2), fdmi_int2%lhs(2:, 3), fdmi_int2%lhs(2:, 4), fdmi_int2%lhs(2:, 5), result(:, 2:))
         case (7)
-            call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines, 1:nx, 1:klines, 1:ilines))
+            call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines*nx, 1:klines, 1:ilines))
         end select
         
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 9, result: ', result)
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 9, result: ', result)
         call TLab_Debug_Print_4D('FDM_Int2_Solve_APU: 9a fdm_int2%lhs ', fdmi_int2%lhs)
         call TLab_Debug_Print_4D('FDM_Int2_Solve_APU: 9c fdm_int2%rhs_b ', fdmi_int2%rhs_b)
         call TLab_Debug_Print_4D('FDM_Int2_Solve_APU: 9d fdm_int2%rhs_t ', fdmi_int2%rhs_t)
@@ -1306,21 +1306,21 @@ contains
                 !   Corrections to the BCS_DD to account for Neumann
                 if ((BCS_ND == bcs) .or. (BCS_NN == bcs) ) then
                     do j = 1, nlines
-                        result(j, 1, k, i) = p2_wrk2d(j, k, i, 1) &
-                                + fdmi_int2%lhs(k, i, 1, 1)*result(j, 2, k, i) + fdmi_int2%lhs(k, i, 1, 2)*result(j, 3, k, i) + fdmi_int2%lhs(k, i, 1, 3)*result(j, 4, k, i)
+                        result(j, k, i) = p2_wrk2d(j, k, i, 1) &
+                                + fdmi_int2%lhs(k, i, 1, 1)*result(j+nlines, k, i) + fdmi_int2%lhs(k, i, 1, 2)*result(2*nlines+j, k, i) + fdmi_int2%lhs(k, i, 1, 3)*result(3*nlines+j, k, i)
                     end do
                 end if
 
                 if ((BCS_DN == bcs) .or. (BCS_NN == bcs)) then
                     do j = 1, nlines
-                        result(j, nx, k, i) = p2_wrk2d(j, k, i, 2) &
-                                    + fdmi_int2%lhs(k, i, nx, ndl)*result(j, nx - 1, k, i) + fdmi_int2%lhs(k, i, nx, ndl - 1)*result(j, nx - 2, k, i) &
-                                    + fdmi_int2%lhs(k, i, nx, ndl - 2)*result(j, nx - 3, k, i)
+                        result(2*(nx-1)+j, k, i) = p2_wrk2d(j, k, i, 2) &
+                                    + fdmi_int2%lhs(k, i, nx, ndl)*result(2*(nx-2)+j, k, i) + fdmi_int2%lhs(k, i, nx, ndl - 1)*result(2*(nx-3)+j, k, i) &
+                                    + fdmi_int2%lhs(k, i, nx, ndl - 2)*result(2*(nx-4)+j, k, i)
                     end do
                 end if
             end do
         end do
-        call TLab_Debug_Print_4D('FDM_Int2_Solve_APU 10, result: ', result)
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 10, result: ', result)
         call TLab_Debug_Print_4D('FDM_Int2_Solve_APU: 10a fdm_int2%lhs ', fdmi_int2%lhs)
         call TLab_Debug_Print_4D('FDM_Int2_Solve_APU: 10c fdm_int2%rhs_b ', fdmi_int2%rhs_b)
         call TLab_Debug_Print_4D('FDM_Int2_Solve_APU: 10d fdm_int2%rhs_t ', fdmi_int2%rhs_t)
