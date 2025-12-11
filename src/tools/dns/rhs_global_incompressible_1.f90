@@ -389,7 +389,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             hq(ij, 3) = hq(ij, 3) - tmp4(ij)
         end do
 #endif
-
     end if
 
     ! #######################################################################

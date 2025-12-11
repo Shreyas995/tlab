@@ -11,7 +11,7 @@ module OPR_Elliptic
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop, stagger_on
     use TLab_Arrays, only: wrk1d, wrk2d, wrk3d
     use TLab_Pointers_C, only: c_wrk3d
-    use TLab_Pointers_3D, only: p_wrk2d
+    use TLab_Pointers_3D, only: p_wrk2d, p2_wrk2d
     use TLab_Grid, only: y
     use Tlab_Type
 
