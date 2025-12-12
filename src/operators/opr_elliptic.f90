@@ -450,9 +450,9 @@ contains
         ! ###################################################################
         ! Make x direction last one and leave y direction first
 ! #ifdef USE_APU
-        call TLab_Transpose_COMPLEX_APU(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
+        ! call TLab_Transpose_COMPLEX_APU(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
 ! #else
-!         call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
+        call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
 ! #endif
         call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 10, c_tmp2 ', c_tmp2)
 
