@@ -210,7 +210,7 @@ contains
 #ifdef USE_BLAS
         ij_len = isize_field
 #endif
-        !!call TLab_Debug_Print_1D('TIME_RUNGEKUTTA 1', q(:,2))
+        call TLab_Debug_Print_1D('TIME_RUNGEKUTTA 1', q(:,2))
         ! -------------------------------------------------------------------
         ! Initialize arrays to zero for the explcit low-storage algorithm
         ! -------------------------------------------------------------------
@@ -237,7 +237,7 @@ contains
                 call TIME_SUBSTEP_PARTICLE()
             end if
 
-            !!call TLab_Debug_Print_1D('TIME_RUNGEKUTTA 2', q(:,2))
+            call TLab_Debug_Print_1D('TIME_RUNGEKUTTA 2', q(:,2))
             
             select case (nse_eqns)
             case (DNS_EQNS_INCOMPRESSIBLE, DNS_EQNS_ANELASTIC)
@@ -665,7 +665,7 @@ contains
                 
                 call RHS_GLOBAL_INCOMPRESSIBLE_1()
 
-                !!call TLab_Debug_Print_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT', hq(:,2)) ! incorrect value
+                call TLab_Debug_Print_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT', hq(:,2)) ! incorrect value
 
             case (EQNS_RHS_NONBLOCKING)
 #ifdef USE_PSFFT
