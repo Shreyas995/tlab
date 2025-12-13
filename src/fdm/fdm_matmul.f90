@@ -110,7 +110,7 @@ contains
         ! #######################################################################
         nx = size(rhs, 1)
         my = size(f, 1)
-        ! print *, nd = size(rhs, 2)    ! # diagonals, should be 3
+        ! print '(A, I5, I5, F15.7)', nd = size(rhs, 2)    ! # diagonals, should be 3
         ! size(u,2) and size(f,2) should be nx
         ! size(u,1) and size(f,1) and size(bcs_b) and size(bcs_t) should be the same (number of equations to solve)
 
@@ -343,16 +343,23 @@ contains
                     do i = 1, ilines
                         do k = 1, klines
                             bcs_b(1:2, k, i) = f(1:2, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
+                            print '(A, I5, I5, F15.7)', 'bcs_b(:,k,i) after first line ',  i, k, sum(bcs_b(:,k,i))
                             ! f(1) contains the boundary condition
                             f(3:4, k, i) = f(1:2, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
+                            print '(A, I5, I5, F15.7)', 'f(3:4,k,i) after second line ',  i, k, sum(f(3:4,k,i))
                             f(5:6, k, i) = f(1:2, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
+                            print '(A, I5, I5, F15.7)', 'f(5:6,k,i) after second line ',  i, k, sum(f(5:6,k,i))
                             do n = 4, nx - 3
                                 pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
                                 f(pc:pd, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
+                                print '(A, I5, I5, F15.7)', 'f(pc:pd,k,i) after interior line n=', n, i, k, sum(f(pc:pd,k,i))
                             end do
                             f(lp5:lp4, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(lp1:lp0, k, i)*r4t(k, i, 0)
+                            print '(A, I5, I5, F15.7)', 'f(lp5:lp4,k,i) after third last line ',  i, k, sum(f(lp5:lp4,k,i))
                             f(lp3:lp2, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(lp1:lp0, k, i)*r3t(k, i, 1)
+                            print '(A, I5, I5, F15.7)', 'f(lp3:lp2,k,i) after second last line ',  i, k, sum(f(lp3:lp2,k,i))
                             bcs_t(1:2, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(lp1:lp0, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
+                            print '(A, I5, I5, F15.7)', 'bcs_t(:,k,i) after last line ',  i, k, sum(bcs_t(:,k,i))
                         end do
                     end do
                     call TLab_Debug_Print_3D('MatMul_3d_APU bcs_b 2 : ', bcs_b)
@@ -1213,7 +1220,7 @@ contains
         integer(wi) lp0, lp1, lp2, lp3, lp4, lp5, lp6, lp7, lp8, lp9, lp10, lp11, lp12
         integer ibc_loc
         ! #######################################################################
-        ! print *, nd = size(rhs, 2)    ! # diagonals, should be 5
+        ! print '(A, I5, I5, F15.7)', nd = size(rhs, 2)    ! # diagonals, should be 5
         ! size(u,2) and size(f,2) should be nx
         ! size(u,1) and size(f,1) and size(bcs_b) and size(bcs_t) should be the same (number of equations to solve)
         lp0 = 2*nx; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3; lp4 = 2*nx - 4; lp5 = 2*nx - 5; lp6 = 2*nx - 6; 
@@ -1376,7 +1383,7 @@ contains
         ! #######################################################################
         nx = size(rhs, 1)
         my = size(f, 1)
-        ! print *, nd = size(rhs, 2)    ! # diagonals, should be 5
+        ! print '(A, I5, I5, F15.7)', nd = size(rhs, 2)    ! # diagonals, should be 5
         ! size(u,2) and size(f,2) should be nx
         ! size(u,1) and size(f,1) and size(bcs_b) and size(bcs_t) should be the same (number of equations to solve)
 #ifdef USE_APU
