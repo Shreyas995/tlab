@@ -213,7 +213,7 @@ contains
 
     subroutine TLab_Debug_Print_real(msg, var, msg2)
         character(len=*), intent(in) :: msg
-        real(wi), intent(in) :: var
+        real(wp), intent(in) :: var
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
         integer :: unit_num
@@ -225,6 +225,18 @@ contains
         end if
         flush(unit_num)
     end subroutine TLab_Debug_Print_real
+
+    subroutine TLab_Debug_Print(msg, var1, var2, var3)
+        character(len=*), intent(in) :: msg
+        integer(wi), intent(in) :: var1
+        integer(wi), intent(in) :: var2
+        real(wi), intent(in) :: var3
+        integer(wp) :: i
+        integer :: unit_num
+        unit_num = FILE_UNIT_BASE + ims_pro
+        write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ','i: ', var1,'k: ', var2, 'value: ', var3
+        flush(unit_num)
+    end subroutine TLab_Debug_Print
 
 end module Tlab_Debug
 !########################################################################
