@@ -67,6 +67,7 @@ program DNS
     
     ! ###################################################################
     call TLab_Start()
+    call Tlab_Debug_Initialize()
     call TLab_Initialize_Parameters(ifile)
 #ifdef USE_MPI
     call TLabMPI_Initialize(ifile)
@@ -104,11 +105,9 @@ program DNS
     call TLab_Debug_Print_1D('dns_main 1, wrk3d: ', wrk3d, dbg_string)
 
     call SpecialForcing_Initialize(ifile)
-
     call TLab_Debug_Print_1D('dns_main 2, wrk3d: ', wrk3d, dbg_string)
 
     call TLab_Initialize_Background(ifile)
-
     call TLab_Debug_Print_1D('dns_main 3, wrk3d: ', wrk3d, dbg_string)
 
     call TLab_Allocate_Real(__FILE__, hq, [isize_field, inb_flow], 'flow-rhs')
@@ -163,13 +162,10 @@ program DNS
         call OPR_FILTER_INITIALIZE(g(ig), PressureFilter(ig))
     end do
 
+    if (fourier_on) call OPR_Fourier_Initialize()
     call TLab_Debug_Print_2D('dns_main 10a, q: ', q, dbg_string)
     call TLab_Debug_Print_1D('dns_main 11, wrk3d: ', wrk3d, dbg_string)
-
-    if (fourier_on) call OPR_Fourier_Initialize()
-    call TLab_Debug_Print_1D('dns_main 12, wrk3d: ', wrk3d, dbg_string)
-    call TLab_Debug_Print_2D('dns_main 12a, q: ', q, dbg_string)
-
+    
     call OPR_CHECK()
 
     call TLab_Debug_Print_1D('dns_main 13, wrk3d: ', wrk3d, dbg_string)

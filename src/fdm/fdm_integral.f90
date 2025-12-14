@@ -15,6 +15,7 @@ module FDM_Integral
     use FDM_Base
     use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
     use LinearDss
+    use Tlab_Debug
 
     implicit none
     private
@@ -1258,7 +1259,7 @@ contains
         ndl = size(fdmi_int2%lhs, 4)
         ndr = size(rhsi, 2)
 
-        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 1, f1: ', f)
+        call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 1, f0: ', f)
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 2, result0: ', result)
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 3, bcs_b0: ', p2_wrk2d(:,:,:,1))
         call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 4, bcs_t0: ', p2_wrk2d(:,:,:,2))

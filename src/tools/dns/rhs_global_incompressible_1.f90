@@ -43,8 +43,8 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     use OPR_Elliptic
     use OPR_FILTERS
     use AVG_PHASE
-    use TLab_Debug, only: TLab_Debug_Print_1D, TLab_Debug_Print_2D, TLab_Debug_Print_3D, TLab_Debug_Print_4D
-    use TLab_Arrays, only : wrk3d
+    use TLab_Debug
+    use TLab_Arrays, only: wrk3d
 
     implicit none
 
@@ -167,9 +167,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     ! Oz momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
-    call TLab_Debug_Print_1D('rhs_global_incompressible1  13', tmp8)
+    call TLab_Debug_Print_1D('rhs_global_incompressible1, tmp8, 13', tmp8)
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, v, tmp8, tmp9, tmp5) ! tmp5 contains v transposed
-    call TLab_Debug_Print_1D('rhs_global_incompressible1  14', tmp8)
+    call TLab_Debug_Print_1D('rhs_global_incompressible1, tmp8, 14:', tmp8)
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
 #ifdef USE_APU
@@ -377,6 +377,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     call TLab_Debug_Print_1D('rhs_global_incompressible1 32, tmp1', tmp1(:))
     call TLab_Debug_Print_1D('rhs_global_incompressible1 33, tmp3', tmp3(:))
+    
 
     ! Saving pressure for towers to tmp array
     if (rkm_substep == rkm_endstep) then

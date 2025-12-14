@@ -530,11 +530,11 @@ contains
 
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 22, dpdy ', dpdy)
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 23,  p ',  p)
-        call TLab_Debug_Print_4D('OPR_Poisson_FourierXZ_Direct: fdm_int2%lhs 24 ', fdm_int2%lhs)
-        call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct: rhs_d 25', rhs_d)
-        call TLab_Debug_Print_4D('OPR_Poisson_FourierXZ_Direct: fdm_int2%rhs_b 26 ', fdm_int2%rhs_b)
-        call TLab_Debug_Print_4D('OPR_Poisson_FourierXZ_Direct: fdm_int2%rhs_t 27 ', fdm_int2%rhs_t)
-        call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct: fdm_int2%lambda 28 ', fdm_int2%lambda)
+        ! call TLab_Debug_Print_4D('OPR_Poisson_FourierXZ_Direct: fdm_int2%lhs 24 ', fdm_int2%lhs)
+        ! call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct: rhs_d 25', rhs_d)
+        ! call TLab_Debug_Print_4D('OPR_Poisson_FourierXZ_Direct: fdm_int2%rhs_b 26 ', fdm_int2%rhs_b)
+        ! call TLab_Debug_Print_4D('OPR_Poisson_FourierXZ_Direct: fdm_int2%rhs_t 27 ', fdm_int2%rhs_t)
+        ! call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct: fdm_int2%lambda 28 ', fdm_int2%lambda)
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)
 #undef f

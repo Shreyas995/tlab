@@ -45,25 +45,25 @@ subroutine OPR_CHECK()
 ! -------------------------------------------------------------------
 #ifdef USE_MPI
     if (ims_npro_i > 1) then
-        call TLab_Debug_Print_1D('OPR_Check 0, wrk3d: ', wrk3d)
+        ! call TLab_Debug_Print_1D('OPR_Check 0, wrk3d: ', wrk3d)
         call system_clock(t_srt, PROC_CYCLES, MAX_CYCLES)
-        call TLab_Debug_Print_2D('OPR_Check 1, q: ', q)
-        call TLab_Debug_Print_int('OPR_Check 2, tmpi_plan_dx%nlines: ', tmpi_plan_dx%nlines)
-        call TLab_Debug_Print_int('OPR_Check 3, tmpi_plan_dx%size3d: ', tmpi_plan_dx%size3d)
-        call TLab_Debug_Print_1D_i('OPR_Check 4, tmpi_plan_dx%disp_s: ', tmpi_plan_dx%disp_s)
-        call TLab_Debug_Print_1D_i('OPR_Check 5, tmpi_plan_dx%disp_r: ', tmpi_plan_dx%disp_r)
+        ! call TLab_Debug_Print_2D('OPR_Check 1, q: ', q)
+        ! call TLab_Debug_Print_int('OPR_Check 2, tmpi_plan_dx%nlines: ', tmpi_plan_dx%nlines)
+        ! call TLab_Debug_Print_int('OPR_Check 3, tmpi_plan_dx%size3d: ', tmpi_plan_dx%size3d)
+        ! call TLab_Debug_Print_1D_i('OPR_Check 4, tmpi_plan_dx%disp_s: ', tmpi_plan_dx%disp_s)
+        ! call TLab_Debug_Print_1D_i('OPR_Check 5, tmpi_plan_dx%disp_r: ', tmpi_plan_dx%disp_r)
 
 
         call TLabMPI_Trp_ExecI_Forward(q(:, 1), wrk3d, tmpi_plan_dx)
 
-        call TLab_Debug_Print_int('OPR_Check 6, tmpi_plan_dx%nlines: ', tmpi_plan_dx%nlines)
-        call TLab_Debug_Print_int('OPR_Check 7, tmpi_plan_dx%size3d: ', tmpi_plan_dx%size3d)
-        call TLab_Debug_Print_1D_i('OPR_Check 8, tmpi_plan_dx%disp_s: ', tmpi_plan_dx%disp_s)
-        call TLab_Debug_Print_1D_i('OPR_Check 9, tmpi_plan_dx%disp_r: ', tmpi_plan_dx%disp_r)
+        ! call TLab_Debug_Print_int('OPR_Check 6, tmpi_plan_dx%nlines: ', tmpi_plan_dx%nlines)
+        ! call TLab_Debug_Print_int('OPR_Check 7, tmpi_plan_dx%size3d: ', tmpi_plan_dx%size3d)
+        ! call TLab_Debug_Print_1D_i('OPR_Check 8, tmpi_plan_dx%disp_s: ', tmpi_plan_dx%disp_s)
+        ! call TLab_Debug_Print_1D_i('OPR_Check 9, tmpi_plan_dx%disp_r: ', tmpi_plan_dx%disp_r)
 
-        call TLab_Debug_Print_1D('OPR_Check 10, wrk3d: ', wrk3d)
+        ! call TLab_Debug_Print_1D('OPR_Check 10, wrk3d: ', wrk3d)
         call TLabMPI_Trp_ExecI_Backward(wrk3d, q(:, 2), tmpi_plan_dx)
-        call TLab_Debug_Print_1D('OPR_Check 11, wrk3d: ', wrk3d)
+        ! call TLab_Debug_Print_1D('OPR_Check 11, wrk3d: ', wrk3d)
         call system_clock(t_end, PROC_CYCLES, MAX_CYCLES)
 
         idummy = t_end - t_srt
@@ -88,13 +88,13 @@ subroutine OPR_CHECK()
     if (ims_npro_k > 1) then
         call system_clock(t_srt, PROC_CYCLES, MAX_CYCLES)
         idummy = itime; itime = -1  ! set itime to -1 for this call to trigger interruption
-        call TLab_Debug_Print_1D('OPR_Check 12, wrk3d: ', wrk3d)
+        ! call TLab_Debug_Print_1D('OPR_Check 12, wrk3d: ', wrk3d)
         call TLabMPI_Trp_ExecK_Forward(q(:, 1), wrk3d, tmpi_plan_dz)
         itime = idummy
-        call TLab_Debug_Print_1D('OPR_Check 13, wrk3d: ', wrk3d)
+        ! call TLab_Debug_Print_1D('OPR_Check 13, wrk3d: ', wrk3d)
         call TLabMPI_Trp_ExecK_Backward(wrk3d, q(:, 2), tmpi_plan_dz)
         call system_clock(t_end, PROC_CYCLES, MAX_CYCLES)
-        call TLab_Debug_Print_1D('OPR_Check 14, wrk3d: ', wrk3d)
+        ! call TLab_Debug_Print_1D('OPR_Check 14, wrk3d: ', wrk3d)
 
         idummy = t_end - t_srt
         call MPI_REDUCE(idummy, t_dif, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD, ims_err)
@@ -144,7 +144,7 @@ subroutine OPR_CHECK()
         call TLab_Write_ASCII(lfile, line)
 
     end if
-    call TLab_Debug_Print_1D('OPR_Check 15, wrk3d: ', wrk3d)
+    ! call TLab_Debug_Print_1D('OPR_Check 15, wrk3d: ', wrk3d)
     return
 
 100 format(G_FORMAT_R)

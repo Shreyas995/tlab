@@ -223,7 +223,7 @@ contains
         ! Loop over the sub-stages
         !########################################################################
         do rkm_substep = 1, rkm_endstep
-            dbg = 0
+
             ! -------------------------------------------------------------------
             ! Update transported (or prognostic) variables q and s
             ! -------------------------------------------------------------------
@@ -247,8 +247,10 @@ contains
                 else
                     call TIME_SUBSTEP_INCOMPRESSIBLE_IMPLICIT()
                 end if
+
             case (DNS_EQNS_INTERNAL, DNS_EQNS_TOTAL)
                 call TIME_SUBSTEP_COMPRESSIBLE()
+                
             end select
 
             call FI_DIAGNOSTIC(imax, jmax, kmax, q, s)
