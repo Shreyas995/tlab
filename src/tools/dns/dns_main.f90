@@ -102,34 +102,34 @@ program DNS
     ! Initialize memory space and grid data
     ! #######################################################################
     call TLab_Initialize_Memory(__FILE__)
-    call TLab_Debug_Print_1D('dns_main 1, wrk3d: ', wrk3d, dbg_string)
+    ! call TLab_Debug_Print_1D('dns_main 1, wrk3d: ', wrk3d, dbg_string)
 
     call SpecialForcing_Initialize(ifile)
-    call TLab_Debug_Print_1D('dns_main 2, wrk3d: ', wrk3d, dbg_string)
+    ! call TLab_Debug_Print_1D('dns_main 2, wrk3d: ', wrk3d, dbg_string)
 
     call TLab_Initialize_Background(ifile)
-    call TLab_Debug_Print_1D('dns_main 3, wrk3d: ', wrk3d, dbg_string)
+    ! call TLab_Debug_Print_1D('dns_main 3, wrk3d: ', wrk3d, dbg_string)
 
     call TLab_Allocate_Real(__FILE__, hq, [isize_field, inb_flow], 'flow-rhs')
     call TLab_Allocate_Real(__FILE__, hs, [isize_field, inb_scal], 'scal-rhs')
 
     call ParticleTrajectories_Initialize(ifile)
 
-    call TLab_Debug_Print_1D('dns_main 4, wrk3d: ', wrk3d, dbg_string)
+    ! call TLab_Debug_Print_1D('dns_main 4, wrk3d: ', wrk3d, dbg_string)
 
     call Particle_Initialize_Memory(__FILE__)
 
-    call TLab_Debug_Print_1D('dns_main 5, wrk3d: ', wrk3d, dbg_string)
+    ! call TLab_Debug_Print_1D('dns_main 5, wrk3d: ', wrk3d, dbg_string)
 
     call TLab_Allocate_Real(__FILE__, l_hq, [isize_part, inb_part], 'part-rhs')
 
     call DNS_STATISTICS_INITIALIZE()
 
-    call TLab_Debug_Print_1D('dns_main 6, wrk3d: ', wrk3d, dbg_string)
+    ! call TLab_Debug_Print_1D('dns_main 6, wrk3d: ', wrk3d, dbg_string)
 
     call PLANES_INITIALIZE()
 
-    call TLab_Debug_Print_1D('dns_main 7, wrk3d: ', wrk3d, dbg_string)
+    ! call TLab_Debug_Print_1D('dns_main 7, wrk3d: ', wrk3d, dbg_string)
 
     if (PhAvg%active) then
         call AvgPhaseInitializeMemory(__FILE__, nitera_save)
@@ -147,7 +147,7 @@ program DNS
     ! ###################################################################
     call OPR_Burgers_Initialize(ifile)
 
-    call TLab_Debug_Print_1D('dns_main 8, wrk3d: ', wrk3d, dbg_string)
+    ! call TLab_Debug_Print_1D('dns_main 8, wrk3d: ', wrk3d, dbg_string)
 
     call OPR_Elliptic_Initialize(ifile)
 
