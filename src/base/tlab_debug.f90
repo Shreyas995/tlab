@@ -22,6 +22,9 @@ module Tlab_Debug
     public :: TLab_Debug_Initialize, TLab_Debug_Print_1D, TLab_Debug_Print_2D, TLab_Debug_Print_3D, TLab_Debug_Print_4D
     public :: TLab_Debug_Print_2D_c, TLab_Debug_Print_1D_c, TLab_Debug_Print_3D_c
     public :: TLab_Debug_Print_2D_i
+    public :: TLab_Debug_Print_1D_i
+    public :: TLab_Debug_Print_int, TLab_Debug_Print_real
+    public :: TLab_Debug_Print2, TLab_Debug_Print
     integer(wi), parameter :: FILE_UNIT_BASE = 500
 #ifndef USE_MPI
     integer(wi), parameter :: ims_pro = 0
@@ -230,13 +233,26 @@ contains
         character(len=*), intent(in) :: msg
         integer(wi), intent(in) :: var1
         integer(wi), intent(in) :: var2
-        real(wi), intent(in) :: var3
+        real(wp), intent(in) :: var3
         integer(wp) :: i
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
         write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ','i: ', var1,'k: ', var2, 'value: ', var3
         flush(unit_num)
     end subroutine TLab_Debug_Print
+
+    subroutine TLab_Debug_Print2(msg, var0, var1, var2, var3)
+        character(len=*), intent(in) :: msg
+        integer(wi), intent(in) :: var0
+        integer(wi), intent(in) :: var1
+        integer(wi), intent(in) :: var2
+        real(wp), intent(in) :: var3
+        integer(wp) :: i
+        integer :: unit_num
+        unit_num = FILE_UNIT_BASE + ims_pro
+        write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ','n: ', var0,'i: ', var1,'k: ', var2, 'value: ', var3
+        flush(unit_num)
+    end subroutine TLab_Debug_Print2
 
 end module Tlab_Debug
 !########################################################################
