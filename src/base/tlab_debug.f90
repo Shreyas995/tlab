@@ -234,7 +234,6 @@ contains
         integer(wi), intent(in) :: var1
         integer(wi), intent(in) :: var2
         real(wp), intent(in) :: var3
-        integer(wp) :: i
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
         write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ','i: ', var1,'k: ', var2, 'value: ', var3

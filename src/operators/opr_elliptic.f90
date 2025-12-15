@@ -475,11 +475,16 @@ contains
                     u(1:2, k, i) = f(1:2, k, i)                        ! bottom boundary conditions
                     u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
                     if (any(i_sing == i) .and. any(k_sing == k)) u(1:2, k, i) = 0.0_wp
+                    call TLab_Debug_Print('OPR_Poisson_FourierXZ_Direct u ',i ,k , sum(u(:, k, i)))
+                    call TLab_Debug_Print('OPR_Poisson_FourierXZ_Direct f ',i ,k , sum(f(:, k, i)))
+
                 end do
             end do
 #ifdef USE_APU
             !$omp end target teams distribute parallel do
 #endif
+
+            Stop
             call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 13, u ', u(:,:,:))
             call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 14, f ', f(:,:,:))
 
