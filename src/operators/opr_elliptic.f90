@@ -476,21 +476,18 @@ contains
                     u(1:2, k, i) = f(1:2, k, i)                        ! bottom boundary conditions
                     u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
                     if (any(i_sing == i) .and. any(k_sing == k)) u(1:2, k, i) = 0.0_wp
-                    do n = 1, 2*ny
-                        call TLab_Debug_Print2('OPR_Poisson_FourierXZ_Direct u ',i ,k, n, (u(n, k, i)))
-                        call TLab_Debug_Print2('OPR_Poisson_FourierXZ_Direct f ',i ,k, n, (f(n, k, i)))
-                    end do
-
+                    ! do n = 1, 2*ny
+                    !     ! call TLab_Debug_Print2('OPR_Poisson_FourierXZ_Direct u ',i ,k, n, (u(n, k, i)))
+                    !     ! call TLab_Debug_Print2('OPR_Poisson_FourierXZ_Direct f ',i ,k, n, (f(n, k, i)))
+                    ! end do
                 end do
             end do
 #ifdef USE_APU
             !$omp end target teams distribute parallel do
 #endif
 
-            Stop
             call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 13, u ', u(:,:,:))
             call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 14, f ', f(:,:,:))
-
             call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2, rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p2_wrk2d(1:2, 1:nz, 1:i_max, 1:2))
             
             call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 15, u ', u(:,:,:))
