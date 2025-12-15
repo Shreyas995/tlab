@@ -236,7 +236,7 @@ contains
         real(wp), intent(in) :: var3
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
-        write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ','i: ', var1,'k: ', var2, 'value: ', var3
+        write(unit_num, *) trim(msg), 'i: ', var1,'k: ', var2, 'value: ', var3
         flush(unit_num)
     end subroutine TLab_Debug_Print
 
