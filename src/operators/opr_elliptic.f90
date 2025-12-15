@@ -521,14 +521,13 @@ contains
         end if
         call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 19, c_tmp1 ', c_tmp1)
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 20, p ', p)
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 21, dpdy ', dpdy)
-
 
         if (present(dpdy)) then
+            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 21, dpdy ', dpdy)
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
+            call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 22, dpdy ', dpdy)
         end if
 
-        call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 22, dpdy ', dpdy)
         call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 23,  p ',  p)
         ! call TLab_Debug_Print_4D('OPR_Poisson_FourierXZ_Direct: fdm_int2%lhs 24 ', fdm_int2%lhs)
         ! call TLab_Debug_Print_2D('OPR_Poisson_FourierXZ_Direct: rhs_d 25', rhs_d)
