@@ -70,7 +70,7 @@ module OPR_Elliptic
 
     real(wp) norm
     integer(wi) i_sing(2), k_sing(2)                                ! singular modes
-    integer(wi) i, j, k, i_max
+    integer(wi) i, j, k, i_max, n
 
     type(fdm_dt) fdm_loc                                            ! scheme used for the elliptic solvers
 
@@ -456,7 +456,7 @@ contains
         call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
 ! #endif
         call TLab_Debug_Print_1D_c('OPR_Poisson_FourierXZ_Direct 10, c_tmp2 ', c_tmp2)
-
+        p_wrk3d(:,:,:) = 0.0_wp
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
 
@@ -476,8 +476,10 @@ contains
                     u(1:2, k, i) = f(1:2, k, i)                        ! bottom boundary conditions
                     u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
                     if (any(i_sing == i) .and. any(k_sing == k)) u(1:2, k, i) = 0.0_wp
-                    call TLab_Debug_Print('OPR_Poisson_FourierXZ_Direct u ',i ,k , sum(u(:, k, i)))
-                    call TLab_Debug_Print('OPR_Poisson_FourierXZ_Direct f ',i ,k , sum(f(:, k, i)))
+                    do n = 1, 2*ny
+                        call TLab_Debug_Print2('OPR_Poisson_FourierXZ_Direct u ',i ,k, n, (u(n, k, i)))
+                        call TLab_Debug_Print2('OPR_Poisson_FourierXZ_Direct f ',i ,k, n, (f(n, k, i)))
+                    end do
 
                 end do
             end do
