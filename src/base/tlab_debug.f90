@@ -249,7 +249,7 @@ contains
         integer(wp) :: i
         integer :: unit_num
         unit_num = FILE_UNIT_BASE + ims_pro
-        write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ','n: ', var0,'i: ', var1,'k: ', var2, 'value: ', var3
+        write(unit_num, *) trim(msg), 'n: ', var0,'i: ', var1,'k: ', var2, 'value: ', var3
         flush(unit_num)
     end subroutine TLab_Debug_Print2
 
