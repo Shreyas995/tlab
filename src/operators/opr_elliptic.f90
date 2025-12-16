@@ -479,8 +479,8 @@ contains
                     call TLab_Debug_Print_real('f is: ', sum(f(1:2, k, i)))
                     if (any(i_sing == i) .and. any(k_sing == k)) then
                         u(1:2, k, i) = 0.0_wp
-                        call TLab_Debug_Print_int('u(1:2, k, i): ',i)
-                        call TLab_Debug_Print_int('u(1:2, k, i): ',k)
+                        call TLab_Debug_Print_int('i: ',i)
+                        call TLab_Debug_Print_int('k: ',k)
                     end if
                 end do
             end do

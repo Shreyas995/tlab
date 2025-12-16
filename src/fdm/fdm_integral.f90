@@ -1258,7 +1258,20 @@ contains
         nx = size(fdmi_int2%lhs, 3)
         ndl = size(fdmi_int2%lhs, 4)
         ndr = size(rhsi, 2)
-        
+
+        call TLab_Debug_Print_real('result is: ', sum(result(1:2, 5, 5)))
+        call TLab_Debug_Print_real('f is: ', sum(f(1:2, 5, 5)))
+        call TLab_Debug_Print_real('result is: ', sum(result(2*nx-1:2*nx, 5, 5)))
+        call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 5, 5)))
+        call TLab_Debug_Print_real('result is: ', sum(result(1:2, 20, 20)))
+        call TLab_Debug_Print_real('f is: ', sum(f(1:2, 20, 20)))
+        call TLab_Debug_Print_real('result is: ', sum(result(2*nx-1:2*nx, 20, 20)))
+        call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 20, 20)))
+        call TLab_Debug_Print_real('result is: ', sum(result(1:2, 64, 33)))
+        call TLab_Debug_Print_real('f is: ', sum(f(1:2, 64, 33)))
+        call TLab_Debug_Print_real('result is: ', sum(result(2*nx-1:2*nx, 64, 33)))
+        call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 64, 33)))
+
         select case (ndr)
         case (3)
             call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:nlines*nx, 1:klines, 1:ilines), &

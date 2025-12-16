@@ -338,6 +338,7 @@ contains
         call TLab_Debug_Print_real('f is: ', sum(f(1:2, 64, 33)))
         call TLab_Debug_Print_real('u is: ', sum(u(2*nx-1:2*nx, 64, 33)))
         call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 64, 33)))
+        stop
         ! -------------------------------------------------------------------
         ! Boundary; the first 3/2+1+1=3 rows might be different
         if (any([BCS_MIN, BCS_BOTH] == ibc)) then
