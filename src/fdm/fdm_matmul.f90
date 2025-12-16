@@ -326,19 +326,19 @@ contains
         lp0 = 2*nx; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3 
         lp5 = 2*nx - 5; lp4 = 2*nx - 4; lp7 = 2*nx - 7; lp6 = 2*nx - 6 
 
-        call TLab_Debug_Print_real('u is: ', sum(u(1:2, 5, 5)))
-        call TLab_Debug_Print_real('f is: ', sum(f(1:2, 5, 5)))
-        call TLab_Debug_Print_real('u is: ', sum(u(2*nx-1:2*nx, 5, 5)))
-        call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 5, 5)))
-        call TLab_Debug_Print_real('u is: ', sum(u(1:2, 20, 20)))
-        call TLab_Debug_Print_real('f is: ', sum(f(1:2, 20, 20)))
-        call TLab_Debug_Print_real('u is: ', sum(u(2*nx-1:2*nx, 20, 20)))
-        call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 20, 20)))
-        call TLab_Debug_Print_real('u is: ', sum(u(1:2, 64, 33)))
-        call TLab_Debug_Print_real('f is: ', sum(f(1:2, 64, 33)))
-        call TLab_Debug_Print_real('u is: ', sum(u(2*nx-1:2*nx, 64, 33)))
-        call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 64, 33)))
-        stop
+        !call TLab_Debug_Print_real('u is: ', sum(u(1:2, 5, 5)))
+        !call TLab_Debug_Print_real('f is: ', sum(f(1:2, 5, 5)))
+        !call TLab_Debug_Print_real('u is: ', sum(u(2*nx-1:2*nx, 5, 5)))
+        !call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 5, 5)))
+        !call TLab_Debug_Print_real('u is: ', sum(u(1:2, 20, 20)))
+        !call TLab_Debug_Print_real('f is: ', sum(f(1:2, 20, 20)))
+        !call TLab_Debug_Print_real('u is: ', sum(u(2*nx-1:2*nx, 20, 20)))
+        !call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 20, 20)))
+        !call TLab_Debug_Print_real('u is: ', sum(u(1:2, 64, 33)))
+        !call TLab_Debug_Print_real('f is: ', sum(f(1:2, 64, 33)))
+        !call TLab_Debug_Print_real('u is: ', sum(u(2*nx-1:2*nx, 64, 33)))
+        !call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 64, 33)))
+        ! stop
         ! -------------------------------------------------------------------
         ! Boundary; the first 3/2+1+1=3 rows might be different
         if (any([BCS_MIN, BCS_BOTH] == ibc)) then
@@ -353,63 +353,63 @@ contains
                     do i = 1, ilines
                         do k = 1, klines
                             bcs_b(1:2, k, i) = f(1:2, k, i)*r2b(k, i, 1) + u(3:4, k, i)*r3b(k, i, 1) + u(5:6, k, i)*r1b(k, i, 1) ! r1(1) contains extended stencil
-                            call TLab_Debug_Print('bcs_b(:) after first line ', i, k, sum(bcs_b(1:2, k, i)))
-                            call TLab_Debug_Print_real('f(1:2, k, i)',  sum(f(1:2, k, i)))
-                            call TLab_Debug_Print_real('u(1:2, k, i)',  sum(u(1:2, k, i)))
-                            call TLab_Debug_Print_real('u(3:4, k, i)',  sum(u(3:4, k, i)))
-                            call TLab_Debug_Print_real('u(5:6, k, i)',  sum(u(5:6, k, i)))
-                            call TLab_Debug_Print_real('u(7:8, k, i)',  sum(u(7:8, k, i)))
-                            call TLab_Debug_Print_real('r1b(k, i, 1)',  (r1b(k, i, 1)))
-                            call TLab_Debug_Print_real('r2b(k, i, 1)',  (r2b(k, i, 1)))
-                            call TLab_Debug_Print_real('r3b(k, i, 1)',  (r3b(k, i, 1)))
+                            !call TLab_Debug_Print('bcs_b(:) after first line ', i, k, sum(bcs_b(1:2, k, i)))
+                            !call TLab_Debug_Print_real('f(1:2, k, i)',  sum(f(1:2, k, i)))
+                            !call TLab_Debug_Print_real('u(1:2, k, i)',  sum(u(1:2, k, i)))
+                            !call TLab_Debug_Print_real('u(3:4, k, i)',  sum(u(3:4, k, i)))
+                            !call TLab_Debug_Print_real('u(5:6, k, i)',  sum(u(5:6, k, i)))
+                            !call TLab_Debug_Print_real('u(7:8, k, i)',  sum(u(7:8, k, i)))
+                            !call TLab_Debug_Print_real('r1b(k, i, 1)',  (r1b(k, i, 1)))
+                            !call TLab_Debug_Print_real('r2b(k, i, 1)',  (r2b(k, i, 1)))
+                            !call TLab_Debug_Print_real('r3b(k, i, 1)',  (r3b(k, i, 1)))
 
                             ! f(1) contains the boundary condition
                             f(3:4, k, i) = f(1:2, k, i)*r1b(k, i, 2) + u(3:4, k, i)*r2b(k, i, 2) + u(5:6, k, i)*r3b(k, i, 2)
-                            call TLab_Debug_Print('f(3:4,k,i) ', i, k, sum(f(3:4,k,i)))
-                            call TLab_Debug_Print_real('r1b(k, i, 2)',  (r1b(k, i, 2)))
-                            call TLab_Debug_Print_real('r2b(k, i, 2)',  (r2b(k, i, 2)))
-                            call TLab_Debug_Print_real('r3b(k, i, 2)',  (r3b(k, i, 2)))
+                            !call TLab_Debug_Print('f(3:4,k,i) ', i, k, sum(f(3:4,k,i)))
+                            !call TLab_Debug_Print_real('r1b(k, i, 2)',  (r1b(k, i, 2)))
+                            !call TLab_Debug_Print_real('r2b(k, i, 2)',  (r2b(k, i, 2)))
+                            !call TLab_Debug_Print_real('r3b(k, i, 2)',  (r3b(k, i, 2)))
 
                             f(5:6, k, i) = f(1:2, k, i)*r0b(k, i, 3) + u(3:4, k, i)*r1b(k, i, 3) + u(5:6, k, i)*r2b(k, i, 3) + u(7:8, k, i)*r3b(k, i, 3)
-                            call TLab_Debug_Print('f(:,3) after second line ', i, k, sum(f(5:6,k,i)))
-                            call TLab_Debug_Print_real('r0b(k, i, 3)',  r0b(k, i, 3))
-                            call TLab_Debug_Print_real('r1b(k, i, 3)',  r1b(k, i, 3))
-                            call TLab_Debug_Print_real('r2b(k, i, 3)',  r2b(k, i, 3))
-                            call TLab_Debug_Print_real('r3b(k, i, 3)',  r3b(k, i, 3))
+                            !call TLab_Debug_Print('f(:,3) after second line ', i, k, sum(f(5:6,k,i)))
+                            !call TLab_Debug_Print_real('r0b(k, i, 3)',  r0b(k, i, 3))
+                            !call TLab_Debug_Print_real('r1b(k, i, 3)',  r1b(k, i, 3))
+                            !call TLab_Debug_Print_real('r2b(k, i, 3)',  r2b(k, i, 3))
+                            !call TLab_Debug_Print_real('r3b(k, i, 3)',  r3b(k, i, 3))
 
                             do n = 4, nx - 3
                                 pa = 2*n - 3; pb = 2*n - 2; pc = 2*n - 1; pd = 2*n; pe = 2*n + 1; pf = 2*n + 2
                                 f(pc:pd, k, i) = u(pa:pb, k, i)*r1_i(n) + u(pc:pd, k, i)*r2_i(n) + u(pe:pf, k, i)
                             end do
-                            call TLab_Debug_Print2('f(:,n) in interior ', n, i, k, sum(f(4:nx-3, k, i)))
-                            call TLab_Debug_Print2('u(pa:pb, k, i) in interior ', n, i, k, sum(u(:, k, i)))
-                            call TLab_Debug_Print_real('r1_i(n)',  sum(r1_i(:)))
-                            call TLab_Debug_Print_real('r1_i(n)',  sum(r2_i(:)))
+                            !call TLab_Debug_Print2('f(:,n) in interior ', n, i, k, sum(f(4:nx-3, k, i)))
+                            !call TLab_Debug_Print2('u(pa:pb, k, i) in interior ', n, i, k, sum(u(:, k, i)))
+                            !call TLab_Debug_Print_real('r1_i(n)',  sum(r1_i(:)))
+                            !call TLab_Debug_Print_real('r1_i(n)',  sum(r2_i(:)))
 
                             f(lp5:lp4, k, i) = u(lp7:lp6, k, i)*r1t(k, i, 0) + u(lp5:lp4, k, i)*r2t(k, i, 0) + u(lp3:lp2, k, i)*r3t(k, i, 0) + f(lp1:lp0, k, i)*r4t(k, i, 0)
-                            call TLab_Debug_Print('f(:,nx-2) after first line ', i, k, sum(f(lp5:lp4, k, i)))
-                            call TLab_Debug_Print_real('u(:, nx - 3)',  sum(u(lp7:lp6, k, i)))
-                            call TLab_Debug_Print_real('u(:, nx - 2)',  sum(u(lp5:lp4, k, i)))
-                            call TLab_Debug_Print_real('u(:, nx - 1)',  sum(u(lp3:lp2, k, i)))
-                            call TLab_Debug_Print_real('u(:, nx - 1)',  sum(u(lp0:lp1, k, i)))
-                            call TLab_Debug_Print_real('f(:, nx)',  sum(f(lp0:lp1, k, i)))
-                            call TLab_Debug_Print_real('f(:, nx)',  sum(u(lp0:lp1, k, i)))
-                            call TLab_Debug_Print_real('r1_t(0)',  r1t(k, i, 0))
-                            call TLab_Debug_Print_real('r2_t(0)',  r2t(k, i, 0))
-                            call TLab_Debug_Print_real('r3_t(0)',  r3t(k, i, 0))
-                            call TLab_Debug_Print_real('r4_t(0)',  r4t(k, i, 0))
+                            !call TLab_Debug_Print('f(:,nx-2) after first line ', i, k, sum(f(lp5:lp4, k, i)))
+                            !call TLab_Debug_Print_real('u(:, nx - 3)',  sum(u(lp7:lp6, k, i)))
+                            !call TLab_Debug_Print_real('u(:, nx - 2)',  sum(u(lp5:lp4, k, i)))
+                            !call TLab_Debug_Print_real('u(:, nx - 1)',  sum(u(lp3:lp2, k, i)))
+                            !call TLab_Debug_Print_real('u(:, nx - 1)',  sum(u(lp0:lp1, k, i)))
+                            !call TLab_Debug_Print_real('f(:, nx)',  sum(f(lp0:lp1, k, i)))
+                            !call TLab_Debug_Print_real('f(:, nx)',  sum(u(lp0:lp1, k, i)))
+                            !call TLab_Debug_Print_real('r1_t(0)',  r1t(k, i, 0))
+                            !call TLab_Debug_Print_real('r2_t(0)',  r2t(k, i, 0))
+                            !call TLab_Debug_Print_real('r3_t(0)',  r3t(k, i, 0))
+                            !call TLab_Debug_Print_real('r4_t(0)',  r4t(k, i, 0))
 
                             f(lp3:lp2, k, i) = u(lp5:lp4, k, i)*r1t(k, i, 1) + u(lp3:lp2, k, i)*r2t(k, i, 1) + f(lp1:lp0, k, i)*r3t(k, i, 1)
-                            call TLab_Debug_Print('f(:,nx-1) after second line ', i, k, sum(f(lp3:lp2, k, i)))
-                            call TLab_Debug_Print_real('r1_t(1)',  (r1t(k, i, 1)))
-                            call TLab_Debug_Print_real('r2_t(1)',  (r2t(k, i, 1)))
-                            call TLab_Debug_Print_real('r3_t(1)',  (r3t(k, i, 1)))
+                            !call TLab_Debug_Print('f(:,nx-1) after second line ', i, k, sum(f(lp3:lp2, k, i)))
+                            !call TLab_Debug_Print_real('r1_t(1)',  (r1t(k, i, 1)))
+                            !call TLab_Debug_Print_real('r2_t(1)',  (r2t(k, i, 1)))
+                            !call TLab_Debug_Print_real('r3_t(1)',  (r3t(k, i, 1)))
 
                             bcs_t(1:2, k, i) = u(lp5:lp4, k, i)*r3t(k, i, 2) + u(lp3:lp2, k, i)*r1t(k, i, 2) + f(lp1:lp0, k, i)*r2t(k, i, 2) ! r3(nx) contains extended stencil
-                            call TLab_Debug_Print('bcs_t(:) after third line ', i, k, sum(bcs_t(1:2, k, i)))
-                            call TLab_Debug_Print_real('r1_t(2)',  (r1t(k, i, 2)))
-                            call TLab_Debug_Print_real('r2_t(2)',  (r2t(k, i, 2)))
-                            call TLab_Debug_Print_real('r3_t(2)',  (r3t(k, i, 2)))
+                            !call TLab_Debug_Print('bcs_t(:) after third line ', i, k, sum(bcs_t(1:2, k, i)))
+                            !call TLab_Debug_Print_real('r1_t(2)',  (r1t(k, i, 2)))
+                            !call TLab_Debug_Print_real('r2_t(2)',  (r2t(k, i, 2)))
+                            !call TLab_Debug_Print_real('r3_t(2)',  (r3t(k, i, 2)))
                         end do
                     end do
 #ifdef USE_APU
