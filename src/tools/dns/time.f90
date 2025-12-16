@@ -658,7 +658,7 @@ contains
                 end do
 
             case (EQNS_RHS_COMBINED)
-                !!call TLab_Debug_Print_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT 1', hq(:,2))
+                !_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT 1', hq(:,2))
 
                 call TLab_Sources_Flow(q, s, hq, txc(1, 1)) ! hq 2 goes wrong
                 call TLab_Sources_Scal(s, hs, txc(1, 1), txc(1, 2), txc(1, 3), txc(1, 4))

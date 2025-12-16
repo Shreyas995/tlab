@@ -27,6 +27,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     use TLab_Time, only: itime
     use TLab_Arrays
     use TLab_Pointers, only: u, v, w, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, tmp8, tmp9
+    use TLab_Pointers_3D, only: p_tmp2
     use Thermo_Anelastic
     use TLab_OpenMP
     use DNS_ARRAYS
@@ -365,7 +366,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call TLab_Debug_Print_1D('rhs_global_incompressible1 remove divergence  30, hq: ', tmp4)
 
     ! pressure in tmp1, Oy derivative in tmp3
-    call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
+    call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, p_tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
 
     call TLab_Debug_Print_1D('rhs_global_incompressible1 31, tmp3', tmp3(:))
     

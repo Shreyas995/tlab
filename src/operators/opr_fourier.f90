@@ -70,21 +70,12 @@ contains
         call TLab_Write_ASCII(efile, __FILE__//'. FFTW needed for POISSON solver.')
         call TLab_Stop(DNS_ERROR_UNDEVELOP)
 #endif
-        !call TLab_Debug_Print_1D('OPR_Fourier_Initialize 1, wrk3d: ', wrk3d)
-        !call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 1, wrk3d: ', c_wrk3d)
-        !call TLab_Debug_Print_3D('OPR_Fourier_Initialize 1, wrk3d: ', p_wrk3d)
-        !call TLab_Debug_Print_int('OPR_Fourier_Initialize 1, shape wrk3d: ', size(wrk3d))
 
 
         if (mod(imax, 2) /= 0) then
             call TLab_Write_ASCII(efile, __FILE__//'. Imax must be a multiple of 2 for the FFT operations.')
             call TLab_Stop(DNS_ERROR_DIMGRID)
         end if
-
-        !call TLab_Debug_Print_1D('OPR_Fourier_Initialize 2, wrk3d: ', wrk3d)
-        !call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 2, wrk3d: ', c_wrk3d)
-        !call TLab_Debug_Print_3D('OPR_Fourier_Initialize 2, wrk3d: ', p_wrk3d)
-        !call TLab_Debug_Print_int('OPR_Fourier_Initialize 2, shape wrk3d: ', size(wrk3d))
 
         ! -----------------------------------------------------------------------
         ! Oz direction
@@ -108,12 +99,6 @@ contains
 #endif
 
             stride = nlines
-            !call TLab_Debug_Print_int('OPR_Fourier_Initialize, size_fft_z in Oz FFT: ', size_fft_z)
-            !call TLab_Debug_Print_int('OPR_Fourier_Initialize, nlines in Oz FFT: ', nlines)
-            !call TLab_Debug_Print_int('OPR_Fourier_Initialize, stride in Oz FFT: ', stride)
-            !call TLab_Debug_Print_1D('OPR_Fourier_Initialize 2, txc: ', txc(:, 1))
-
-
 #ifdef _DEBUG
             call dfftw_plan_many_dft(fft_plan_fz, 1, size_fft_z, nlines, &
                                      txc(:, 1), size_fft_z, stride, 1, &
@@ -136,12 +121,6 @@ contains
                                      FFTW_BACKWARD, FFTW_MEASURE)
 #endif
         end if
-
-        !call TLab_Debug_Print_1D('OPR_Fourier_Initialize 3, wrk3d: ', wrk3d)
-        !call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 3, wrk3d: ', c_wrk3d)
-        !call TLab_Debug_Print_3D('OPR_Fourier_Initialize 3, wrk3d: ', p_wrk3d)
-        !call TLab_Debug_Print_int('OPR_Fourier_Initialize 3, shape wrk3d: ', size(wrk3d))
-        !call TLab_Debug_Print_1D('OPR_Fourier_Initialize 3, txc: ', txc(:, 1))
 
         ! -----------------------------------------------------------------------
         ! Ox direction
@@ -172,7 +151,6 @@ contains
 #ifdef USE_MPI
             end if
 #endif
-            !call TLab_Debug_Print_int('OPR_Fourier_Initialize, isize_disp in Oz FFT: ', isize_disp)            
 #ifdef _DEBUG
             call dfftw_plan_many_dft_r2c(fft_plan_fx, 1, size_fft_x, nlines, &
                                          txc(:, 1), size_fft_x, 1, size_fft_x, &
@@ -195,12 +173,6 @@ contains
 
         end if
 
-        !call TLab_Debug_Print_1D('OPR_Fourier_Initialize 4, wrk3d: ', wrk3d)
-        !call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 4, wrk3d: ', c_wrk3d)
-        !call TLab_Debug_Print_3D('OPR_Fourier_Initialize 4, wrk3d: ', p_wrk3d)
-        !call TLab_Debug_Print_int('OPR_Fourier_Initialize 4, shape wrk3d: ', size(wrk3d))
-        !call TLab_Debug_Print_1D('OPR_Fourier_Initialize 4, txc: ', txc(:, 1))
-
         ! -----------------------------------------------------------------------
         ! Oy direction
         size_fft_y = y%size
@@ -209,9 +181,6 @@ contains
 
             nlines = imax/2 + 1    !(imax/2 + 1)*kmax
             stride = imax/2 + 1
-            !call TLab_Debug_Print_int('OPR_Fourier_Initialize, size_fft_z in Oz FFT: ', size_fft_y)
-            !call TLab_Debug_Print_int('OPR_Fourier_Initialize, nlines in Oz FFT: ', nlines)
-            !call TLab_Debug_Print_int('OPR_Fourier_Initialize, stride in Oz FFT: ', stride)
 
 #ifdef _DEBUG
             call dfftw_plan_many_dft(fft_plan_fy, 1, size_fft_y, nlines, &
@@ -235,12 +204,6 @@ contains
                                      FFTW_BACKWARD, FFTW_MEASURE)
 #endif
         end if
-
-        !call TLab_Debug_Print_1D('OPR_Fourier_Initialize 5, wrk3d: ', wrk3d)
-        !call TLab_Debug_Print_2D_c('OPR_Fourier_Initialize 5, wrk3d: ', c_wrk3d)
-        !call TLab_Debug_Print_3D('OPR_Fourier_Initialize 5, wrk3d: ', p_wrk3d)
-        !call TLab_Debug_Print_int('OPR_Fourier_Initialize 5, shape wrk3d: ', size(wrk3d))
-        !call TLab_Debug_Print_1D('OPR_Fourier_Initialize 5, txc: ', txc(:, 1))
         ! wrk3d(:) =  0.0_wp  
 
         return

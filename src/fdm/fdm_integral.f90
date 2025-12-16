@@ -1258,12 +1258,7 @@ contains
         nx = size(fdmi_int2%lhs, 3)
         ndl = size(fdmi_int2%lhs, 4)
         ndr = size(rhsi, 2)
-
-        ! call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 1, f0: ', f)
-        ! call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 2, result0: ', result)
-        ! call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 3, bcs_b0: ', p2_wrk2d(:,:,:,1))
-        ! call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 4, bcs_t0: ', p2_wrk2d(:,:,:,2))
-
+        
         select case (ndr)
         case (3)
             call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:nlines*nx, 1:klines, 1:ilines), &

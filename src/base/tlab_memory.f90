@@ -89,6 +89,7 @@ module TLab_Pointers_3D
     real(wp), pointer :: tmp9(:, :, :) => null()
 
     real(wp), pointer :: p2_wrk2d(:, :, :, :) => null()
+    real(wp), pointer :: p_tmp2(:,:,:) => null()
 end module TLab_Pointers_3D
 
 ! ###################################################################
@@ -279,6 +280,7 @@ contains
         idummy = shape(txc)
         if (idummy(2) >= 1) tmp1(1:imax, 1:jmax, 1:kmax) => txc(1:isize_field, 1)
         if (idummy(2) >= 2) tmp2(1:imax, 1:jmax, 1:kmax) => txc(1:isize_field, 2)
+        if (idummy(2) >= 2) p_tmp2(1:2*jmax, 1:kmax, 1:imax/2+1) => txc(1:isize_field, 2)
         if (idummy(2) >= 3) tmp3(1:imax, 1:jmax, 1:kmax) => txc(1:isize_field, 3)
         if (idummy(2) >= 4) tmp4(1:imax, 1:jmax, 1:kmax) => txc(1:isize_field, 4)
         if (idummy(2) >= 5) tmp5(1:imax, 1:jmax, 1:kmax) => txc(1:isize_field, 5)

@@ -338,7 +338,6 @@ contains
         call TLab_Debug_Print_real('f is: ', sum(f(1:2, 64, 33)))
         call TLab_Debug_Print_real('u is: ', sum(u(2*nx-1:2*nx, 64, 33)))
         call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 64, 33)))
-        stop
         ! -------------------------------------------------------------------
         ! Boundary; the first 3/2+1+1=3 rows might be different
         if (any([BCS_MIN, BCS_BOTH] == ibc)) then
@@ -349,9 +348,6 @@ contains
                     !$omp private(i,k,n,pa,pb,pc,pd,pe,pf) &
                     !$omp if (ilines*klines*nx > mas)
 #endif
-                    ! call TLab_Debug_Print_3D('MatMul_3d_APU bcs_b 1 : ', bcs_b)
-                    ! call TLab_Debug_Print_3D('MatMul_3d_APU f 1 : ', f)
-                    ! call TLab_Debug_Print_3D('MatMul_3d_APU bcs_t 1 : ', bcs_t)
 
                     do i = 1, ilines
                         do k = 1, klines
@@ -414,11 +410,7 @@ contains
                             call TLab_Debug_Print_real('r2_t(2)',  (r2t(k, i, 2)))
                             call TLab_Debug_Print_real('r3_t(2)',  (r3t(k, i, 2)))
                         end do
-                            Stop
                     end do
-                    ! call TLab_Debug_Print_3D('MatMul_3d_APU bcs_b 2 : ', bcs_b)
-                    ! call TLab_Debug_Print_3D('MatMul_3d_APU f 2 : ', f)
-                    ! call TLab_Debug_Print_3D('MatMul_3d_APU bcs_t 2 : ', bcs_t)
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
