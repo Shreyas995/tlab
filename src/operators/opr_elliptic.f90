@@ -487,6 +487,18 @@ contains
 #ifdef USE_APU
             !$omp end target teams distribute parallel do
 #endif
+            call TLab_Debug_Print_real('u is: ', sum(u(1:2, 5, 5)))
+            call TLab_Debug_Print_real('f is: ', sum(f(1:2, 5, 5)))
+            call TLab_Debug_Print_real('u is: ', sum(u(2*ny-1:2*ny, 5, 5)))
+            call TLab_Debug_Print_real('f is: ', sum(f(2*ny-1:2*ny, 5, 5)))
+            call TLab_Debug_Print_real('u is: ', sum(u(1:2, 20, 20)))
+            call TLab_Debug_Print_real('f is: ', sum(f(1:2, 20, 20)))
+            call TLab_Debug_Print_real('u is: ', sum(u(2*ny-1:2*ny, 20, 20)))
+            call TLab_Debug_Print_real('f is: ', sum(f(2*ny-1:2*ny, 20, 20)))
+            call TLab_Debug_Print_real('u is: ', sum(u(1:2, 64, 33)))
+            call TLab_Debug_Print_real('f is: ', sum(f(1:2, 64, 33)))
+            call TLab_Debug_Print_real('u is: ', sum(u(2*ny-1:2*ny, 64, 33)))
+            call TLab_Debug_Print_real('f is: ', sum(f(2*ny-1:2*ny, 64, 33)))
 
             call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 13, u ', u(:,:,:))
             call TLab_Debug_Print_3D('OPR_Poisson_FourierXZ_Direct 14, f ', f(:,:,:))

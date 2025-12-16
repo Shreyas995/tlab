@@ -326,6 +326,19 @@ contains
         lp0 = 2*nx; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3 
         lp5 = 2*nx - 5; lp4 = 2*nx - 4; lp7 = 2*nx - 7; lp6 = 2*nx - 6 
 
+        call TLab_Debug_Print_real('u is: ', sum(u(1:2, 5, 5)))
+        call TLab_Debug_Print_real('f is: ', sum(f(1:2, 5, 5)))
+        call TLab_Debug_Print_real('u is: ', sum(u(2*nx-1:2*nx, 5, 5)))
+        call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 5, 5)))
+        call TLab_Debug_Print_real('u is: ', sum(u(1:2, 20, 20)))
+        call TLab_Debug_Print_real('f is: ', sum(f(1:2, 20, 20)))
+        call TLab_Debug_Print_real('u is: ', sum(u(2*nx-1:2*nx, 20, 20)))
+        call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 20, 20)))
+        call TLab_Debug_Print_real('u is: ', sum(u(1:2, 64, 33)))
+        call TLab_Debug_Print_real('f is: ', sum(f(1:2, 64, 33)))
+        call TLab_Debug_Print_real('u is: ', sum(u(2*nx-1:2*nx, 64, 33)))
+        call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 64, 33)))
+        stop
         ! -------------------------------------------------------------------
         ! Boundary; the first 3/2+1+1=3 rows might be different
         if (any([BCS_MIN, BCS_BOTH] == ibc)) then
