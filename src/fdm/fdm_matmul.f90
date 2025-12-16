@@ -383,6 +383,7 @@ contains
                             call TLab_Debug_Print_real('u(:, nx - 1)',  sum(u(lp3:lp2, k, i)))
                             call TLab_Debug_Print_real('u(:, nx - 1)',  sum(u(lp0:lp1, k, i)))
                             call TLab_Debug_Print_real('f(:, nx)',  sum(f(lp0:lp1, k, i)))
+                            call TLab_Debug_Print_real('f(:, nx)',  sum(u(lp0:lp1, k, i)))
                             call TLab_Debug_Print_real('r1_t(0)',  r1t(k, i, 0))
                             call TLab_Debug_Print_real('r2_t(0)',  r2t(k, i, 0))
                             call TLab_Debug_Print_real('r3_t(0)',  r3t(k, i, 0))
