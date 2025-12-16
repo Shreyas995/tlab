@@ -399,8 +399,8 @@ contains
                             call TLab_Debug_Print_real('r1_t(2)',  (r1t(k, i, 2)))
                             call TLab_Debug_Print_real('r2_t(2)',  (r2t(k, i, 2)))
                             call TLab_Debug_Print_real('r3_t(2)',  (r3t(k, i, 2)))
-                            Stop
                         end do
+                            Stop
                     end do
                     ! call TLab_Debug_Print_3D('MatMul_3d_APU bcs_b 2 : ', bcs_b)
                     ! call TLab_Debug_Print_3D('MatMul_3d_APU f 2 : ', f)
