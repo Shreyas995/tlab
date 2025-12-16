@@ -311,8 +311,8 @@ contains
         integer(wi) nlines, ilines, klines, nx
         type(fdm_integral_dt2), intent(in) :: fdmi                          ! rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
         real(wp), intent(in) :: rhs(:, :)                                   ! diagonals of B
-        real(wp), intent(in) :: u(1:2*nx, 1:klines, 1:ilines)                                     ! vector u
-        real(wp), intent(out) :: f(1:2*nx, 1:klines, 1:ilines)                                 ! vector f = B u
+        real(wp), intent(in) :: u(:,:,:)                                     ! vector u
+        real(wp), intent(out) :: f(:,:,:)                                 ! vector f = B u
         integer, intent(in), optional :: ibc
         real(wp), intent(out), optional :: bcs_b(1:nlines, 1:klines, 1:ilines), bcs_t(1:nlines, 1:klines, 1:ilines)
 

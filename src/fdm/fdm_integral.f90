@@ -1274,8 +1274,8 @@ contains
 
         select case (ndr)
         case (3)
-            call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f(1:nlines*nx, 1:klines, 1:ilines), &
-            result(1:nlines*nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 1), bcs_t=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 2))
+            call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f, &
+            result, BCS_BOTH, bcs_b=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 1), bcs_t=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 2))
         case (5)
             call MatMul_5d_APU(nlines, ilines, klines, nx, fdmi_int2, rhsi(:, 1:5), f(1:nlines*nx, 1:klines, 1:ilines), &
             result(1:nlines*nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 1), bcs_t=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 2))
