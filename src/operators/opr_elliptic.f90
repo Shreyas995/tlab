@@ -475,11 +475,13 @@ contains
                 do k = 1, nz
                     u(1:2, k, i) = f(1:2, k, i)                        ! bottom boundary conditions
                     u(2*ny - 1:2*ny, k, i) = f(2*ny - 1:2*ny, k, i)     ! top boundary conditions
-                    if (any(i_sing == i) .and. any(k_sing == k)) u(1:2, k, i) = 0.0_wp
-                    ! do n = 1, 2*ny
-                    !     ! call TLab_Debug_Print2('OPR_Poisson_FourierXZ_Direct u ',i ,k, n, (u(n, k, i)))
-                    !     ! call TLab_Debug_Print2('OPR_Poisson_FourierXZ_Direct f ',i ,k, n, (f(n, k, i)))
-                    ! end do
+                    call TLab_Debug_Print_real('u is: ', sum(u(1:2, k, i)))
+                    call TLab_Debug_Print_real('f is: ', sum(f(1:2, k, i)))
+                    if (any(i_sing == i) .and. any(k_sing == k)) then
+                        u(1:2, k, i) = 0.0_wp
+                        call TLab_Debug_Print_int('u(1:2, k, i): ',i)
+                        call TLab_Debug_Print_int('u(1:2, k, i): ',k)
+                    end if
                 end do
             end do
 #ifdef USE_APU
