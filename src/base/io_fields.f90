@@ -504,7 +504,6 @@ contains
         if (ims_pro == 0) then
 #endif
 #include "dns_open_file.h"
-            call TLab_Debug_Print_real('IO_Write_Field_INT1: params 6 = ', sum(params))
             if (present(params)) then
                 call IO_WRITE_HEADER(LOC_UNIT_ID, nx_total, ny_total, nz_total, nt, params(:))
             else
