@@ -141,7 +141,6 @@ subroutine IBM_IO_WRITE_BIT_GEOMETRY(wrk3d, stag)
     call TLab_Debug_Print_int('IBM_IO_WRITE_BIT_GEOMETRY 4: kmax: ', kmax)
     call TLab_Debug_Print_int('IBM_IO_WRITE_BIT_GEOMETRY 5: shape(eps_bit): ', size(eps_bit))
 
-
     call IO_Write_Field_INT1(name, imax_bit, jmax, kmax, 0, eps_bit)
     nullify (eps_bit)
     return
