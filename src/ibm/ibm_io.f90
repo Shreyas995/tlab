@@ -105,6 +105,7 @@ subroutine IBM_IO_WRITE_BIT_GEOMETRY(wrk3d, stag)
     use IBM_VARS, only: epsp, eps, eps_name, epsp_name
     use TLab_Memory, only: isize_field, imax, jmax, kmax
     use IO_Fields,      only: IO_Write_Field_INT1
+    use Tlab_Debug
 
     implicit none
 
@@ -115,13 +116,16 @@ subroutine IBM_IO_WRITE_BIT_GEOMETRY(wrk3d, stag)
 
     integer(wi) :: bsize_field, imax_bit
     character(len=32) :: name
-
+    integer(wi) :: dummy
     ! ================================================================== !
     ! size of bit-array
     bsize_field = isize_field/8
     imax_bit = imax/8 ! already checked in IBM_READ_CONSISTENCY_CHECK if possible
     ! assign to scratch
+    dummy = sum(wrk3d)
+    call TLab_Debug_Print_int('IBM_IO_WRITE_BIT_GEOMETRY 1: wrk3d: ', dummy)
     eps_bit => wrk3d(1:bsize_field)
+
     ! wp real to bitwise int1
     if (stag) then
         name = epsp_name
@@ -132,6 +136,12 @@ subroutine IBM_IO_WRITE_BIT_GEOMETRY(wrk3d, stag)
     end if
     ! header (offset, nx, ny, nz, nt == 20 byte)
     ! write bitwise eps_bit field as int(1)
+    call TLab_Debug_Print_int('IBM_IO_WRITE_BIT_GEOMETRY 2: imax_bit: ', imax_bit)
+    call TLab_Debug_Print_int('IBM_IO_WRITE_BIT_GEOMETRY 3: jmax: ', jmax)
+    call TLab_Debug_Print_int('IBM_IO_WRITE_BIT_GEOMETRY 4: kmax: ', kmax)
+    call TLab_Debug_Print_int('IBM_IO_WRITE_BIT_GEOMETRY 5: shape(eps_bit): ', size(eps_bit))
+
+
     call IO_Write_Field_INT1(name, imax_bit, jmax, kmax, 0, eps_bit)
     nullify (eps_bit)
     return
