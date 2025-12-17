@@ -505,8 +505,12 @@ contains
 #endif
 #include "dns_open_file.h"
             call TLab_Debug_Print_real('IO_Write_Field_INT1: params 6 = ', sum(params))
-            call TLab_Debug_Print_int('IO_Write_Field_INT1: params 6 = ', size(params))
-            call IO_WRITE_HEADER(LOC_UNIT_ID, nx_total, ny_total, nz_total, nt, params(:))
+            if (present(params)) then
+                call IO_WRITE_HEADER(LOC_UNIT_ID, nx_total, ny_total, nz_total, nt, params(:))
+            else
+                call IO_WRITE_HEADER(LOC_UNIT_ID, nx_total, ny_total, nz_total, nt)
+            end if
+            call TLab_Debug_Print_int('IO_Write_Field_INT1: params 7 = ', size(params))
             close (LOC_UNIT_ID)
 #ifdef USE_MPI
         end if
