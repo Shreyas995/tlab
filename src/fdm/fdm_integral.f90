@@ -1305,7 +1305,7 @@ contains
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i,j,k,bcs) &
-        !$omp shared(ilines,klines,nlines,fdmi_int2,result,wrk2d,nx,ndl) &
+        !$omp shared(ilines,klines,nlines,fdmi_int2,result,p2_wrk2d,nx,ndl) &
         !$omp if (ilines * klines * nlines > mas)
 #endif
         do i = 1, ilines
