@@ -594,13 +594,6 @@ contains
         integer(wi) offset
 
         !########################################################################
-        call TLab_Debug_Print_int( 'IO_WRITE_HEADER 1', unit)
-        call TLab_Debug_Print_int( 'IO_WRITE_HEADER 2', nx)
-        call TLab_Debug_Print_int( 'IO_WRITE_HEADER 3', ny)
-        call TLab_Debug_Print_int( 'IO_WRITE_HEADER 4', nz)
-        call TLab_Debug_Print_int( 'IO_WRITE_HEADER 5', size(params))
-        call TLab_Debug_Print_real( 'IO_WRITE_HEADER 6', sum(params))
-
         offset = 5*SIZEOFINT
         if (present(params)) then
             offset = offset + size(params)*SIZEOFREAL
