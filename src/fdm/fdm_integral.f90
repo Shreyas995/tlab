@@ -1259,19 +1259,6 @@ contains
         ndl = size(fdmi_int2%lhs, 4)
         ndr = size(rhsi, 2)
 
-        !call TLab_Debug_Print_real('result is: ', sum(result(1:2, 5, 5)))
-        !call TLab_Debug_Print_real('f is: ', sum(f(1:2, 5, 5)))
-        !call TLab_Debug_Print_real('result is: ', sum(result(2*nx-1:2*nx, 5, 5)))
-        !call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 5, 5)))
-        !call TLab_Debug_Print_real('result is: ', sum(result(1:2, 20, 20)))
-        !call TLab_Debug_Print_real('f is: ', sum(f(1:2, 20, 20)))
-        !call TLab_Debug_Print_real('result is: ', sum(result(2*nx-1:2*nx, 20, 20)))
-        !call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 20, 20)))
-        !call TLab_Debug_Print_real('result is: ', sum(result(1:2, 64, 33)))
-        !call TLab_Debug_Print_real('f is: ', sum(f(1:2, 64, 33)))
-        !call TLab_Debug_Print_real('result is: ', sum(result(2*nx-1:2*nx, 64, 33)))
-        !call TLab_Debug_Print_real('f is: ', sum(f(2*nx-1:2*nx, 64, 33)))
-
         select case (ndr)
         case (3)
             call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f, &
@@ -1281,11 +1268,6 @@ contains
             result(1:nlines*nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 1), bcs_t=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 2))
         end select
 
-        !call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 5, f1: ', f)
-        !call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 6, result1: ', result)
-        !call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 7, bcs_b1: ', p2_wrk2d(:,:,:,1))
-        !call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 8, bcs_t1: ', p2_wrk2d(:,:,:,2))
-        
         ! Solve pentadiagonal linear system
         select case (ndl)
         case (3)
@@ -1296,12 +1278,6 @@ contains
             call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines*nx, 1:klines, 1:ilines))
         end select
         
-        !call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 9, f2: ', f)
-        !call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 10, result2: ', result)
-        !call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 11 bcs_b2: ', p2_wrk2d(:,:,:,1))
-        !call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 12, bcs_t2: ', p2_wrk2d(:,:,:,2))
-
-
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i,j,k,bcs) &
@@ -1328,12 +1304,6 @@ contains
                 end if
             end do
         end do
-
-        !call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 13, f3: ', f)
-        !call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 14, result3: ', result)
-        !call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 15 bcs_b3: ', p2_wrk2d(:,:,:,1))
-        !call TLab_Debug_Print_3D('FDM_Int2_Solve_APU 16, bcs_t3: ', p2_wrk2d(:,:,:,2))
-
 
 #ifdef USE_APU
         !$omp end target teams distribute parallel do

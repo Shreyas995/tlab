@@ -476,9 +476,6 @@ contains
         ny_total = ny
         nz_total = nz
 #endif
-        call TLab_Debug_Print_int('IO_Write_Field_INT1: nx_total 1=', nx_total)
-        call TLab_Debug_Print_int('IO_Write_Field_INT1: ny_total 2=', ny_total)
-        call TLab_Debug_Print_int('IO_Write_Field_INT1: nz_total 3=', nz_total)
         line = 'Writing field '//trim(adjustl(name))//' of size'
         write (str, *) nx_total; line = trim(adjustl(line))//' '//trim(adjustl(str))
         write (str, *) ny_total; line = trim(adjustl(line))//'x'//trim(adjustl(str))
@@ -493,12 +490,9 @@ contains
         ! -------------------------------------------------------------------
         ! header
         header_offset = 5*SIZEOFINT
-        call TLab_Debug_Print_int('IO_Write_Field_INT1: header_offset before params 4 =', header_offset)
         if (present(params)) then
             header_offset = header_offset + size(params)*SIZEOFREAL
         end if
-
-        call TLab_Debug_Print_int('IO_Write_Field_INT1: header_offset before params 5 =', header_offset)
 
 #ifdef USE_MPI
         if (ims_pro == 0) then

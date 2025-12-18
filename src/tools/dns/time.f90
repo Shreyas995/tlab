@@ -210,7 +210,6 @@ contains
 #ifdef USE_BLAS
         ij_len = isize_field
 #endif
-        !call TLab_Debug_Print_1D('TIME_RUNGEKUTTA 1', q(:,2))
         ! -------------------------------------------------------------------
         ! Initialize arrays to zero for the explcit low-storage algorithm
         ! -------------------------------------------------------------------
@@ -237,12 +236,9 @@ contains
                 call TIME_SUBSTEP_PARTICLE()
             end if
 
-            !call TLab_Debug_Print_1D('TIME_RUNGEKUTTA 2', q(:,2))
-            
             select case (nse_eqns)
             case (DNS_EQNS_INCOMPRESSIBLE, DNS_EQNS_ANELASTIC)
                 if (rkm_mode == RKM_EXP3 .or. rkm_mode == RKM_EXP4) then
-                    !call TLab_Debug_Print_1D('TIME_RUNGEKUTTA 1, wrk3d: ', wrk3d)
                     call TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT()
                 else
                     call TIME_SUBSTEP_INCOMPRESSIBLE_IMPLICIT()
@@ -663,12 +659,8 @@ contains
                 call TLab_Sources_Flow(q, s, hq, txc(1, 1)) ! hq 2 goes wrong
                 call TLab_Sources_Scal(s, hs, txc(1, 1), txc(1, 2), txc(1, 3), txc(1, 4))
 
-                !call TLab_Debug_Print_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT 1, wrk3d: ', wrk3d) ! incorrect value
-                
                 call RHS_GLOBAL_INCOMPRESSIBLE_1()
-
-                !call TLab_Debug_Print_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT', hq(:,2)) ! incorrect value
-
+                
             case (EQNS_RHS_NONBLOCKING)
 #ifdef USE_PSFFT
                 call RHS_GLOBAL_INCOMPRESSIBLE_NBC(q(1, 1), q(1, 2), q(1, 3), s(1, 1), &

@@ -139,11 +139,7 @@ program DNS
 
     call OPR_Elliptic_Initialize(ifile)
 
-    !call TLab_Debug_Print_1D('dns_main 9, wrk3d: ', wrk3d, dbg_string)
-
     call OPR_Filter_Initialize_Parameters(ifile)
-
-    !call TLab_Debug_Print_1D('dns_main 10, wrk3d: ', wrk3d, dbg_string)
 
     do ig = 1, 3
         call OPR_FILTER_INITIALIZE(g(ig), FilterDomain(ig))
@@ -151,13 +147,8 @@ program DNS
     end do
 
     if (fourier_on) call OPR_Fourier_Initialize()
-    !call TLab_Debug_Print_2D('dns_main 10a, q: ', q, dbg_string)
-    !call TLab_Debug_Print_1D('dns_main 11, wrk3d: ', wrk3d, dbg_string)
     
     call OPR_CHECK()
-
-    !call TLab_Debug_Print_1D('dns_main 13, wrk3d: ', wrk3d, dbg_string)
-    !call TLab_Debug_Print_2D('dns_main 13a, q: ', q, dbg_string)
 
     ! ###################################################################
     ! Initialize fields
@@ -171,19 +162,11 @@ program DNS
         call IO_Read_Fields(fname, imax, jmax, kmax, itime, inb_scal, 0, s, params(1:1))
     end if
 
-    !call TLab_Debug_Print_1D('dns_main 14, wrk3d: ', wrk3d, dbg_string)
-    !call TLab_Debug_Print_2D('dns_main 14a, q: ', q, dbg_string)
-    !call TLab_Debug_Print_2D('dns_main 14b, s: ', s, dbg_string)
-
     write (fname, *) nitera_first; fname = trim(adjustl(tag_flow))//trim(adjustl(fname))
     call IO_Read_Fields(fname, imax, jmax, kmax, itime, inb_flow, 0, q, params(1:2))
     rtime = params(1); visc = params(2)
 
-    !call TLab_Debug_Print_1D('dns_main 15, wrk3d: ', wrk3d, dbg_string)
-
     call FI_DIAGNOSTIC(imax, jmax, kmax, q, s)  ! Initialize diagnostic thermodynamic quantities
-
-    !call TLab_Debug_Print_1D('dns_main 16, wrk3d: ', wrk3d, dbg_string)
 
     if (part%type /= PART_TYPE_NONE) then
         write (fname, *) nitera_first; fname = trim(adjustl(tag_part))//trim(adjustl(fname))
@@ -191,14 +174,10 @@ program DNS
         call Particle_Initialize_Fields()
     end if
 
-    !call TLab_Debug_Print_1D('dns_main 17, wrk3d: ', wrk3d, dbg_string)
-
     if (imode_sim == DNS_MODE_SPATIAL .and. nitera_stats_spa > 0) then
         write (fname, *) nitera_first; fname = 'st'//trim(adjustl(fname))
         call IO_READ_AVG_SPATIAL(fname, mean_flow, mean_scal)
     end if
-
-    !call TLab_Debug_Print_1D('dns_main 18, wrk3d: ', wrk3d, dbg_string)
 
     ! ###################################################################
     ! Initialize change in viscosity
@@ -219,22 +198,13 @@ program DNS
     ! ###################################################################
     ! Initialize data for boundary conditions
     ! ###################################################################
-    !call TLab_Debug_Print_1D('dns_main 19, wrk3d: ', wrk3d, dbg_string)
-
     call BOUNDARY_BUFFER_INITIALIZE(q, s, txc)
 
-    !call TLab_Debug_Print_1D('dns_main 20, wrk3d: ', wrk3d, dbg_string)
-
     call BOUNDARY_BCS_INITIALIZE()
-
-    !call TLab_Debug_Print_1D('dns_main 21, wrk3d: ', wrk3d, dbg_string)
 
     if (imode_sim == DNS_MODE_SPATIAL) then
         call BOUNDARY_INFLOW_INITIALIZE(rtime, txc)
     end if
-
-    !call TLab_Debug_Print_1D('dns_main 22, wrk3d: ', wrk3d, dbg_string)
-
     ! ###################################################################
     ! Initialize IBM
     ! ###################################################################
@@ -243,8 +213,6 @@ program DNS
         call IBM_BCS_FIELD_COMBINED(i0, q)
         if (scal_on) call IBM_INITIALIZE_SCAL(i1, s)
     end if
-
-    !call TLab_Debug_Print_1D('dns_main 23, wrk3d: ', wrk3d, dbg_string)
 
     ! ###################################################################
     ! Check
@@ -259,32 +227,24 @@ program DNS
     call DNS_OBS_CONTROL()
     call DNS_BOUNDS_LIMIT()
 
-    !call TLab_Debug_Print_1D('dns_main 24, wrk3d: ', wrk3d, dbg_string)
-
     ! ###################################################################
     ! Initialize time marching scheme
     ! ###################################################################
     call TIME_INITIALIZE()
-    !call TLab_Debug_Print_1D('dns_main 25, wrk3d: ', wrk3d, dbg_string)
-
     call TIME_COURANT()
-    !call TLab_Debug_Print_1D('dns_main 26, wrk3d: ', wrk3d, dbg_string)
 
     ! ###################################################################
     ! Check-pointing: Initialize logfiles, write header & first line
     ! ###################################################################
     call DNS_LOGS_PATH_INITIALIZE()
-    !call TLab_Debug_Print_1D('dns_main 27, wrk3d: ', wrk3d, dbg_string)
 
     call DNS_LOGS_INITIALIZE()
-    !call TLab_Debug_Print_1D('dns_main 28, wrk3d: ', wrk3d, dbg_string)
 
     call DNS_LOGS()
     if (dns_obs_log /= OBS_TYPE_NONE) then
         call DNS_OBS_INITIALIZE()
         call DNS_OBS()
     end if
-    !call TLab_Debug_Print_1D('dns_main 29, wrk3d: ', wrk3d, dbg_string)
 
     ! ###################################################################
     ! Do simulation: Integrate equations
@@ -294,13 +254,11 @@ program DNS
     write (str, *) itime
     call TLab_Write_ASCII(lfile, 'Starting time integration at It'//trim(adjustl(str))//'.')
     call Tlab_Debug_Initialize()
-    !call TLab_Debug_Print_1D('dns_main 30, wrk3d: ', wrk3d, dbg_string)
 
     do
         if (itime >= nitera_last) exit
         if (int(logs_data(1)) /= 0) exit
         WRITE(UNIT=dbg_string, FMT='(I10)') itime
-        !call TLab_Debug_Print_1D('dns_main 2, wrk3d: ', wrk3d, dbg_string)
 
         call TIME_RUNGEKUTTA()
 

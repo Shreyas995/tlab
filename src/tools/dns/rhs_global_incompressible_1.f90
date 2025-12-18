@@ -100,29 +100,13 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     ! Diagonal terms and transposed velocity arrays
     call OPR_Burgers_X(OPR_B_SELF, 0, imax, jmax, kmax, bcs, u, u, tmp1, tmp4) ! store u transposed in tmp4
 
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1  0, wrk3d: ', wrk3d) 
-
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1  1, tmp1: ', tmp1(:)) 
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1  2, u: ', u(:))
-
     call OPR_Burgers_Y(OPR_B_SELF, 0, imax, jmax, kmax, bcs, v, v, tmp2, tmp5) ! store v transposed in tmp5
-
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1  3, tmp3: ', tmp2(:)) 
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1  4, v: ', v(:))
-
     call OPR_Burgers_Z(OPR_B_SELF, 0, imax, jmax, kmax, bcs, w, w, tmp3, tmp6) ! store w transposed in tmp6
 
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1  5, tmp3: ', tmp3(:))
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1  6, w: ', w(:))
-
     ! Ox momentum equation
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1  7, tmp7: ', tmp7(:))
-
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, v, tmp7, tmp9, tmp5) ! tmp5 contains v transposed
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
 
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1  8, tmp8: ', tmp8(:))
-    
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
@@ -130,13 +114,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp shared( srt,end,hq,tmp1,tmp7,tmp8 ) &
     !$omp if(end > mas)
 #endif
-    !call TLab_Debug_Print_2D('rhs_global_incompressible1  9, hq: ', hq)
-
     do ij = srt, end 
         hq(ij, 1) = hq(ij, 1) + tmp1(ij) + tmp7(ij) + tmp8(ij)
     end do
 
-    !call TLab_Debug_Print_2D('rhs_global_incompressible1  10, hq: ', hq) 
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
@@ -146,8 +127,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-
-    !call TLab_Debug_Print_2D('rhs_global_incompressible1,  11, hq: ', hq) 
 
 #ifdef USE_APU
     !$omp target teams distribute parallel do &
@@ -160,17 +139,13 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         hq(ij, 2) = hq(ij, 2) + tmp2(ij) + tmp7(ij) + tmp8(ij)
     end do
 
-    !call TLab_Debug_Print_2D('rhs_global_incompressible1  12, hq: ', hq)
-
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
 
     ! Oz momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1, tmp8, 13', tmp8)
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, v, tmp8, tmp9, tmp5) ! tmp5 contains v transposed
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1, tmp8, 14:', tmp8)
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
 #ifdef USE_APU
@@ -183,8 +158,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     do ij = srt, end 
         hq(ij, 3) = hq(ij, 3) + tmp3(ij) + tmp7(ij) + tmp8(ij)
     end do
-
-    !call TLab_Debug_Print_2D('rhs_global_incompressible1  15, hq: ', hq)
 
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
@@ -220,7 +193,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp end target teams distribute parallel do
 #endif
     end do
-    !call TLab_Debug_Print_2D('rhs_global_incompressible1  16, hq: ', hq)
 
     ! IBM usage for scalar field, done
     if (imode_ibm_scal == 1) ibm_burgers = .false.
@@ -263,10 +235,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             tmp3(ij) = hq(ij, 1) + u(ij)*dummy
             tmp4(ij) = hq(ij, 3) + w(ij)*dummy
         end do
-        !call TLab_Debug_Print_1D('rhs_global_incompressible1  17, tmp2: ', tmp2)
-        !call TLab_Debug_Print_1D('rhs_global_incompressible1  18, tmp3: ', tmp3)
-        !call TLab_Debug_Print_1D('rhs_global_incompressible1  19, tmp5: ', tmp4)
-
 #endif
 
         if (imode_ibm == 1) then
@@ -279,9 +247,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             call Thermo_Anelastic_WEIGHT_INPLACE(imax, jmax, kmax, rbackground, tmp3)
             call Thermo_Anelastic_WEIGHT_INPLACE(imax, jmax, kmax, rbackground, tmp4)
         end if
-        !call TLab_Debug_Print_1D('rhs_global_incompressible1  20, tmp2: ', tmp2)
-        !call TLab_Debug_Print_1D('rhs_global_incompressible1  21, tmp3: ', tmp3)
-        !call TLab_Debug_Print_1D('rhs_global_incompressible1  22, tmp4: ', tmp4)
 
         if (stagger_on) then ! staggering on horizontal pressure nodes
             !  Oy derivative
@@ -299,9 +264,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp3, tmp2)
             call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), tmp4, tmp3)
         end if
-        !call TLab_Debug_Print_1D('rhs_global_incompressible1  23, tmp2: ', tmp2)
-        !call TLab_Debug_Print_1D('rhs_global_incompressible1  24, tmp3: ', tmp3)
-        !call TLab_Debug_Print_1D('rhs_global_incompressible1  25, tmp4: ', tmp4)
 
     else
         if (imode_ibm == 1) then
@@ -323,7 +285,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         end if
 
     end if
-    !call TLab_Debug_Print_2D('rhs_global_incompressible1 remove divergence  26, hq: ', hq)
     ! -----------------------------------------------------------------------
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
@@ -360,25 +321,14 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         BcsFlowJmax%ref(:, :, 2) = p_bcs(:, jmax, :)
     end if
 
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 remove divergence  27, hq: ', tmp1)
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 remove divergence  28, hq: ', tmp2)
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 remove divergence  29, hq: ', tmp3)
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 remove divergence  30, hq: ', tmp4)
-
     ! pressure in tmp1, Oy derivative in tmp3
     call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, p_tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
 
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 31, tmp3', tmp3(:))
-    
     ! filter pressure p and its vertical gradient dpdy
     if (any(PressureFilter(:)%type /= DNS_FILTER_NONE)) then
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp1, txc(1:isize_field,4:6))
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp3, txc(1:isize_field,4:6))
     end if
-
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 32, tmp1', tmp1(:))
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 33, tmp3', tmp3(:))
-    
 
     ! Saving pressure for towers to tmp array
     if (rkm_substep == rkm_endstep) then
@@ -394,8 +344,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             end if
         end if
     end if
-
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 34', tmp4(:))
 
     if (stagger_on) then
         !  vertical pressure derivative   dpdy - back on horizontal velocity nodes
@@ -423,13 +371,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), tmp1, tmp4)
     end if
     
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 35, tmp5', tmp5(:))
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 36, tmp3', tmp3(:))
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 37, tmp1', tmp5(:))
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 38, tmp3', tmp4(:))
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 39, tmp3', tmp5(:))
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 40, tmp3', tmp2(:))
-
     ! -----------------------------------------------------------------------
     ! Add pressure gradient
     ! -----------------------------------------------------------------------
@@ -441,7 +382,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     else
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 41', tmp3(:))
 #ifdef USE_APU
         !$omp parallel do default( shared ) private ( ij ) &
         !$omp if(end > mas)
@@ -464,13 +404,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             hq(ij, 3) = hq(ij, 3) - tmp4(ij)
         end do
 #endif
-        ! print *, 'rhs_global_incompressible1 tmp3 cointains pressure ', sum(hq(:,1))
-        ! print *, 'rhs_global_incompressible1 tmp3 cointains pressure ', sum(hq(:,2))
-        ! print *, 'rhs_global_incompressible1 tmp3 cointains pressure ', sum(hq(:,3))
-
-
     end if
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 20', hq(:,2))
 
     ! #######################################################################
     ! Boundary conditions
@@ -493,7 +427,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         p_bcs(:, jmax, :) = BcsFlowJmax%ref(:, :, iq)
 
     end do
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 42', hq(:,2))  
     do is = 1, inb_scal
         ibc = 0
         if (BcsScalJmin%type(is) == DNS_BCS_NEUMANN) ibc = ibc + 1
@@ -514,7 +447,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         p_bcs(:, jmax, :) = BcsScalJmax%ref(:, :, is)
 
     end do
-    !call TLab_Debug_Print_1D('rhs_global_incompressible1 43', hq(:,2))
 
 #ifdef TRACE_ON
     call TLab_Write_ASCII(tfile, 'LEAVING SUBROUTINE RHS_GLOBAL_INCOMPRESSIBLE_1')
