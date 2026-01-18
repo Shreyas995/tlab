@@ -5,9 +5,9 @@
 #endif
 
 program VFFT
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, ifile
     use TLab_Memory, only: imax, jmax, kmax
-    use TLab_WorkFlow, only: TLab_Write_ASCII
+    use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Start, TLab_Stop
     use OPR_Fourier
 #ifdef USE_MPI
     use mpi_f08
@@ -23,6 +23,7 @@ program VFFT
     integer(wi) :: i, j, k, ip, ip_ref, bad_count, good_count, check_mode, bad
     integer(wi) :: isize_fft3d, isize_trn3d
     integer(wi) :: err_count, case_count
+    integer(wi), parameter :: i0 = 0
     real(wp) :: norm
 
     err_count = i0

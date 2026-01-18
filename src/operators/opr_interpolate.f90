@@ -74,6 +74,7 @@ contains
 
         if (ims_npro_k > 1) then
             npage = nx_dst*ny_dst
+            print *, 'OPR_interpolate npage : ', npage
             tmpi_plan_z = TLabMPI_Trp_PlanK(nz, npage, message='type-1 Oz interpolation')
 
             npage = nx_dst*ny_dst

@@ -28,6 +28,9 @@ FILE(GLOB sourcefiles "burgers/vburgers_measure.f90")
 add_executable(vburgers_measure.x ${sourcefiles})
 target_link_libraries(vburgers_measure.x physics mappings operators thermodynamics filters fdm ibm ${LEVEL1_LIBS} ${LIBS})
 
+# FILE(GLOB sourcefiles "fft/vfft.f90")
+# add_executable(vfft.x ${sourcefiles})
+# target_link_libraries(vfft.x physics mappings operators thermodynamics filters fdm ibm ${LEVEL1_LIBS} ${LIBS})
 
 # FILE(GLOB sourcefiles "interpol/*.f90")
 # add_executable(vinterpol.x ${sourcefiles})
