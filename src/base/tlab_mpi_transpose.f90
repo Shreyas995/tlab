@@ -41,7 +41,10 @@ module TLabMPI_Transpose
 
     type(MPI_Datatype) :: trp_datatype_i, trp_datatype_k            ! Transposition in double or single precision
 
-    real(wp), allocatable, target :: wrk_mpi(:)                     ! 3D work array
+    ! sp send/recv buffer: first half = send (a_wrk), second half = recv (b_wrk).
+    ! Declared real(sp) allocatable target so OpenMP target can map it directly
+    ! (following c_f_pointer-into-concrete-array pattern of OPR_Poisson_FourierXZ_Direct).
+    real(sp), allocatable, target :: wrk_mpi(:)
     real(sp), pointer :: a_wrk(:) => null(), b_wrk(:) => null()
     type(MPI_Status) status(128)
     type(MPI_Request) request(128)
@@ -177,8 +180,10 @@ contains
         counts(:) = 1
 
         ! -----------------------------------------------------------------------
-        ! to use single transposition when running in double precission
-        call TLab_Allocate_Real(__FILE__, wrk_mpi, [isize_wrk3d], 'wrk-mpi')
+        ! sp work buffer: 2×imax×jmax×kmax elements so both send (a_wrk) and recv (b_wrk)
+        ! halves fit without aliasing into caller arrays (required for OpenMP target offload).
+        allocate (wrk_mpi(2*imax*jmax*kmax))
+        call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated sp send/recv buffer wrk_mpi.')
 
         ! -----------------------------------------------------------------------
         ! Create basic transposition plans used for partial X and partial Z; could be in another module...
@@ -341,8 +346,6 @@ contains
         real(wp), intent(out) :: b(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
-        target b
-
         ! -----------------------------------------------------------------------
         integer(wi) size, i
 
@@ -357,23 +360,33 @@ contains
 
         if (trp_datatype_k == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(b(1)), a_wrk, shape=[size])
-            call c_f_pointer(c_loc(wrk_mpi), b_wrk, shape=[size])
-            ! dp→sp: offload per-message chunk (size/ims_npro_k elements) to APU
+            ! Both pointers into wrk_mpi (concrete sp allocatable target):
+            ! first half = send buffer, second half = recv buffer.
+            call c_f_pointer(c_loc(wrk_mpi(1)),        a_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(size + 1)), b_wrk, shape=[size])
+            ! dp→sp: a(dp) → a_wrk(sp) in wrk_mpi first half
+#ifdef USE_APU
             !$omp target teams distribute parallel do simd if(size/ims_npro_k > mas)
+#endif
             do i = 1, size
                 a_wrk(i) = real(a(i), sp)
             end do
+#ifdef USE_APU
             !$omp end target teams distribute parallel do simd
+#endif
             call Transpose_Kernel_Single(a_wrk, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                          b_wrk, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                          ims_comm_z, trp_sizBlock_k, trp_mode_k)
-            ! sp→dp: offload per-message chunk to APU
+            ! sp→dp: b_wrk(sp) in wrk_mpi second half → b(dp)
+#ifdef USE_APU
             !$omp target teams distribute parallel do simd if(size/ims_npro_k > mas)
+#endif
             do i = 1, size
                 b(i) = real(b_wrk(i), dp)
             end do
+#ifdef USE_APU
             !$omp end target teams distribute parallel do simd
+#endif
             nullify (a_wrk, b_wrk)
         else
             call Transpose_Kernel_Double(a(1:trp_plan%size3d), maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
@@ -411,8 +424,6 @@ contains
         real(wp), intent(out) :: a(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
-        target a
-
         ! -----------------------------------------------------------------------
         integer(wi) size, i
 #ifdef PROFILE_ON
@@ -426,21 +437,29 @@ contains
 
         if (trp_datatype_k == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(a(1)), b_wrk, shape=[size])
-            call c_f_pointer(c_loc(wrk_mpi), a_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(1)),        b_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(size + 1)), a_wrk, shape=[size])
+#ifdef USE_APU
             !$omp target teams distribute parallel do simd if(size/ims_npro_k > mas)
+#endif
             do i = 1, size
                 b_wrk(i) = real(b(i), sp)
             end do
+#ifdef USE_APU
             !$omp end target teams distribute parallel do simd
+#endif
             call Transpose_Kernel_Single(b_wrk, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                          a_wrk, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                          ims_comm_z, trp_sizBlock_k, trp_mode_k)
+#ifdef USE_APU
             !$omp target teams distribute parallel do simd if(size/ims_npro_k > mas)
+#endif
             do i = 1, size
                 a(i) = real(a_wrk(i), dp)
             end do
+#ifdef USE_APU
             !$omp end target teams distribute parallel do simd
+#endif
             nullify (a_wrk, b_wrk)
         else
             call Transpose_Kernel_Double(b(1:trp_plan%size3d), maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
@@ -478,29 +497,35 @@ contains
         real(wp), dimension(:), intent(out) :: b
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
-        target b
-
         ! -----------------------------------------------------------------------
         integer(wi) size, i
 
         ! #######################################################################
         if (trp_datatype_i == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(b(1)), a_wrk, shape=[size])
-            call c_f_pointer(c_loc(wrk_mpi), b_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(1)),        a_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(size + 1)), b_wrk, shape=[size])
+#ifdef USE_APU
             !$omp target teams distribute parallel do simd if(size/ims_npro_i > mas)
+#endif
             do i = 1, size
                 a_wrk(i) = real(a(i), sp)
             end do
+#ifdef USE_APU
             !$omp end target teams distribute parallel do simd
+#endif
             call Transpose_Kernel_Single(a_wrk, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                          b_wrk, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                          ims_comm_x, trp_sizBlock_i, trp_mode_i)
+#ifdef USE_APU
             !$omp target teams distribute parallel do simd if(size/ims_npro_i > mas)
+#endif
             do i = 1, size
                 b(i) = real(b_wrk(i), dp)
             end do
+#ifdef USE_APU
             !$omp end target teams distribute parallel do simd
+#endif
             nullify (a_wrk, b_wrk)
         else
             call Transpose_Kernel_Double(a(1:trp_plan%size3d), maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
@@ -529,12 +554,9 @@ contains
     !########################################################################
     !########################################################################
     subroutine TLabMPI_Trp_ExecI_Backward_Real(b, a, trp_plan)
-        use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
         real(wp), intent(in) :: b(:)
         real(wp), intent(out) :: a(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
-
-        target a
 
         ! -----------------------------------------------------------------------
         integer(wi) size, i
@@ -542,21 +564,29 @@ contains
         ! #######################################################################
         if (trp_datatype_i == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(a(1)), b_wrk, shape=[size])
-            call c_f_pointer(c_loc(wrk_mpi), a_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(1)),        b_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(size + 1)), a_wrk, shape=[size])
+#ifdef USE_APU
             !$omp target teams distribute parallel do simd if(size/ims_npro_i > mas)
+#endif
             do i = 1, size
                 b_wrk(i) = real(b(i), sp)
             end do
+#ifdef USE_APU
             !$omp end target teams distribute parallel do simd
+#endif
             call Transpose_Kernel_Single(b_wrk, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                          a_wrk, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                          ims_comm_x, trp_sizBlock_i, trp_mode_i)
+#ifdef USE_APU
             !$omp target teams distribute parallel do simd if(size/ims_npro_i > mas)
+#endif
             do i = 1, size
                 a(i) = real(a_wrk(i), dp)
             end do
+#ifdef USE_APU
             !$omp end target teams distribute parallel do simd
+#endif
             nullify (a_wrk, b_wrk)
         else
             call Transpose_Kernel_Double(b(1:trp_plan%size3d), maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
