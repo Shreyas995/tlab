@@ -359,8 +359,8 @@ contains
             size = trp_plan%size3d
             call c_f_pointer(c_loc(b(1)), a_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi), b_wrk, shape=[size])
-            ! dp→sp: offload to APU when array is large enough to amortize launch overhead
-            !$omp target teams distribute parallel do simd if(size > mas)
+            ! dp→sp: offload per-message chunk (size/ims_npro_k elements) to APU
+            !$omp target teams distribute parallel do simd if(size/ims_npro_k > mas)
             do i = 1, size
                 a_wrk(i) = real(a(i), sp)
             end do
@@ -368,8 +368,8 @@ contains
             call Transpose_Kernel_Single(a_wrk, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                          b_wrk, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                          ims_comm_z, trp_sizBlock_k, trp_mode_k)
-            ! sp→dp: offload to APU when array is large enough
-            !$omp target teams distribute parallel do simd if(size > mas)
+            ! sp→dp: offload per-message chunk to APU
+            !$omp target teams distribute parallel do simd if(size/ims_npro_k > mas)
             do i = 1, size
                 b(i) = real(b_wrk(i), dp)
             end do
@@ -428,7 +428,7 @@ contains
             size = trp_plan%size3d
             call c_f_pointer(c_loc(a(1)), b_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi), a_wrk, shape=[size])
-            !$omp target teams distribute parallel do simd if(size > mas)
+            !$omp target teams distribute parallel do simd if(size/ims_npro_k > mas)
             do i = 1, size
                 b_wrk(i) = real(b(i), sp)
             end do
@@ -436,7 +436,7 @@ contains
             call Transpose_Kernel_Single(b_wrk, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                          a_wrk, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                          ims_comm_z, trp_sizBlock_k, trp_mode_k)
-            !$omp target teams distribute parallel do simd if(size > mas)
+            !$omp target teams distribute parallel do simd if(size/ims_npro_k > mas)
             do i = 1, size
                 a(i) = real(a_wrk(i), dp)
             end do
@@ -488,7 +488,7 @@ contains
             size = trp_plan%size3d
             call c_f_pointer(c_loc(b(1)), a_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi), b_wrk, shape=[size])
-            !$omp target teams distribute parallel do simd if(size > mas)
+            !$omp target teams distribute parallel do simd if(size/ims_npro_i > mas)
             do i = 1, size
                 a_wrk(i) = real(a(i), sp)
             end do
@@ -496,7 +496,7 @@ contains
             call Transpose_Kernel_Single(a_wrk, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                          b_wrk, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                          ims_comm_x, trp_sizBlock_i, trp_mode_i)
-            !$omp target teams distribute parallel do simd if(size > mas)
+            !$omp target teams distribute parallel do simd if(size/ims_npro_i > mas)
             do i = 1, size
                 b(i) = real(b_wrk(i), dp)
             end do
@@ -544,7 +544,7 @@ contains
             size = trp_plan%size3d
             call c_f_pointer(c_loc(a(1)), b_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi), a_wrk, shape=[size])
-            !$omp target teams distribute parallel do simd if(size > mas)
+            !$omp target teams distribute parallel do simd if(size/ims_npro_i > mas)
             do i = 1, size
                 b_wrk(i) = real(b(i), sp)
             end do
@@ -552,7 +552,7 @@ contains
             call Transpose_Kernel_Single(b_wrk, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                          a_wrk, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                          ims_comm_x, trp_sizBlock_i, trp_mode_i)
-            !$omp target teams distribute parallel do simd if(size > mas)
+            !$omp target teams distribute parallel do simd if(size/ims_npro_i > mas)
             do i = 1, size
                 a(i) = real(a_wrk(i), dp)
             end do
@@ -613,7 +613,7 @@ contains
             ! by the map clause; use_device_addr simply gives MPI the device pointer.
             ! The if clause falls back to CPU path for arrays smaller than mas
             ! (14592 elements) where APU offload overhead exceeds the benefit.
-            !$omp target data map(to:a) map(from:b) use_device_addr(a, b) if(size(a) > mas)
+            !$omp target data map(to:a) map(from:b) use_device_addr(a, b) if(size(a)/npro > mas)
 #endif
             do j = 1, npro, step
                 l = 0
@@ -654,8 +654,9 @@ contains
     !########################################################################
     !########################################################################
     subroutine Transpose_Kernel_Single(a, msend, dsend, tsend, b, mrecv, drecv, trecv, comm, step, mode)
-        real(sp), intent(in) :: a(*)
-        real(sp), intent(out) :: b(*)
+        ! Assumed-shape (not assumed-size) so Cray OpenMP target accepts these arrays.
+        real(sp), intent(in) :: a(:)
+        real(sp), intent(out) :: b(:)
 
         type(MPI_Comm), intent(in) :: comm                         ! communicator
         type(MPI_Datatype), intent(in) :: tsend, trecv                 ! types send/receive
@@ -673,6 +674,11 @@ contains
 
         select case (mode)
         case (TLAB_MPI_TRP_ASYNCHRONOUS)
+#ifdef USE_APU
+            ! GPU-Aware MPI: expose device addresses so MPICH uses ROCm/RDMA path.
+            ! Condition: per-message data (size/npro) must exceed APU offload threshold.
+            !$omp target data map(to:a) map(from:b) use_device_addr(a, b) if(size(a)/npro > mas)
+#endif
             do j = 1, npro, step
                 l = 0
                 do m = j, min(j + step - 1, npro)
@@ -685,6 +691,9 @@ contains
                 end do
                 call MPI_WAITALL(l, request, status, ims_err)
             end do
+#ifdef USE_APU
+            !$omp end target data
+#endif
 
         case (TLAB_MPI_TRP_SENDRECV)
             do j = 1, npro, step
