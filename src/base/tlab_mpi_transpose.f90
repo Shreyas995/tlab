@@ -366,8 +366,8 @@ contains
             b(1:size) = real(b_wrk(1:size), dp)
             nullify (a_wrk, b_wrk)
         else
-            call Transpose_Kernel_Double(a, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                         b, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
+            call Transpose_Kernel_Double(a(1:trp_plan%size3d), maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                         b(1:trp_plan%size3d), maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                          ims_comm_z, trp_sizBlock_k, trp_mode_k)
         end if
 
@@ -425,8 +425,8 @@ contains
             a(1:size) = real(a_wrk(1:size), dp)
             nullify (a_wrk, b_wrk)
         else
-            call Transpose_Kernel_Double(b, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                         a, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
+            call Transpose_Kernel_Double(b(1:trp_plan%size3d), maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                         a(1:trp_plan%size3d), maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                          ims_comm_z, trp_sizBlock_k, trp_mode_k)
         end if
 
@@ -477,8 +477,8 @@ contains
             b(1:size) = real(b_wrk(1:size), dp)
             nullify (a_wrk, b_wrk)
         else
-            call Transpose_Kernel_Double(a, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                         b, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
+            call Transpose_Kernel_Double(a(1:trp_plan%size3d), maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                         b(1:trp_plan%size3d), maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                          ims_comm_x, trp_sizBlock_i, trp_mode_i)
         end if
 
@@ -525,8 +525,8 @@ contains
             a(1:size) = real(a_wrk(1:size), dp)
             nullify (a_wrk, b_wrk)
         else
-            call Transpose_Kernel_Double(b, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                         a, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
+            call Transpose_Kernel_Double(b(1:trp_plan%size3d), maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                         a(1:trp_plan%size3d), maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                          ims_comm_x, trp_sizBlock_i, trp_mode_i)
         end if
 
@@ -551,8 +551,10 @@ contains
     !########################################################################
     !########################################################################
     subroutine Transpose_Kernel_Double(a, msend, dsend, tsend, b, mrecv, drecv, trecv, comm, step, mode)
-        real(wp), intent(in) :: a(*)
-        real(wp), intent(out) :: b(*)
+        ! Assumed-shape (not assumed-size) so Cray OpenMP target accepts these arrays.
+        ! Callers must pass explicit array sections, e.g. a(1:size3d).
+        real(wp), intent(in)  :: a(:)
+        real(wp), intent(out) :: b(:)
 
         type(MPI_Comm), intent(in) :: comm                         ! communicator
         type(MPI_Datatype), intent(in) :: tsend, trecv                 ! types send/receive
@@ -570,6 +572,13 @@ contains
 
         select case (mode)
         case (TLAB_MPI_TRP_ASYNCHRONOUS)
+#ifdef USE_APU
+            ! GPU-Aware MPI path: expose device addresses of a and b so that
+            ! MPICH (MPICH_GPU_SUPPORT_ENABLED=1) uses the ROCm/RDMA path instead
+            ! of a CPU copy. On MI300A unified memory no data is physically moved
+            ! by the map clause; use_device_addr simply gives MPI the device pointer.
+            !$omp target data map(to:a) map(from:b) use_device_addr(a, b)
+#endif
             do j = 1, npro, step
                 l = 0
                 do m = j, min(j + step - 1, npro)
@@ -582,6 +591,9 @@ contains
                 end do
                 call MPI_WAITALL(l, request, status, ims_err)
             end do
+#ifdef USE_APU
+            !$omp end target data
+#endif
 
         case (TLAB_MPI_TRP_SENDRECV)
             do j = 1, npro, step
@@ -598,8 +610,6 @@ contains
             types_recv(1:npro) = trecv
             call MPI_ALLTOALLW(a, counts, dsend*int(sizeof(1.0_wp)), types_send, &
                                b, counts, drecv*int(sizeof(1.0_wp)), types_recv, comm, ims_err)
-            ! call MPI_ALLTOALLW(a, spread(1, 1, npro), dsend*int(sizeof(1.0_wp)), spread(tsend, 1, npro), &
-            !                    b, spread(1, 1, npro), drecv*int(sizeof(1.0_wp)), spread(trecv, 1, npro), comm, ims_err)
         end select
 
         return
