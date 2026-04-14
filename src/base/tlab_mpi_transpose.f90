@@ -337,8 +337,8 @@ contains
     !########################################################################
     !########################################################################
     subroutine TLabMPI_Trp_ExecK_Forward_Real(a, b, trp_plan)
-        real(wp), intent(in) :: a(*)
-        real(wp), intent(out) :: b(*)
+        real(wp), intent(in) :: a(:)
+        real(wp), intent(out) :: b(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
         target b
@@ -357,7 +357,7 @@ contains
 
         if (trp_datatype_k == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(b), a_wrk, shape=[size])
+            call c_f_pointer(c_loc(b(1)), a_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi), b_wrk, shape=[size])
             ! dp→sp: offload to APU when array is large enough to amortize launch overhead
             !$omp target teams distribute parallel do simd if(size > mas)
@@ -407,8 +407,8 @@ contains
     !########################################################################
     !########################################################################
     subroutine TLabMPI_Trp_ExecK_Backward_Real(b, a, trp_plan)
-        real(wp), intent(in) :: b(*)
-        real(wp), intent(out) :: a(*)
+        real(wp), intent(in) :: b(:)
+        real(wp), intent(out) :: a(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
         target a
@@ -426,7 +426,7 @@ contains
 
         if (trp_datatype_k == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(a), b_wrk, shape=[size])
+            call c_f_pointer(c_loc(a(1)), b_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi), a_wrk, shape=[size])
             !$omp target teams distribute parallel do simd if(size > mas)
             do i = 1, size
@@ -474,8 +474,8 @@ contains
     !########################################################################
     !########################################################################
     subroutine TLabMPI_Trp_ExecI_Forward_Real(a, b, trp_plan)
-        real(wp), dimension(*), intent(in) :: a
-        real(wp), dimension(*), intent(out) :: b
+        real(wp), dimension(:), intent(in) :: a
+        real(wp), dimension(:), intent(out) :: b
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
         target b
@@ -486,7 +486,7 @@ contains
         ! #######################################################################
         if (trp_datatype_i == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(b), a_wrk, shape=[size])
+            call c_f_pointer(c_loc(b(1)), a_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi), b_wrk, shape=[size])
             !$omp target teams distribute parallel do simd if(size > mas)
             do i = 1, size
@@ -530,8 +530,8 @@ contains
     !########################################################################
     subroutine TLabMPI_Trp_ExecI_Backward_Real(b, a, trp_plan)
         use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
-        real(wp), intent(in) :: b(*)
-        real(wp), intent(out) :: a(*)
+        real(wp), intent(in) :: b(:)
+        real(wp), intent(out) :: a(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
         target a
@@ -542,7 +542,7 @@ contains
         ! #######################################################################
         if (trp_datatype_i == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(a), b_wrk, shape=[size])
+            call c_f_pointer(c_loc(a(1)), b_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi), a_wrk, shape=[size])
             !$omp target teams distribute parallel do simd if(size > mas)
             do i = 1, size
