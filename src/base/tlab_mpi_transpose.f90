@@ -2,7 +2,7 @@
 
 ! Circular transposition within directional communicators
 module TLabMPI_Transpose
-    use TLab_Constants, only: lfile, efile, wp, dp, sp, wi, sizeofreal, mas
+    use TLab_Constants, only: lfile, efile, wp, dp, sp, wi, sizeofreal
     use TLab_Memory, only: imax, jmax, kmax, isize_wrk3d
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use TLab_Memory, only: TLab_Allocate_Real
@@ -18,8 +18,10 @@ module TLabMPI_Transpose
 
     type, public :: tmpi_transpose_dt
         ! sequence
-        type(MPI_Datatype) :: type_s, type_r                        ! derived send/recv types
-        integer(wi) :: nlines
+        type(MPI_Datatype) :: type_s, type_r                        ! derived send/recv types (kept for ALLTOALL/SENDRECV)
+        type(MPI_Datatype) :: base_type                             ! scalar base type for flat MPI_ISEND/IRECV
+        integer(wi) :: nlines                                        ! lines per rank per peer
+        integer(wi) :: nmax                                          ! elements per line (imax for I-dir, kmax for K-dir)
         integer(wi) :: size3d
         integer(wi), allocatable :: disp_s(:), disp_r(:)            ! send/recv displacements
     end type tmpi_transpose_dt
@@ -41,11 +43,19 @@ module TLabMPI_Transpose
 
     type(MPI_Datatype) :: trp_datatype_i, trp_datatype_k            ! Transposition in double or single precision
 
-    ! sp send/recv buffer: first half = send (a_wrk), second half = recv (b_wrk).
-    ! Declared real(sp) allocatable target so OpenMP target can map it directly
-    ! (following c_f_pointer-into-concrete-array pattern of OPR_Poisson_FourierXZ_Direct).
+    ! sp work buffer: three sections of size3d sp elements each.
+    !   [1..size]       = a_wrk: sp send/pack buffer
+    !   [size+1..2*size]= b_wrk: sp recv buffer
+    !   [2*size+1..3*size] = c_wrk: flat staging buffer for strided send/recv (sp)
+    ! Declared real(sp) allocatable target so OpenMP target can map it directly.
     real(sp), allocatable, target :: wrk_mpi(:)
-    real(sp), pointer :: a_wrk(:) => null(), b_wrk(:) => null()
+    real(sp), pointer :: a_wrk(:) => null(), b_wrk(:) => null(), c_wrk(:) => null()
+
+    ! dp/complex staging buffer for flat MPI send/recv (replaces strided MPI_TYPE_VECTOR).
+    ! Size = 2*imax*jmax*kmax: covers real(dp) (size3d elements) and complex(dp) (size3d/2 complex = size3d reals).
+    real(dp), allocatable, target :: wrk_mpi_dp(:)
+    real(dp), pointer    :: c_wrk_dp(:) => null()
+    complex(dp), pointer :: c_wrk_cx(:) => null()
     type(MPI_Status) status(128)
     type(MPI_Request) request(128)
 
@@ -173,17 +183,31 @@ contains
         maps_recv_k = cshift(maps_recv_k, -ims_pro_k)
 
         ! -----------------------------------------------------------------------
-        ! to use alltoallw
-        allocate (counts(max(ims_npro_i, ims_npro_j, ims_npro_k)))
-        allocate (types_send(max(ims_npro_i, ims_npro_j, ims_npro_k)))
-        allocate (types_recv(max(ims_npro_i, ims_npro_j, ims_npro_k)))
-        counts(:) = 1
+        ! ALLTOALLW scratch arrays: only allocated when at least one direction uses ALLTOALL mode.
+        if (trp_mode_i == TLAB_MPI_TRP_ALLTOALL .or. trp_mode_k == TLAB_MPI_TRP_ALLTOALL) then
+            allocate (counts(max(ims_npro_i, ims_npro_j, ims_npro_k)))
+            allocate (types_send(max(ims_npro_i, ims_npro_j, ims_npro_k)))
+            allocate (types_recv(max(ims_npro_i, ims_npro_j, ims_npro_k)))
+            counts(:) = 1
+        end if
 
         ! -----------------------------------------------------------------------
-        ! sp work buffer: 2×imax×jmax×kmax elements so both send (a_wrk) and recv (b_wrk)
-        ! halves fit without aliasing into caller arrays (required for OpenMP target offload).
-        allocate (wrk_mpi(2*imax*jmax*kmax))
-        call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated sp send/recv buffer wrk_mpi.')
+        ! Flat-MPI staging buffers — allocated only for ASYNCHRONOUS mode.
+        !
+        ! wrk_mpi (sp, 3 sections): a_wrk/b_wrk dp<->sp conversion, c_wrk flat staging.
+        !   Only needed when ASYNCHRONOUS transport uses single precision (MPI_REAL4).
+        if ((trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .and. trp_datatype_i == MPI_REAL4) .or. &
+            (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS .and. trp_datatype_k == MPI_REAL4)) then
+            allocate (wrk_mpi(3*imax*jmax*kmax))
+            call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated sp flat-MPI staging buffer (3 x size3d).')
+        end if
+
+        ! wrk_mpi_dp (dp): staging buffer for dp-real and complex ASYNCHRONOUS paths.
+        !   Not needed for SENDRECV or ALLTOALL which use MPI_TYPE_VECTOR via the kernels.
+        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
+            allocate (wrk_mpi_dp(2*imax*jmax*kmax))
+            call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated dp flat-MPI staging buffer (2 x size3d).')
+        end if
 
         ! -----------------------------------------------------------------------
         ! Create basic transposition plans used for partial X and partial Z; could be in another module...
@@ -247,6 +271,9 @@ contains
         else
             datatype = trp_datatype_i
         end if
+
+        trp_plan%nmax      = nmax
+        trp_plan%base_type = datatype
 
         stride = block_length       ! stride = block_length because things are together
         call MPI_TYPE_VECTOR(block_count, block_length, stride, datatype, trp_plan%type_s, ims_err)
@@ -317,6 +344,9 @@ contains
             datatype = trp_datatype_i
         end if
 
+        trp_plan%nmax      = nmax
+        trp_plan%base_type = datatype
+
         stride = npage
         call MPI_TYPE_VECTOR(block_count, block_length, stride, datatype, trp_plan%type_s, ims_err)
         call MPI_TYPE_COMMIT(trp_plan%type_s, ims_err)
@@ -347,7 +377,7 @@ contains
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
         ! -----------------------------------------------------------------------
-        integer(wi) size, i
+        integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, npage, flat_off, disp_ns
 
 #ifdef PROFILE_ON
         real(wp) time_loc_1, time_loc_2
@@ -358,40 +388,128 @@ contains
         time_loc_1 = MPI_WTIME()
 #endif
 
+        nmax_p   = trp_plan%nmax
+        nlines_p = trp_plan%nlines
+        npage    = nlines_p * ims_npro_k   ! total lines spanning all K ranks
+
         if (trp_datatype_k == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
-            ! Both pointers into wrk_mpi (concrete sp allocatable target):
-            ! first half = send buffer, second half = recv buffer.
-            call c_f_pointer(c_loc(wrk_mpi(1)),        a_wrk, shape=[size])
-            call c_f_pointer(c_loc(wrk_mpi(size + 1)), b_wrk, shape=[size])
-            ! dp→sp: a(dp) → a_wrk(sp) in wrk_mpi first half
+            call c_f_pointer(c_loc(wrk_mpi(1)),             a_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(size + 1)),      b_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(2*size + 1)),    c_wrk, shape=[size])
+            ! dp→sp conversion
 #ifdef USE_APU
-            !$omp target teams distribute parallel do simd if(size/ims_npro_k > mas)
+            !$omp target teams distribute parallel do
 #endif
             do i = 1, size
                 a_wrk(i) = real(a(i), sp)
             end do
 #ifdef USE_APU
-            !$omp end target teams distribute parallel do simd
+            !$omp end target teams distribute parallel do
 #endif
-            call Transpose_Kernel_Single(a_wrk, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                         b_wrk, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                         ims_comm_z, trp_sizBlock_k, trp_mode_k)
-            ! sp→dp: b_wrk(sp) in wrk_mpi second half → b(dp)
+            if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
+                ! K-dir send is STRIDED (stride=npage); GPU-pack a_wrk→c_wrk (flat per-peer).
+                ! K-dir recv is CONTIGUOUS; receive directly into b_wrk at disp_r offsets.
+                do m = 1, ims_npro_k
+                    ns = maps_send_k(m) + 1
+                    flat_off = (ns - 1)*nmax_p*nlines_p
+                    disp_ns  = trp_plan%disp_s(ns)
 #ifdef USE_APU
-            !$omp target teams distribute parallel do simd if(size/ims_npro_k > mas)
+                    !$omp target teams distribute parallel do collapse(2)
+#endif
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            c_wrk(flat_off + i*nlines_p + j + 1) = a_wrk(disp_ns + i*npage + j + 1)
+                        end do
+                    end do
+#ifdef USE_APU
+                    !$omp end target teams distribute parallel do
+#endif
+                end do
+                ! GPU-Aware MPI: flat send from c_wrk, flat recv into b_wrk
+#ifdef USE_APU
+                !$omp target data use_device_addr(c_wrk, b_wrk)
+#endif
+                do j = 1, ims_npro_k, trp_sizBlock_k
+                    l = 0
+                    do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
+                        ns = maps_send_k(m) + 1; ips = ns - 1
+                        nr = maps_recv_k(m) + 1; ipr = nr - 1
+                        l = l + 1
+                        call MPI_ISEND(c_wrk((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                       ips, ims_tag, ims_comm_z, request(l), ims_err)
+                        l = l + 1
+                        call MPI_IRECV(b_wrk(trp_plan%disp_r(nr) + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                       ipr, ims_tag, ims_comm_z, request(l), ims_err)
+                    end do
+                    call MPI_WAITALL(l, request, status, ims_err)
+                end do
+#ifdef USE_APU
+                !$omp end target data
+#endif
+            else
+                call Transpose_Kernel_Single(a_wrk, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                             b_wrk, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                             ims_comm_z, trp_sizBlock_k, trp_mode_k)
+            end if
+            ! sp→dp conversion
+#ifdef USE_APU
+            !$omp target teams distribute parallel do
 #endif
             do i = 1, size
                 b(i) = real(b_wrk(i), dp)
             end do
 #ifdef USE_APU
-            !$omp end target teams distribute parallel do simd
+            !$omp end target teams distribute parallel do
 #endif
-            nullify (a_wrk, b_wrk)
+            nullify (a_wrk, b_wrk, c_wrk)
         else
-            call Transpose_Kernel_Double(a(1:trp_plan%size3d), maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                         b(1:trp_plan%size3d), maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                         ims_comm_z, trp_sizBlock_k, trp_mode_k)
+            if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
+                ! dp path: pack strided a→c_wrk_dp, flat MPI, direct b recv
+                size = trp_plan%size3d
+                call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+                do m = 1, ims_npro_k
+                    ns = maps_send_k(m) + 1
+                    flat_off = (ns - 1)*nmax_p*nlines_p
+                    disp_ns  = trp_plan%disp_s(ns)
+#ifdef USE_APU
+                    !$omp target teams distribute parallel do collapse(2)
+#endif
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            c_wrk_dp(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
+                        end do
+                    end do
+#ifdef USE_APU
+                    !$omp end target teams distribute parallel do
+#endif
+                end do
+#ifdef USE_APU
+                !$omp target data use_device_addr(c_wrk_dp, b)
+#endif
+                do j = 1, ims_npro_k, trp_sizBlock_k
+                    l = 0
+                    do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
+                        ns = maps_send_k(m) + 1; ips = ns - 1
+                        nr = maps_recv_k(m) + 1; ipr = nr - 1
+                        l = l + 1
+                        call MPI_ISEND(c_wrk_dp((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, ips, ims_tag, ims_comm_z, request(l), ims_err)
+                        l = l + 1
+                        call MPI_IRECV(b(trp_plan%disp_r(nr) + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, ipr, ims_tag, ims_comm_z, request(l), ims_err)
+                    end do
+                    call MPI_WAITALL(l, request, status, ims_err)
+                end do
+#ifdef USE_APU
+                !$omp end target data
+#endif
+                nullify (c_wrk_dp)
+            else
+                call Transpose_Kernel_Double(a(1:trp_plan%size3d), maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                             b(1:trp_plan%size3d), maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                             ims_comm_z, trp_sizBlock_k, trp_mode_k)
+            end if
         end if
 
 #ifdef PROFILE_ON
@@ -408,12 +526,51 @@ contains
         complex(wp), intent(in) :: a(*)
         complex(wp), intent(out) :: b(*)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
+        integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, npage, flat_off, disp_ns
 
         ! #######################################################################
-        call Transpose_Kernel_Complex(a, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                      b, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                      ims_comm_z, trp_sizBlock_k, trp_mode_k)
-
+        nmax_p   = trp_plan%nmax
+        nlines_p = trp_plan%nlines
+        npage    = nlines_p * ims_npro_k
+        if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
+            size = trp_plan%size3d
+            call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
+            do m = 1, ims_npro_k
+                ns = maps_send_k(m) + 1
+                flat_off = (ns - 1)*nmax_p*nlines_p
+                disp_ns  = trp_plan%disp_s(ns)
+                do i = 0, nmax_p - 1
+                    do j = 0, nlines_p - 1
+                        c_wrk_cx(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
+                    end do
+                end do
+            end do
+#ifdef USE_APU
+            !$omp target data use_device_addr(c_wrk_cx)
+#endif
+            do j = 1, ims_npro_k, trp_sizBlock_k
+                l = 0
+                do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
+                    ns = maps_send_k(m) + 1; ips = ns - 1
+                    nr = maps_recv_k(m) + 1; ipr = nr - 1
+                    l = l + 1
+                    call MPI_ISEND(c_wrk_cx((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ips, ims_tag, ims_comm_z, request(l), ims_err)
+                    l = l + 1
+                    call MPI_IRECV(b(trp_plan%disp_r(nr) + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ipr, ims_tag, ims_comm_z, request(l), ims_err)
+                end do
+                call MPI_WAITALL(l, request, status, ims_err)
+            end do
+#ifdef USE_APU
+            !$omp end target data
+#endif
+            nullify (c_wrk_cx)
+        else
+            call Transpose_Kernel_Complex(a, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                          b, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                          ims_comm_z, trp_sizBlock_k, trp_mode_k)
+        end if
         return
     end subroutine TLabMPI_Trp_ExecK_Forward_Complex
 
@@ -425,7 +582,7 @@ contains
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
         ! -----------------------------------------------------------------------
-        integer(wi) size, i
+        integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, npage, flat_off, disp_nr
 #ifdef PROFILE_ON
         real(wp) time_loc_1, time_loc_2
 #endif
@@ -435,36 +592,128 @@ contains
         time_loc_1 = MPI_WTIME()
 #endif
 
+        nmax_p   = trp_plan%nmax
+        nlines_p = trp_plan%nlines
+        npage    = nlines_p * ims_npro_k
+
         if (trp_datatype_k == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(wrk_mpi(1)),        b_wrk, shape=[size])
-            call c_f_pointer(c_loc(wrk_mpi(size + 1)), a_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(1)),          b_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(size + 1)),   a_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(2*size + 1)), c_wrk, shape=[size])
+            ! dp→sp conversion
 #ifdef USE_APU
-            !$omp target teams distribute parallel do simd if(size/ims_npro_k > mas)
+            !$omp target teams distribute parallel do
 #endif
             do i = 1, size
                 b_wrk(i) = real(b(i), sp)
             end do
 #ifdef USE_APU
-            !$omp end target teams distribute parallel do simd
+            !$omp end target teams distribute parallel do
 #endif
-            call Transpose_Kernel_Single(b_wrk, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                         a_wrk, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                         ims_comm_z, trp_sizBlock_k, trp_mode_k)
+            if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
+                ! K-backward send is CONTIGUOUS (disp_r offsets are flat) → direct send from b_wrk.
+                ! K-backward recv is STRIDED (disp_s, stride=npage) → flat recv into c_wrk, then GPU unpack.
 #ifdef USE_APU
-            !$omp target teams distribute parallel do simd if(size/ims_npro_k > mas)
+                !$omp target data use_device_addr(b_wrk, c_wrk)
+#endif
+                do j = 1, ims_npro_k, trp_sizBlock_k
+                    l = 0
+                    do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
+                        ns = maps_recv_k(m) + 1; ips = ns - 1   ! backward: msend=maps_recv_k
+                        nr = maps_send_k(m) + 1; ipr = nr - 1   ! backward: mrecv=maps_send_k
+                        l = l + 1
+                        call MPI_ISEND(b_wrk(trp_plan%disp_r(ns) + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                       ips, ims_tag, ims_comm_z, request(l), ims_err)
+                        l = l + 1
+                        call MPI_IRECV(c_wrk((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                       ipr, ims_tag, ims_comm_z, request(l), ims_err)
+                    end do
+                    call MPI_WAITALL(l, request, status, ims_err)
+                end do
+#ifdef USE_APU
+                !$omp end target data
+#endif
+                ! GPU unpack: flat c_wrk → strided a_wrk (K layout, stride=npage)
+                do m = 1, ims_npro_k
+                    nr = maps_send_k(m) + 1   ! backward mrecv=maps_send_k
+                    flat_off = (nr - 1)*nmax_p*nlines_p
+                    disp_nr  = trp_plan%disp_s(nr)
+#ifdef USE_APU
+                    !$omp target teams distribute parallel do collapse(2)
+#endif
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            a_wrk(disp_nr + i*npage + j + 1) = c_wrk(flat_off + i*nlines_p + j + 1)
+                        end do
+                    end do
+#ifdef USE_APU
+                    !$omp end target teams distribute parallel do
+#endif
+                end do
+            else
+                call Transpose_Kernel_Single(b_wrk, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                             a_wrk, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                             ims_comm_z, trp_sizBlock_k, trp_mode_k)
+            end if
+            ! sp→dp conversion
+#ifdef USE_APU
+            !$omp target teams distribute parallel do
 #endif
             do i = 1, size
                 a(i) = real(a_wrk(i), dp)
             end do
 #ifdef USE_APU
-            !$omp end target teams distribute parallel do simd
+            !$omp end target teams distribute parallel do
 #endif
-            nullify (a_wrk, b_wrk)
+            nullify (a_wrk, b_wrk, c_wrk)
         else
-            call Transpose_Kernel_Double(b(1:trp_plan%size3d), maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                         a(1:trp_plan%size3d), maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                         ims_comm_z, trp_sizBlock_k, trp_mode_k)
+            if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
+                ! dp path: flat send from b, flat recv into c_wrk_dp, GPU unpack c_wrk_dp→a
+                size = trp_plan%size3d
+                call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+#ifdef USE_APU
+                !$omp target data use_device_addr(b, c_wrk_dp)
+#endif
+                do j = 1, ims_npro_k, trp_sizBlock_k
+                    l = 0
+                    do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
+                        ns = maps_recv_k(m) + 1; ips = ns - 1
+                        nr = maps_send_k(m) + 1; ipr = nr - 1
+                        l = l + 1
+                        call MPI_ISEND(b(trp_plan%disp_r(ns) + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, ips, ims_tag, ims_comm_z, request(l), ims_err)
+                        l = l + 1
+                        call MPI_IRECV(c_wrk_dp((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, ipr, ims_tag, ims_comm_z, request(l), ims_err)
+                    end do
+                    call MPI_WAITALL(l, request, status, ims_err)
+                end do
+#ifdef USE_APU
+                !$omp end target data
+#endif
+                do m = 1, ims_npro_k
+                    nr = maps_send_k(m) + 1
+                    flat_off = (nr - 1)*nmax_p*nlines_p
+                    disp_nr  = trp_plan%disp_s(nr)
+#ifdef USE_APU
+                    !$omp target teams distribute parallel do collapse(2)
+#endif
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            a(disp_nr + i*npage + j + 1) = c_wrk_dp(flat_off + i*nlines_p + j + 1)
+                        end do
+                    end do
+#ifdef USE_APU
+                    !$omp end target teams distribute parallel do
+#endif
+                end do
+                nullify (c_wrk_dp)
+            else
+                call Transpose_Kernel_Double(b(1:trp_plan%size3d), maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                             a(1:trp_plan%size3d), maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                             ims_comm_z, trp_sizBlock_k, trp_mode_k)
+            end if
         end if
 
 #ifdef PROFILE_ON
@@ -481,12 +730,51 @@ contains
         complex(wp), intent(in) :: b(*)
         complex(wp), intent(out) :: a(*)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
+        integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, npage, flat_off, disp_nr
 
         ! #######################################################################
-        call Transpose_Kernel_Complex(b, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                      a, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                      ims_comm_z, trp_sizBlock_k, trp_mode_k)
-
+        nmax_p   = trp_plan%nmax
+        nlines_p = trp_plan%nlines
+        npage    = nlines_p * ims_npro_k
+        if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
+            size = trp_plan%size3d
+            call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
+#ifdef USE_APU
+            !$omp target data use_device_addr(c_wrk_cx)
+#endif
+            do j = 1, ims_npro_k, trp_sizBlock_k
+                l = 0
+                do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
+                    ns = maps_recv_k(m) + 1; ips = ns - 1
+                    nr = maps_send_k(m) + 1; ipr = nr - 1
+                    l = l + 1
+                    call MPI_ISEND(b(trp_plan%disp_r(ns) + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ips, ims_tag, ims_comm_z, request(l), ims_err)
+                    l = l + 1
+                    call MPI_IRECV(c_wrk_cx((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ipr, ims_tag, ims_comm_z, request(l), ims_err)
+                end do
+                call MPI_WAITALL(l, request, status, ims_err)
+            end do
+#ifdef USE_APU
+            !$omp end target data
+#endif
+            do m = 1, ims_npro_k
+                nr = maps_send_k(m) + 1
+                flat_off = (nr - 1)*nmax_p*nlines_p
+                disp_nr  = trp_plan%disp_s(nr)
+                do i = 0, nmax_p - 1
+                    do j = 0, nlines_p - 1
+                        a(disp_nr + i*npage + j + 1) = c_wrk_cx(flat_off + i*nlines_p + j + 1)
+                    end do
+                end do
+            end do
+            nullify (c_wrk_cx)
+        else
+            call Transpose_Kernel_Complex(b, maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                          a, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                          ims_comm_z, trp_sizBlock_k, trp_mode_k)
+        end if
         return
     end subroutine TLabMPI_Trp_ExecK_Backward_Complex
 
@@ -498,39 +786,131 @@ contains
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
         ! -----------------------------------------------------------------------
-        integer(wi) size, i
+        integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_nr
 
         ! #######################################################################
+        nmax_p    = trp_plan%nmax
+        nlines_p  = trp_plan%nlines
+        nmax_full = nmax_p * ims_npro_i   ! total elements per line across all I ranks (stride in recv)
+
         if (trp_datatype_i == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(wrk_mpi(1)),        a_wrk, shape=[size])
-            call c_f_pointer(c_loc(wrk_mpi(size + 1)), b_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(1)),          a_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(size + 1)),   b_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(2*size + 1)), c_wrk, shape=[size])
+            ! dp→sp
 #ifdef USE_APU
-            !$omp target teams distribute parallel do simd if(size/ims_npro_i > mas)
+            !$omp target teams distribute parallel do
 #endif
             do i = 1, size
                 a_wrk(i) = real(a(i), sp)
             end do
 #ifdef USE_APU
-            !$omp end target teams distribute parallel do simd
+            !$omp end target teams distribute parallel do
 #endif
-            call Transpose_Kernel_Single(a_wrk, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                         b_wrk, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                         ims_comm_x, trp_sizBlock_i, trp_mode_i)
+            if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
+                ! I-dir send is CONTIGUOUS (disp_s offsets are flat) → direct send from a_wrk.
+                ! I-dir recv is STRIDED (disp_r, stride=nmax*npro) → flat recv into c_wrk, then GPU unpack.
 #ifdef USE_APU
-            !$omp target teams distribute parallel do simd if(size/ims_npro_i > mas)
+                !$omp target data use_device_addr(a_wrk, c_wrk)
+#endif
+                do j = 1, ims_npro_i, trp_sizBlock_i
+                    l = 0
+                    do m = j, min(j + trp_sizBlock_i - 1, ims_npro_i)
+                        ns = maps_send_i(m) + 1; ips = ns - 1
+                        nr = maps_recv_i(m) + 1; ipr = nr - 1
+                        l = l + 1
+                        call MPI_ISEND(a_wrk(trp_plan%disp_s(ns) + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                       ips, ims_tag, ims_comm_x, request(l), ims_err)
+                        l = l + 1
+                        call MPI_IRECV(c_wrk((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                       ipr, ims_tag, ims_comm_x, request(l), ims_err)
+                    end do
+                    call MPI_WAITALL(l, request, status, ims_err)
+                end do
+#ifdef USE_APU
+                !$omp end target data
+#endif
+                ! GPU unpack: flat c_wrk → strided b_wrk (I layout, stride=nmax_full)
+                do m = 1, ims_npro_i
+                    nr = maps_recv_i(m) + 1
+                    flat_off = (nr - 1)*nmax_p*nlines_p
+                    disp_nr  = trp_plan%disp_r(nr)
+#ifdef USE_APU
+                    !$omp target teams distribute parallel do collapse(2)
+#endif
+                    do i = 0, nlines_p - 1
+                        do j = 0, nmax_p - 1
+                            b_wrk(disp_nr + i*nmax_full + j + 1) = c_wrk(flat_off + i*nmax_p + j + 1)
+                        end do
+                    end do
+#ifdef USE_APU
+                    !$omp end target teams distribute parallel do
+#endif
+                end do
+            else
+                call Transpose_Kernel_Single(a_wrk, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                             b_wrk, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                             ims_comm_x, trp_sizBlock_i, trp_mode_i)
+            end if
+            ! sp→dp
+#ifdef USE_APU
+            !$omp target teams distribute parallel do
 #endif
             do i = 1, size
                 b(i) = real(b_wrk(i), dp)
             end do
 #ifdef USE_APU
-            !$omp end target teams distribute parallel do simd
+            !$omp end target teams distribute parallel do
 #endif
-            nullify (a_wrk, b_wrk)
+            nullify (a_wrk, b_wrk, c_wrk)
         else
-            call Transpose_Kernel_Double(a(1:trp_plan%size3d), maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                         b(1:trp_plan%size3d), maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                         ims_comm_x, trp_sizBlock_i, trp_mode_i)
+            if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
+                ! dp path: flat send from a, flat recv into c_wrk_dp, GPU unpack c_wrk_dp→b
+                size = trp_plan%size3d
+                call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+#ifdef USE_APU
+                !$omp target data use_device_addr(a, c_wrk_dp)
+#endif
+                do j = 1, ims_npro_i, trp_sizBlock_i
+                    l = 0
+                    do m = j, min(j + trp_sizBlock_i - 1, ims_npro_i)
+                        ns = maps_send_i(m) + 1; ips = ns - 1
+                        nr = maps_recv_i(m) + 1; ipr = nr - 1
+                        l = l + 1
+                        call MPI_ISEND(a(trp_plan%disp_s(ns) + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
+                        l = l + 1
+                        call MPI_IRECV(c_wrk_dp((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
+                    end do
+                    call MPI_WAITALL(l, request, status, ims_err)
+                end do
+#ifdef USE_APU
+                !$omp end target data
+#endif
+                do m = 1, ims_npro_i
+                    nr = maps_recv_i(m) + 1
+                    flat_off = (nr - 1)*nmax_p*nlines_p
+                    disp_nr  = trp_plan%disp_r(nr)
+#ifdef USE_APU
+                    !$omp target teams distribute parallel do collapse(2)
+#endif
+                    do i = 0, nlines_p - 1
+                        do j = 0, nmax_p - 1
+                            b(disp_nr + i*nmax_full + j + 1) = c_wrk_dp(flat_off + i*nmax_p + j + 1)
+                        end do
+                    end do
+#ifdef USE_APU
+                    !$omp end target teams distribute parallel do
+#endif
+                end do
+                nullify (c_wrk_dp)
+            else
+                call Transpose_Kernel_Double(a(1:trp_plan%size3d), maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                             b(1:trp_plan%size3d), maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                             ims_comm_x, trp_sizBlock_i, trp_mode_i)
+            end if
         end if
 
         return
@@ -542,12 +922,51 @@ contains
         complex(wp), intent(in) :: a(*)
         complex(wp), intent(out) :: b(*)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
+        integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_nr
 
         ! #######################################################################
-        call Transpose_Kernel_Complex(a, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                      b, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                      ims_comm_x, trp_sizBlock_i, trp_mode_i)
-
+        nmax_p    = trp_plan%nmax
+        nlines_p  = trp_plan%nlines
+        nmax_full = nmax_p * ims_npro_i
+        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
+            size = trp_plan%size3d
+            call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
+#ifdef USE_APU
+            !$omp target data use_device_addr(c_wrk_cx)
+#endif
+            do j = 1, ims_npro_i, trp_sizBlock_i
+                l = 0
+                do m = j, min(j + trp_sizBlock_i - 1, ims_npro_i)
+                    ns = maps_send_i(m) + 1; ips = ns - 1
+                    nr = maps_recv_i(m) + 1; ipr = nr - 1
+                    l = l + 1
+                    call MPI_ISEND(a(trp_plan%disp_s(ns) + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
+                    l = l + 1
+                    call MPI_IRECV(c_wrk_cx((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
+                end do
+                call MPI_WAITALL(l, request, status, ims_err)
+            end do
+#ifdef USE_APU
+            !$omp end target data
+#endif
+            do m = 1, ims_npro_i
+                nr = maps_recv_i(m) + 1
+                flat_off = (nr - 1)*nmax_p*nlines_p
+                disp_nr  = trp_plan%disp_r(nr)
+                do i = 0, nlines_p - 1
+                    do j = 0, nmax_p - 1
+                        b(disp_nr + i*nmax_full + j + 1) = c_wrk_cx(flat_off + i*nmax_p + j + 1)
+                    end do
+                end do
+            end do
+            nullify (c_wrk_cx)
+        else
+            call Transpose_Kernel_Complex(a, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                          b, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                          ims_comm_x, trp_sizBlock_i, trp_mode_i)
+        end if
         return
     end subroutine TLabMPI_Trp_ExecI_Forward_Complex
 
@@ -559,39 +978,131 @@ contains
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
         ! -----------------------------------------------------------------------
-        integer(wi) size, i
+        integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_ns
 
         ! #######################################################################
+        nmax_p    = trp_plan%nmax
+        nlines_p  = trp_plan%nlines
+        nmax_full = nmax_p * ims_npro_i
+
         if (trp_datatype_i == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(wrk_mpi(1)),        b_wrk, shape=[size])
-            call c_f_pointer(c_loc(wrk_mpi(size + 1)), a_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(1)),          b_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(size + 1)),   a_wrk, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi(2*size + 1)), c_wrk, shape=[size])
+            ! dp→sp
 #ifdef USE_APU
-            !$omp target teams distribute parallel do simd if(size/ims_npro_i > mas)
+            !$omp target teams distribute parallel do
 #endif
             do i = 1, size
                 b_wrk(i) = real(b(i), sp)
             end do
 #ifdef USE_APU
-            !$omp end target teams distribute parallel do simd
+            !$omp end target teams distribute parallel do
 #endif
-            call Transpose_Kernel_Single(b_wrk, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                         a_wrk, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                         ims_comm_x, trp_sizBlock_i, trp_mode_i)
+            if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
+                ! I-backward send is STRIDED (disp_r, stride=nmax_full); GPU-pack b_wrk→c_wrk.
+                ! I-backward recv is CONTIGUOUS (disp_s offsets are flat) → direct recv into a_wrk.
+                do m = 1, ims_npro_i
+                    ns = maps_recv_i(m) + 1   ! backward msend=maps_recv_i
+                    flat_off = (ns - 1)*nmax_p*nlines_p
+                    disp_ns  = trp_plan%disp_r(ns)
 #ifdef USE_APU
-            !$omp target teams distribute parallel do simd if(size/ims_npro_i > mas)
+                    !$omp target teams distribute parallel do collapse(2)
+#endif
+                    do i = 0, nlines_p - 1
+                        do j = 0, nmax_p - 1
+                            c_wrk(flat_off + i*nmax_p + j + 1) = b_wrk(disp_ns + i*nmax_full + j + 1)
+                        end do
+                    end do
+#ifdef USE_APU
+                    !$omp end target teams distribute parallel do
+#endif
+                end do
+                ! GPU-Aware MPI: flat send from c_wrk, flat recv into a_wrk
+#ifdef USE_APU
+                !$omp target data use_device_addr(c_wrk, a_wrk)
+#endif
+                do j = 1, ims_npro_i, trp_sizBlock_i
+                    l = 0
+                    do m = j, min(j + trp_sizBlock_i - 1, ims_npro_i)
+                        ns = maps_recv_i(m) + 1; ips = ns - 1
+                        nr = maps_send_i(m) + 1; ipr = nr - 1
+                        l = l + 1
+                        call MPI_ISEND(c_wrk((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                       ips, ims_tag, ims_comm_x, request(l), ims_err)
+                        l = l + 1
+                        call MPI_IRECV(a_wrk(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                       ipr, ims_tag, ims_comm_x, request(l), ims_err)
+                    end do
+                    call MPI_WAITALL(l, request, status, ims_err)
+                end do
+#ifdef USE_APU
+                !$omp end target data
+#endif
+            else
+                call Transpose_Kernel_Single(b_wrk, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                             a_wrk, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                             ims_comm_x, trp_sizBlock_i, trp_mode_i)
+            end if
+            ! sp→dp
+#ifdef USE_APU
+            !$omp target teams distribute parallel do
 #endif
             do i = 1, size
                 a(i) = real(a_wrk(i), dp)
             end do
 #ifdef USE_APU
-            !$omp end target teams distribute parallel do simd
+            !$omp end target teams distribute parallel do
 #endif
-            nullify (a_wrk, b_wrk)
+            nullify (a_wrk, b_wrk, c_wrk)
         else
-            call Transpose_Kernel_Double(b(1:trp_plan%size3d), maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                         a(1:trp_plan%size3d), maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                         ims_comm_x, trp_sizBlock_i, trp_mode_i)
+            if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
+                ! dp path: GPU pack b→c_wrk_dp (strided), flat MPI, direct a recv
+                size = trp_plan%size3d
+                call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+                do m = 1, ims_npro_i
+                    ns = maps_recv_i(m) + 1
+                    flat_off = (ns - 1)*nmax_p*nlines_p
+                    disp_ns  = trp_plan%disp_r(ns)
+#ifdef USE_APU
+                    !$omp target teams distribute parallel do collapse(2)
+#endif
+                    do i = 0, nlines_p - 1
+                        do j = 0, nmax_p - 1
+                            c_wrk_dp(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
+                        end do
+                    end do
+#ifdef USE_APU
+                    !$omp end target teams distribute parallel do
+#endif
+                end do
+#ifdef USE_APU
+                !$omp target data use_device_addr(c_wrk_dp, a)
+#endif
+                do j = 1, ims_npro_i, trp_sizBlock_i
+                    l = 0
+                    do m = j, min(j + trp_sizBlock_i - 1, ims_npro_i)
+                        ns = maps_recv_i(m) + 1; ips = ns - 1
+                        nr = maps_send_i(m) + 1; ipr = nr - 1
+                        l = l + 1
+                        call MPI_ISEND(c_wrk_dp((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
+                        l = l + 1
+                        call MPI_IRECV(a(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
+                    end do
+                    call MPI_WAITALL(l, request, status, ims_err)
+                end do
+#ifdef USE_APU
+                !$omp end target data
+#endif
+                nullify (c_wrk_dp)
+            else
+                call Transpose_Kernel_Double(b(1:trp_plan%size3d), maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                             a(1:trp_plan%size3d), maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                             ims_comm_x, trp_sizBlock_i, trp_mode_i)
+            end if
         end if
 
         return
@@ -603,12 +1114,51 @@ contains
         complex(wp), intent(in) :: b(*)
         complex(wp), intent(out) :: a(*)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
+        integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_ns
 
         ! #######################################################################
-        call Transpose_Kernel_Complex(b, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
-                                      a, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
-                                      ims_comm_x, trp_sizBlock_i, trp_mode_i)
-
+        nmax_p    = trp_plan%nmax
+        nlines_p  = trp_plan%nlines
+        nmax_full = nmax_p * ims_npro_i
+        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
+            size = trp_plan%size3d
+            call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
+            do m = 1, ims_npro_i
+                ns = maps_recv_i(m) + 1
+                flat_off = (ns - 1)*nmax_p*nlines_p
+                disp_ns  = trp_plan%disp_r(ns)
+                do i = 0, nlines_p - 1
+                    do j = 0, nmax_p - 1
+                        c_wrk_cx(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
+                    end do
+                end do
+            end do
+#ifdef USE_APU
+            !$omp target data use_device_addr(c_wrk_cx)
+#endif
+            do j = 1, ims_npro_i, trp_sizBlock_i
+                l = 0
+                do m = j, min(j + trp_sizBlock_i - 1, ims_npro_i)
+                    ns = maps_recv_i(m) + 1; ips = ns - 1
+                    nr = maps_send_i(m) + 1; ipr = nr - 1
+                    l = l + 1
+                    call MPI_ISEND(c_wrk_cx((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
+                    l = l + 1
+                    call MPI_IRECV(a(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
+                end do
+                call MPI_WAITALL(l, request, status, ims_err)
+            end do
+#ifdef USE_APU
+            !$omp end target data
+#endif
+            nullify (c_wrk_cx)
+        else
+            call Transpose_Kernel_Complex(b, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
+                                          a, maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
+                                          ims_comm_x, trp_sizBlock_i, trp_mode_i)
+        end if
         return
     end subroutine TLabMPI_Trp_ExecI_Backward_Complex
 
@@ -635,32 +1185,6 @@ contains
         npro = size(dsend(:))
 
         select case (mode)
-        case (TLAB_MPI_TRP_ASYNCHRONOUS)
-#ifdef USE_APU
-            ! GPU-Aware MPI path: expose device addresses of a and b so that
-            ! MPICH (MPICH_GPU_SUPPORT_ENABLED=1) uses the ROCm/RDMA path instead
-            ! of a CPU copy. On MI300A unified memory no data is physically moved
-            ! by the map clause; use_device_addr simply gives MPI the device pointer.
-            ! The if clause falls back to CPU path for arrays smaller than mas
-            ! (14592 elements) where APU offload overhead exceeds the benefit.
-            !$omp target data map(to:a) map(from:b) use_device_addr(a, b) if(size(a)/npro > mas)
-#endif
-            do j = 1, npro, step
-                l = 0
-                do m = j, min(j + step - 1, npro)
-                    ns = msend(m) + 1; ips = ns - 1
-                    nr = mrecv(m) + 1; ipr = nr - 1
-                    l = l + 1
-                    call MPI_ISEND(a(dsend(ns) + 1), 1, tsend, ips, ims_tag, comm, request(l), ims_err)
-                    l = l + 1
-                    call MPI_IRECV(b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, request(l), ims_err)
-                end do
-                call MPI_WAITALL(l, request, status, ims_err)
-            end do
-#ifdef USE_APU
-            !$omp end target data
-#endif
-
         case (TLAB_MPI_TRP_SENDRECV)
             do j = 1, npro, step
                 do m = j, min(j + step - 1, npro)
@@ -703,28 +1227,6 @@ contains
         npro = size(dsend(:))
 
         select case (mode)
-        case (TLAB_MPI_TRP_ASYNCHRONOUS)
-#ifdef USE_APU
-            ! GPU-Aware MPI: expose device addresses so MPICH uses ROCm/RDMA path.
-            ! Condition: per-message data (size/npro) must exceed APU offload threshold.
-            !$omp target data map(to:a) map(from:b) use_device_addr(a, b) if(size(a)/npro > mas)
-#endif
-            do j = 1, npro, step
-                l = 0
-                do m = j, min(j + step - 1, npro)
-                    ns = msend(m) + 1; ips = ns - 1
-                    nr = mrecv(m) + 1; ipr = nr - 1
-                    l = l + 1
-                    call MPI_ISEND(a(dsend(ns) + 1), 1, tsend, ips, ims_tag, comm, request(l), ims_err)
-                    l = l + 1
-                    call MPI_IRECV(b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, request(l), ims_err)
-                end do
-                call MPI_WAITALL(l, request, status, ims_err)
-            end do
-#ifdef USE_APU
-            !$omp end target data
-#endif
-
         case (TLAB_MPI_TRP_SENDRECV)
             do j = 1, npro, step
                 do m = j, min(j + step - 1, npro)
@@ -769,20 +1271,6 @@ contains
         npro = size(dsend(:))
 
         select case (mode)
-        case (TLAB_MPI_TRP_ASYNCHRONOUS)
-            do j = 1, npro, step
-                l = 0
-                do m = j, min(j + step - 1, npro)
-                    ns = msend(m) + 1; ips = ns - 1
-                    nr = mrecv(m) + 1; ipr = nr - 1
-                    l = l + 1
-                    call MPI_ISEND(a(dsend(ns) + 1), 1, tsend, ips, ims_tag, comm, request(l), ims_err)
-                    l = l + 1
-                    call MPI_IRECV(b(drecv(nr) + 1), 1, trecv, ipr, ims_tag, comm, request(l), ims_err)
-                end do
-                call MPI_WAITALL(l, request, status, ims_err)
-            end do
-
         case (TLAB_MPI_TRP_SENDRECV)
             do j = 1, npro, step
                 do m = j, min(j + step - 1, npro)
