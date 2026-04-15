@@ -408,8 +408,21 @@ contains
             !$omp end target teams distribute parallel do
 #endif
             if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
-                ! K-dir send is STRIDED (stride=npage); GPU-pack a_wrk→c_wrk (flat per-peer).
-                ! K-dir recv is CONTIGUOUS; receive directly into b_wrk at disp_r offsets.
+                ! Pipeline: IRECVs posted before GPU pack, ISENDs posted after pack, single WAITALL.
+                ! Recv buffers (b_wrk) are independent of the pack target (c_wrk), so IRECVs can
+                ! be registered with MPI while the GPU gathers the strided send data into c_wrk.
+#ifdef USE_APU
+                !$omp target data use_device_addr(a_wrk, c_wrk, b_wrk)
+#endif
+                ! Step 1: post all IRECVs — recv buffers are ready before pack starts
+                l = 0
+                do m = 1, ims_npro_k
+                    nr = maps_recv_k(m) + 1; ipr = nr - 1
+                    l = l + 1
+                    call MPI_IRECV(b_wrk(trp_plan%disp_r(nr) + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                   ipr, ims_tag, ims_comm_z, request(l), ims_err)
+                end do
+                ! Step 2: GPU pack a_wrk→c_wrk (strided→flat) while network prepares recv buffers
                 do m = 1, ims_npro_k
                     ns = maps_send_k(m) + 1
                     flat_off = (ns - 1)*nmax_p*nlines_p
@@ -426,24 +439,15 @@ contains
                     !$omp end target teams distribute parallel do
 #endif
                 end do
-                ! GPU-Aware MPI: flat send from c_wrk, flat recv into b_wrk
-#ifdef USE_APU
-                !$omp target data use_device_addr(c_wrk, b_wrk)
-#endif
-                do j = 1, ims_npro_k, trp_sizBlock_k
-                    l = 0
-                    do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
-                        ns = maps_send_k(m) + 1; ips = ns - 1
-                        nr = maps_recv_k(m) + 1; ipr = nr - 1
-                        l = l + 1
-                        call MPI_ISEND(c_wrk((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
-                                       ips, ims_tag, ims_comm_z, request(l), ims_err)
-                        l = l + 1
-                        call MPI_IRECV(b_wrk(trp_plan%disp_r(nr) + 1), nmax_p*nlines_p, MPI_REAL4, &
-                                       ipr, ims_tag, ims_comm_z, request(l), ims_err)
-                    end do
-                    call MPI_WAITALL(l, request, status, ims_err)
+                ! Step 3: post all ISENDs from packed flat c_wrk
+                do m = 1, ims_npro_k
+                    ns = maps_send_k(m) + 1; ips = ns - 1
+                    l = l + 1
+                    call MPI_ISEND(c_wrk((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                   ips, ims_tag, ims_comm_z, request(l), ims_err)
                 end do
+                ! Step 4: single WAITALL for all sends and receives
+                call MPI_WAITALL(l, request, status, ims_err)
 #ifdef USE_APU
                 !$omp end target data
 #endif
@@ -465,9 +469,21 @@ contains
             nullify (a_wrk, b_wrk, c_wrk)
         else
             if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
-                ! dp path: pack strided a→c_wrk_dp, flat MPI, direct b recv
+                ! dp path: pipeline IRECVs → GPU pack a→c_wrk_dp → ISENDs → WAITALL
                 size = trp_plan%size3d
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+#ifdef USE_APU
+                !$omp target data use_device_addr(a, c_wrk_dp, b)
+#endif
+                ! Step 1: post all IRECVs before pack starts
+                l = 0
+                do m = 1, ims_npro_k
+                    nr = maps_recv_k(m) + 1; ipr = nr - 1
+                    l = l + 1
+                    call MPI_IRECV(b(trp_plan%disp_r(nr) + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ipr, ims_tag, ims_comm_z, request(l), ims_err)
+                end do
+                ! Step 2: GPU pack a→c_wrk_dp (strided→flat) while network prepares recv buffers
                 do m = 1, ims_npro_k
                     ns = maps_send_k(m) + 1
                     flat_off = (ns - 1)*nmax_p*nlines_p
@@ -484,23 +500,15 @@ contains
                     !$omp end target teams distribute parallel do
 #endif
                 end do
-#ifdef USE_APU
-                !$omp target data use_device_addr(c_wrk_dp, b)
-#endif
-                do j = 1, ims_npro_k, trp_sizBlock_k
-                    l = 0
-                    do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
-                        ns = maps_send_k(m) + 1; ips = ns - 1
-                        nr = maps_recv_k(m) + 1; ipr = nr - 1
-                        l = l + 1
-                        call MPI_ISEND(c_wrk_dp((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ips, ims_tag, ims_comm_z, request(l), ims_err)
-                        l = l + 1
-                        call MPI_IRECV(b(trp_plan%disp_r(nr) + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ipr, ims_tag, ims_comm_z, request(l), ims_err)
-                    end do
-                    call MPI_WAITALL(l, request, status, ims_err)
+                ! Step 3: post all ISENDs from packed flat c_wrk_dp
+                do m = 1, ims_npro_k
+                    ns = maps_send_k(m) + 1; ips = ns - 1
+                    l = l + 1
+                    call MPI_ISEND(c_wrk_dp((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ips, ims_tag, ims_comm_z, request(l), ims_err)
                 end do
+                ! Step 4: single WAITALL for all sends and receives
+                call MPI_WAITALL(l, request, status, ims_err)
 #ifdef USE_APU
                 !$omp end target data
 #endif
@@ -612,25 +620,28 @@ contains
             !$omp end target teams distribute parallel do
 #endif
             if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
-                ! K-backward send is CONTIGUOUS (disp_r offsets are flat) → direct send from b_wrk.
-                ! K-backward recv is STRIDED (disp_s, stride=npage) → flat recv into c_wrk, then GPU unpack.
+                ! K-backward: send is flat from b_wrk, recv into c_wrk (then GPU unpack).
+                ! Post all IRECVs before all ISENDs so recv buffers are ready immediately.
 #ifdef USE_APU
                 !$omp target data use_device_addr(b_wrk, c_wrk)
 #endif
-                do j = 1, ims_npro_k, trp_sizBlock_k
-                    l = 0
-                    do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
-                        ns = maps_recv_k(m) + 1; ips = ns - 1   ! backward: msend=maps_recv_k
-                        nr = maps_send_k(m) + 1; ipr = nr - 1   ! backward: mrecv=maps_send_k
-                        l = l + 1
-                        call MPI_ISEND(b_wrk(trp_plan%disp_r(ns) + 1), nmax_p*nlines_p, MPI_REAL4, &
-                                       ips, ims_tag, ims_comm_z, request(l), ims_err)
-                        l = l + 1
-                        call MPI_IRECV(c_wrk((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
-                                       ipr, ims_tag, ims_comm_z, request(l), ims_err)
-                    end do
-                    call MPI_WAITALL(l, request, status, ims_err)
+                ! Step 1: post all IRECVs into flat c_wrk recv slots
+                l = 0
+                do m = 1, ims_npro_k
+                    nr = maps_send_k(m) + 1; ipr = nr - 1   ! backward: mrecv=maps_send_k
+                    l = l + 1
+                    call MPI_IRECV(c_wrk((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                   ipr, ims_tag, ims_comm_z, request(l), ims_err)
                 end do
+                ! Step 2: post all ISENDs from flat b_wrk send slots
+                do m = 1, ims_npro_k
+                    ns = maps_recv_k(m) + 1; ips = ns - 1   ! backward: msend=maps_recv_k
+                    l = l + 1
+                    call MPI_ISEND(b_wrk(trp_plan%disp_r(ns) + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                   ips, ims_tag, ims_comm_z, request(l), ims_err)
+                end do
+                ! Step 3: single WAITALL for all sends and receives
+                call MPI_WAITALL(l, request, status, ims_err)
 #ifdef USE_APU
                 !$omp end target data
 #endif
@@ -675,20 +686,23 @@ contains
 #ifdef USE_APU
                 !$omp target data use_device_addr(b, c_wrk_dp)
 #endif
-                do j = 1, ims_npro_k, trp_sizBlock_k
-                    l = 0
-                    do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
-                        ns = maps_recv_k(m) + 1; ips = ns - 1
-                        nr = maps_send_k(m) + 1; ipr = nr - 1
-                        l = l + 1
-                        call MPI_ISEND(b(trp_plan%disp_r(ns) + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ips, ims_tag, ims_comm_z, request(l), ims_err)
-                        l = l + 1
-                        call MPI_IRECV(c_wrk_dp((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ipr, ims_tag, ims_comm_z, request(l), ims_err)
-                    end do
-                    call MPI_WAITALL(l, request, status, ims_err)
+                ! Step 1: post all IRECVs into flat c_wrk_dp recv slots
+                l = 0
+                do m = 1, ims_npro_k
+                    nr = maps_send_k(m) + 1; ipr = nr - 1
+                    l = l + 1
+                    call MPI_IRECV(c_wrk_dp((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ipr, ims_tag, ims_comm_z, request(l), ims_err)
                 end do
+                ! Step 2: post all ISENDs from flat b send slots
+                do m = 1, ims_npro_k
+                    ns = maps_recv_k(m) + 1; ips = ns - 1
+                    l = l + 1
+                    call MPI_ISEND(b(trp_plan%disp_r(ns) + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ips, ims_tag, ims_comm_z, request(l), ims_err)
+                end do
+                ! Step 3: single WAITALL for all sends and receives
+                call MPI_WAITALL(l, request, status, ims_err)
 #ifdef USE_APU
                 !$omp end target data
 #endif
@@ -809,25 +823,28 @@ contains
             !$omp end target teams distribute parallel do
 #endif
             if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
-                ! I-dir send is CONTIGUOUS (disp_s offsets are flat) → direct send from a_wrk.
-                ! I-dir recv is STRIDED (disp_r, stride=nmax*npro) → flat recv into c_wrk, then GPU unpack.
+                ! I-forward: send is flat from a_wrk, recv into c_wrk (then GPU unpack).
+                ! Post all IRECVs before all ISENDs so recv buffers are ready immediately.
 #ifdef USE_APU
                 !$omp target data use_device_addr(a_wrk, c_wrk)
 #endif
-                do j = 1, ims_npro_i, trp_sizBlock_i
-                    l = 0
-                    do m = j, min(j + trp_sizBlock_i - 1, ims_npro_i)
-                        ns = maps_send_i(m) + 1; ips = ns - 1
-                        nr = maps_recv_i(m) + 1; ipr = nr - 1
-                        l = l + 1
-                        call MPI_ISEND(a_wrk(trp_plan%disp_s(ns) + 1), nmax_p*nlines_p, MPI_REAL4, &
-                                       ips, ims_tag, ims_comm_x, request(l), ims_err)
-                        l = l + 1
-                        call MPI_IRECV(c_wrk((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
-                                       ipr, ims_tag, ims_comm_x, request(l), ims_err)
-                    end do
-                    call MPI_WAITALL(l, request, status, ims_err)
+                ! Step 1: post all IRECVs into flat c_wrk recv slots
+                l = 0
+                do m = 1, ims_npro_i
+                    nr = maps_recv_i(m) + 1; ipr = nr - 1
+                    l = l + 1
+                    call MPI_IRECV(c_wrk((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                   ipr, ims_tag, ims_comm_x, request(l), ims_err)
                 end do
+                ! Step 2: post all ISENDs from flat a_wrk send slots
+                do m = 1, ims_npro_i
+                    ns = maps_send_i(m) + 1; ips = ns - 1
+                    l = l + 1
+                    call MPI_ISEND(a_wrk(trp_plan%disp_s(ns) + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                   ips, ims_tag, ims_comm_x, request(l), ims_err)
+                end do
+                ! Step 3: single WAITALL for all sends and receives
+                call MPI_WAITALL(l, request, status, ims_err)
 #ifdef USE_APU
                 !$omp end target data
 #endif
@@ -866,26 +883,30 @@ contains
             nullify (a_wrk, b_wrk, c_wrk)
         else
             if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
-                ! dp path: flat send from a, flat recv into c_wrk_dp, GPU unpack c_wrk_dp→b
+                ! dp path: send flat from a, recv into c_wrk_dp (then GPU unpack).
+                ! Post all IRECVs before all ISENDs so recv buffers are ready immediately.
                 size = trp_plan%size3d
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
 #ifdef USE_APU
                 !$omp target data use_device_addr(a, c_wrk_dp)
 #endif
-                do j = 1, ims_npro_i, trp_sizBlock_i
-                    l = 0
-                    do m = j, min(j + trp_sizBlock_i - 1, ims_npro_i)
-                        ns = maps_send_i(m) + 1; ips = ns - 1
-                        nr = maps_recv_i(m) + 1; ipr = nr - 1
-                        l = l + 1
-                        call MPI_ISEND(a(trp_plan%disp_s(ns) + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
-                        l = l + 1
-                        call MPI_IRECV(c_wrk_dp((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
-                    end do
-                    call MPI_WAITALL(l, request, status, ims_err)
+                ! Step 1: post all IRECVs into flat c_wrk_dp recv slots
+                l = 0
+                do m = 1, ims_npro_i
+                    nr = maps_recv_i(m) + 1; ipr = nr - 1
+                    l = l + 1
+                    call MPI_IRECV(c_wrk_dp((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
                 end do
+                ! Step 2: post all ISENDs from flat a send slots
+                do m = 1, ims_npro_i
+                    ns = maps_send_i(m) + 1; ips = ns - 1
+                    l = l + 1
+                    call MPI_ISEND(a(trp_plan%disp_s(ns) + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
+                end do
+                ! Step 3: single WAITALL for all sends and receives
+                call MPI_WAITALL(l, request, status, ims_err)
 #ifdef USE_APU
                 !$omp end target data
 #endif
@@ -1001,8 +1022,21 @@ contains
             !$omp end target teams distribute parallel do
 #endif
             if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
-                ! I-backward send is STRIDED (disp_r, stride=nmax_full); GPU-pack b_wrk→c_wrk.
-                ! I-backward recv is CONTIGUOUS (disp_s offsets are flat) → direct recv into a_wrk.
+                ! Pipeline: IRECVs posted before GPU pack, ISENDs posted after pack, single WAITALL.
+                ! Recv buffers (a_wrk) are independent of the pack target (c_wrk), so IRECVs can
+                ! be registered with MPI while the GPU gathers strided b_wrk into flat c_wrk.
+#ifdef USE_APU
+                !$omp target data use_device_addr(b_wrk, c_wrk, a_wrk)
+#endif
+                ! Step 1: post all IRECVs into flat a_wrk recv slots before pack starts
+                l = 0
+                do m = 1, ims_npro_i
+                    nr = maps_send_i(m) + 1; ipr = nr - 1
+                    l = l + 1
+                    call MPI_IRECV(a_wrk(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                   ipr, ims_tag, ims_comm_x, request(l), ims_err)
+                end do
+                ! Step 2: GPU pack b_wrk→c_wrk (strided→flat) while network prepares recv buffers
                 do m = 1, ims_npro_i
                     ns = maps_recv_i(m) + 1   ! backward msend=maps_recv_i
                     flat_off = (ns - 1)*nmax_p*nlines_p
@@ -1019,24 +1053,15 @@ contains
                     !$omp end target teams distribute parallel do
 #endif
                 end do
-                ! GPU-Aware MPI: flat send from c_wrk, flat recv into a_wrk
-#ifdef USE_APU
-                !$omp target data use_device_addr(c_wrk, a_wrk)
-#endif
-                do j = 1, ims_npro_i, trp_sizBlock_i
-                    l = 0
-                    do m = j, min(j + trp_sizBlock_i - 1, ims_npro_i)
-                        ns = maps_recv_i(m) + 1; ips = ns - 1
-                        nr = maps_send_i(m) + 1; ipr = nr - 1
-                        l = l + 1
-                        call MPI_ISEND(c_wrk((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
-                                       ips, ims_tag, ims_comm_x, request(l), ims_err)
-                        l = l + 1
-                        call MPI_IRECV(a_wrk(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, MPI_REAL4, &
-                                       ipr, ims_tag, ims_comm_x, request(l), ims_err)
-                    end do
-                    call MPI_WAITALL(l, request, status, ims_err)
+                ! Step 3: post all ISENDs from packed flat c_wrk
+                do m = 1, ims_npro_i
+                    ns = maps_recv_i(m) + 1; ips = ns - 1
+                    l = l + 1
+                    call MPI_ISEND(c_wrk((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
+                                   ips, ims_tag, ims_comm_x, request(l), ims_err)
                 end do
+                ! Step 4: single WAITALL for all sends and receives
+                call MPI_WAITALL(l, request, status, ims_err)
 #ifdef USE_APU
                 !$omp end target data
 #endif
@@ -1058,9 +1083,21 @@ contains
             nullify (a_wrk, b_wrk, c_wrk)
         else
             if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
-                ! dp path: GPU pack b→c_wrk_dp (strided), flat MPI, direct a recv
+                ! dp path: pipeline IRECVs → GPU pack b→c_wrk_dp → ISENDs → WAITALL
                 size = trp_plan%size3d
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+#ifdef USE_APU
+                !$omp target data use_device_addr(b, c_wrk_dp, a)
+#endif
+                ! Step 1: post all IRECVs into flat a recv slots before pack starts
+                l = 0
+                do m = 1, ims_npro_i
+                    nr = maps_send_i(m) + 1; ipr = nr - 1
+                    l = l + 1
+                    call MPI_IRECV(a(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
+                end do
+                ! Step 2: GPU pack b→c_wrk_dp (strided→flat) while network prepares recv buffers
                 do m = 1, ims_npro_i
                     ns = maps_recv_i(m) + 1
                     flat_off = (ns - 1)*nmax_p*nlines_p
@@ -1077,23 +1114,15 @@ contains
                     !$omp end target teams distribute parallel do
 #endif
                 end do
-#ifdef USE_APU
-                !$omp target data use_device_addr(c_wrk_dp, a)
-#endif
-                do j = 1, ims_npro_i, trp_sizBlock_i
-                    l = 0
-                    do m = j, min(j + trp_sizBlock_i - 1, ims_npro_i)
-                        ns = maps_recv_i(m) + 1; ips = ns - 1
-                        nr = maps_send_i(m) + 1; ipr = nr - 1
-                        l = l + 1
-                        call MPI_ISEND(c_wrk_dp((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
-                        l = l + 1
-                        call MPI_IRECV(a(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
-                    end do
-                    call MPI_WAITALL(l, request, status, ims_err)
+                ! Step 3: post all ISENDs from packed flat c_wrk_dp
+                do m = 1, ims_npro_i
+                    ns = maps_recv_i(m) + 1; ips = ns - 1
+                    l = l + 1
+                    call MPI_ISEND(c_wrk_dp((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                   trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
                 end do
+                ! Step 4: single WAITALL for all sends and receives
+                call MPI_WAITALL(l, request, status, ims_err)
 #ifdef USE_APU
                 !$omp end target data
 #endif
