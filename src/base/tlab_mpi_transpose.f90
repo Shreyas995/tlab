@@ -509,11 +509,13 @@ contains
                     call c_f_pointer(peer_base_k_sp(ipr), peer_k_sp_ptr, [trp_plan%size3d])
                     flat_off = ims_pro_k * nmax_p * nlines_p   ! slot for current rank in peer's window
                     disp_ns  = trp_plan%disp_r(nr)
-                    !$omp target teams distribute parallel do use_device_addr(peer_k_sp_ptr, b_wrk)
+                    !$omp target data use_device_addr(peer_k_sp_ptr, b_wrk)
+                    !$omp target teams distribute parallel do
                     do i = 1, nmax_p*nlines_p
                         b_wrk(disp_ns + i) = peer_k_sp_ptr(flat_off + i)
                     end do
                     !$omp end target teams distribute parallel do
+                    !$omp end target data
                 end do
                 ! Step 4: barrier — all ranks done reading; safe to reuse window on next call
                 call MPI_Win_sync(win_k_sp, ims_err)
@@ -594,11 +596,13 @@ contains
                     call c_f_pointer(peer_base_k_dp(ipr), peer_k_dp_ptr, [size])
                     flat_off = ims_pro_k * nmax_p * nlines_p
                     disp_ns  = trp_plan%disp_r(nr)
-                    !$omp target teams distribute parallel do use_device_addr(peer_k_dp_ptr, b)
+                    !$omp target data use_device_addr(peer_k_dp_ptr, b)
+                    !$omp target teams distribute parallel do
                     do i = 1, nmax_p*nlines_p
                         b(disp_ns + i) = peer_k_dp_ptr(flat_off + i)
                     end do
                     !$omp end target teams distribute parallel do
+                    !$omp end target data
                 end do
                 call MPI_Win_sync(win_k_dp, ims_err)
                 call MPI_Barrier(ims_comm_z, ims_err)
@@ -767,11 +771,13 @@ contains
                     call c_f_pointer(peer_base_k_sp(ipr), peer_k_sp_ptr, [trp_plan%size3d])
                     flat_off = ims_pro_k * nmax_p * nlines_p
                     disp_nr  = (nr - 1)*nmax_p*nlines_p
-                    !$omp target teams distribute parallel do use_device_addr(peer_k_sp_ptr)
+                    !$omp target data use_device_addr(peer_k_sp_ptr)
+                    !$omp target teams distribute parallel do
                     do i = 1, nmax_p*nlines_p
                         c_wrk(disp_nr + i) = peer_k_sp_ptr(flat_off + i)
                     end do
                     !$omp end target teams distribute parallel do
+                    !$omp end target data
                 end do
                 !$omp end target data
                 call MPI_Win_sync(win_k_sp, ims_err)
@@ -854,13 +860,15 @@ contains
                     call c_f_pointer(peer_base_k_dp(ipr), peer_k_dp_ptr, [size])
                     flat_off = ims_pro_k * nmax_p * nlines_p
                     disp_nr  = trp_plan%disp_s(nr)
-                    !$omp target teams distribute parallel do collapse(2) use_device_addr(peer_k_dp_ptr, a)
+                    !$omp target data use_device_addr(peer_k_dp_ptr, a)
+                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
                             a(disp_nr + i*npage + j + 1) = peer_k_dp_ptr(flat_off + i*nlines_p + j + 1)
                         end do
                     end do
                     !$omp end target teams distribute parallel do
+                    !$omp end target data
                 end do
                 call MPI_Win_sync(win_k_dp, ims_err)
                 call MPI_Barrier(ims_comm_z, ims_err)
@@ -1018,13 +1026,15 @@ contains
                     call c_f_pointer(peer_base_i_sp(ipr), peer_i_sp_ptr, [trp_plan%size3d])
                     flat_off = ims_pro_i * nmax_p * nlines_p
                     disp_nr  = trp_plan%disp_r(nr)
-                    !$omp target teams distribute parallel do collapse(2) use_device_addr(peer_i_sp_ptr, b_wrk)
+                    !$omp target data use_device_addr(peer_i_sp_ptr, b_wrk)
+                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
                             b_wrk(disp_nr + i*nmax_full + j + 1) = peer_i_sp_ptr(flat_off + i*nmax_p + j + 1)
                         end do
                     end do
                     !$omp end target teams distribute parallel do
+                    !$omp end target data
                 end do
                 call MPI_Win_sync(win_i_sp, ims_err)
                 call MPI_Barrier(ims_comm_x, ims_err)
@@ -1097,13 +1107,15 @@ contains
                     call c_f_pointer(peer_base_i_dp(ipr), peer_i_dp_ptr, [size])
                     flat_off = ims_pro_i * nmax_p * nlines_p
                     disp_nr  = trp_plan%disp_r(nr)
-                    !$omp target teams distribute parallel do collapse(2) use_device_addr(peer_i_dp_ptr, b)
+                    !$omp target data use_device_addr(peer_i_dp_ptr, b)
+                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
                             b(disp_nr + i*nmax_full + j + 1) = peer_i_dp_ptr(flat_off + i*nmax_p + j + 1)
                         end do
                     end do
                     !$omp end target teams distribute parallel do
+                    !$omp end target data
                 end do
                 call MPI_Win_sync(win_i_dp, ims_err)
                 call MPI_Barrier(ims_comm_x, ims_err)
@@ -1259,11 +1271,13 @@ contains
                     call c_f_pointer(peer_base_i_sp(ipr), peer_i_sp_ptr, [trp_plan%size3d])
                     flat_off = ims_pro_i * nmax_p * nlines_p
                     disp_ns  = trp_plan%disp_s(nr)
-                    !$omp target teams distribute parallel do use_device_addr(peer_i_sp_ptr, a_wrk)
+                    !$omp target data use_device_addr(peer_i_sp_ptr, a_wrk)
+                    !$omp target teams distribute parallel do
                     do i = 1, nmax_p*nlines_p
                         a_wrk(disp_ns + i) = peer_i_sp_ptr(flat_off + i)
                     end do
                     !$omp end target teams distribute parallel do
+                    !$omp end target data
                 end do
                 call MPI_Win_sync(win_i_sp, ims_err)
                 call MPI_Barrier(ims_comm_x, ims_err)
@@ -1340,11 +1354,13 @@ contains
                     call c_f_pointer(peer_base_i_dp(ipr), peer_i_dp_ptr, [size])
                     flat_off = ims_pro_i * nmax_p * nlines_p
                     disp_ns  = trp_plan%disp_s(nr)
-                    !$omp target teams distribute parallel do use_device_addr(peer_i_dp_ptr, a)
+                    !$omp target data use_device_addr(peer_i_dp_ptr, a)
+                    !$omp target teams distribute parallel do
                     do i = 1, nmax_p*nlines_p
                         a(disp_ns + i) = peer_i_dp_ptr(flat_off + i)
                     end do
                     !$omp end target teams distribute parallel do
+                    !$omp end target data
                 end do
                 call MPI_Win_sync(win_i_dp, ims_err)
                 call MPI_Barrier(ims_comm_x, ims_err)
