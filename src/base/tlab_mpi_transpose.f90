@@ -6,7 +6,10 @@ module TLabMPI_Transpose
     use TLab_Memory, only: imax, jmax, kmax, isize_wrk3d
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use TLab_Memory, only: TLab_Allocate_Real
-    use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
+    use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc, c_null_ptr, c_ptr, c_size_t
+#ifdef USE_APU
+    use omp_lib
+#endif
     use TLabMPI_VARS
     implicit none
     private
@@ -43,17 +46,29 @@ module TLabMPI_Transpose
 
     type(MPI_Datatype) :: trp_datatype_i, trp_datatype_k            ! Transposition in double or single precision
 
-    ! sp work buffer: three sections of size3d sp elements each.
-    !   [1..size]       = a_wrk: sp send/pack buffer
-    !   [size+1..2*size]= b_wrk: sp recv buffer
-    !   [2*size+1..3*size] = c_wrk: flat staging buffer for strided send/recv (sp)
-    ! Declared real(sp) allocatable target so OpenMP target can map it directly.
+    ! sp work buffer: three independent sections of size3d sp elements each.
+    !   a_wrk: sp send/pack buffer
+    !   b_wrk: sp recv buffer
+    !   c_wrk: flat staging buffer for strided send/recv (sp)
+    ! On USE_APU builds these are allocated with omp_target_alloc so the device
+    ! can access them via use_device_addr without any implicit copy or map table
+    ! lookup.  On CPU-only builds a plain allocatable is used instead.
+#ifdef USE_APU
+    type(c_ptr) :: wrk_mpi_a_cptr = c_null_ptr
+    type(c_ptr) :: wrk_mpi_b_cptr = c_null_ptr
+    type(c_ptr) :: wrk_mpi_c_cptr = c_null_ptr
+#else
     real(sp), allocatable, target :: wrk_mpi(:)
+#endif
     real(sp), pointer :: a_wrk(:) => null(), b_wrk(:) => null(), c_wrk(:) => null()
 
     ! dp/complex staging buffer for flat MPI send/recv (replaces strided MPI_TYPE_VECTOR).
     ! Size = 2*imax*jmax*kmax: covers real(dp) (size3d elements) and complex(dp) (size3d/2 complex = size3d reals).
+#ifdef USE_APU
+    type(c_ptr) :: wrk_mpi_dp_cptr = c_null_ptr
+#else
     real(dp), allocatable, target :: wrk_mpi_dp(:)
+#endif
     real(dp), pointer    :: c_wrk_dp(:) => null()
     complex(dp), pointer :: c_wrk_cx(:) => null()
     type(MPI_Status) status(128)
@@ -198,14 +213,24 @@ contains
         !   Only needed when ASYNCHRONOUS transport uses single precision (MPI_REAL4).
         if ((trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .and. trp_datatype_i == MPI_REAL4) .or. &
             (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS .and. trp_datatype_k == MPI_REAL4)) then
+#ifdef USE_APU
+            wrk_mpi_a_cptr = omp_target_alloc(int(imax,c_size_t)*int(jmax,c_size_t)*int(kmax,c_size_t)*4_c_size_t, omp_get_default_device())
+            wrk_mpi_b_cptr = omp_target_alloc(int(imax,c_size_t)*int(jmax,c_size_t)*int(kmax,c_size_t)*4_c_size_t, omp_get_default_device())
+            wrk_mpi_c_cptr = omp_target_alloc(int(imax,c_size_t)*int(jmax,c_size_t)*int(kmax,c_size_t)*4_c_size_t, omp_get_default_device())
+#else
             allocate (wrk_mpi(3*imax*jmax*kmax))
+#endif
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated sp flat-MPI staging buffer (3 x size3d).')
         end if
 
         ! wrk_mpi_dp (dp): staging buffer for dp-real and complex ASYNCHRONOUS paths.
         !   Not needed for SENDRECV or ALLTOALL which use MPI_TYPE_VECTOR via the kernels.
         if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
+#ifdef USE_APU
+            wrk_mpi_dp_cptr = omp_target_alloc(int(imax,c_size_t)*int(jmax,c_size_t)*int(kmax,c_size_t)*2_c_size_t*8_c_size_t, omp_get_default_device())
+#else
             allocate (wrk_mpi_dp(2*imax*jmax*kmax))
+#endif
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated dp flat-MPI staging buffer (2 x size3d).')
         end if
 
@@ -394,9 +419,15 @@ contains
 
         if (trp_datatype_k == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
+#ifdef USE_APU
+            call c_f_pointer(wrk_mpi_a_cptr, a_wrk, shape=[size])
+            call c_f_pointer(wrk_mpi_b_cptr, b_wrk, shape=[size])
+            call c_f_pointer(wrk_mpi_c_cptr, c_wrk, shape=[size])
+#else
             call c_f_pointer(c_loc(wrk_mpi(1)),             a_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi(size + 1)),      b_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi(2*size + 1)),    c_wrk, shape=[size])
+#endif
             ! dp→sp conversion
 #ifdef USE_APU
             !$omp target teams distribute parallel do
@@ -471,7 +502,11 @@ contains
             if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
                 ! dp path: pipeline IRECVs → GPU pack a→c_wrk_dp → ISENDs → WAITALL
                 size = trp_plan%size3d
+#ifdef USE_APU
+                call c_f_pointer(wrk_mpi_dp_cptr, c_wrk_dp, shape=[size])
+#else
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+#endif
 #ifdef USE_APU
                 !$omp target data use_device_addr(a, c_wrk_dp, b)
 #endif
@@ -542,7 +577,11 @@ contains
         npage    = nlines_p * ims_npro_k
         if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
             size = trp_plan%size3d
+#ifdef USE_APU
+            call c_f_pointer(wrk_mpi_dp_cptr, c_wrk_cx, shape=[size])
+#else
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
+#endif
             do m = 1, ims_npro_k
                 ns = maps_send_k(m) + 1
                 flat_off = (ns - 1)*nmax_p*nlines_p
@@ -606,9 +645,15 @@ contains
 
         if (trp_datatype_k == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
+#ifdef USE_APU
+            call c_f_pointer(wrk_mpi_a_cptr, a_wrk, shape=[size])
+            call c_f_pointer(wrk_mpi_b_cptr, b_wrk, shape=[size])
+            call c_f_pointer(wrk_mpi_c_cptr, c_wrk, shape=[size])
+#else
             call c_f_pointer(c_loc(wrk_mpi(1)),          b_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi(size + 1)),   a_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi(2*size + 1)), c_wrk, shape=[size])
+#endif
             ! dp→sp conversion
 #ifdef USE_APU
             !$omp target teams distribute parallel do
@@ -682,7 +727,11 @@ contains
             if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
                 ! dp path: flat send from b, flat recv into c_wrk_dp, GPU unpack c_wrk_dp→a
                 size = trp_plan%size3d
+#ifdef USE_APU
+                call c_f_pointer(wrk_mpi_dp_cptr, c_wrk_dp, shape=[size])
+#else
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+#endif
 #ifdef USE_APU
                 !$omp target data use_device_addr(b, c_wrk_dp)
 #endif
@@ -752,7 +801,11 @@ contains
         npage    = nlines_p * ims_npro_k
         if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
             size = trp_plan%size3d
+#ifdef USE_APU
+            call c_f_pointer(wrk_mpi_dp_cptr, c_wrk_cx, shape=[size])
+#else
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
+#endif
 #ifdef USE_APU
             !$omp target data use_device_addr(c_wrk_cx)
 #endif
@@ -809,9 +862,15 @@ contains
 
         if (trp_datatype_i == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
+#ifdef USE_APU
+            call c_f_pointer(wrk_mpi_a_cptr, a_wrk, shape=[size])
+            call c_f_pointer(wrk_mpi_b_cptr, b_wrk, shape=[size])
+            call c_f_pointer(wrk_mpi_c_cptr, c_wrk, shape=[size])
+#else
             call c_f_pointer(c_loc(wrk_mpi(1)),          a_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi(size + 1)),   b_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi(2*size + 1)), c_wrk, shape=[size])
+#endif
             ! dp→sp
 #ifdef USE_APU
             !$omp target teams distribute parallel do
@@ -886,7 +945,11 @@ contains
                 ! dp path: send flat from a, recv into c_wrk_dp (then GPU unpack).
                 ! Post all IRECVs before all ISENDs so recv buffers are ready immediately.
                 size = trp_plan%size3d
+#ifdef USE_APU
+                call c_f_pointer(wrk_mpi_dp_cptr, c_wrk_dp, shape=[size])
+#else
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+#endif
 #ifdef USE_APU
                 !$omp target data use_device_addr(a, c_wrk_dp)
 #endif
@@ -951,7 +1014,11 @@ contains
         nmax_full = nmax_p * ims_npro_i
         if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
             size = trp_plan%size3d
+#ifdef USE_APU
+            call c_f_pointer(wrk_mpi_dp_cptr, c_wrk_cx, shape=[size])
+#else
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
+#endif
 #ifdef USE_APU
             !$omp target data use_device_addr(c_wrk_cx)
 #endif
@@ -1008,9 +1075,15 @@ contains
 
         if (trp_datatype_i == MPI_REAL4 .and. wp == dp) then
             size = trp_plan%size3d
+#ifdef USE_APU
+            call c_f_pointer(wrk_mpi_a_cptr, a_wrk, shape=[size])
+            call c_f_pointer(wrk_mpi_b_cptr, b_wrk, shape=[size])
+            call c_f_pointer(wrk_mpi_c_cptr, c_wrk, shape=[size])
+#else
             call c_f_pointer(c_loc(wrk_mpi(1)),          b_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi(size + 1)),   a_wrk, shape=[size])
             call c_f_pointer(c_loc(wrk_mpi(2*size + 1)), c_wrk, shape=[size])
+#endif
             ! dp→sp
 #ifdef USE_APU
             !$omp target teams distribute parallel do
@@ -1085,7 +1158,11 @@ contains
             if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
                 ! dp path: pipeline IRECVs → GPU pack b→c_wrk_dp → ISENDs → WAITALL
                 size = trp_plan%size3d
+#ifdef USE_APU
+                call c_f_pointer(wrk_mpi_dp_cptr, c_wrk_dp, shape=[size])
+#else
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+#endif
 #ifdef USE_APU
                 !$omp target data use_device_addr(b, c_wrk_dp, a)
 #endif
@@ -1151,7 +1228,11 @@ contains
         nmax_full = nmax_p * ims_npro_i
         if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
             size = trp_plan%size3d
+#ifdef USE_APU
+            call c_f_pointer(wrk_mpi_dp_cptr, c_wrk_cx, shape=[size])
+#else
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
+#endif
             do m = 1, ims_npro_i
                 ns = maps_recv_i(m) + 1
                 flat_off = (ns - 1)*nmax_p*nlines_p
