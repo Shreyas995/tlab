@@ -38,6 +38,16 @@ module TLabMPI_Transpose
     integer, parameter :: TLAB_MPI_TRP_ASYNCHRONOUS = 1
     integer, parameter :: TLAB_MPI_TRP_SENDRECV = 2
     integer, parameter :: TLAB_MPI_TRP_ALLTOALL = 3
+    integer, parameter :: TLAB_MPI_TRP_APU_DIRECT = 4    ! APU: direct GPU writes to peer device buffers, MPI_Barrier sync
+
+#ifdef USE_APU
+    ! APU direct mode state: one device recv buffer per direction, C pointers gathered across ranks.
+    ! Buffer size = imax*jmax*kmax dp elements, sufficient for all real transpose plans.
+    integer(wi) :: apu_size_k = 0_wi, apu_size_i = 0_wi
+    type(c_ptr) :: apu_recv_cptr_k = c_null_ptr, apu_recv_cptr_i = c_null_ptr
+    real(dp), pointer :: apu_recv_fptr_k(:) => null(), apu_recv_fptr_i(:) => null()
+    integer(8), allocatable :: apu_peer_iptr_k(:), apu_peer_iptr_i(:) ! peer recv-buf addresses as int8
+#endif
 
     integer(wi) :: trp_sizBlock_i, trp_sizBlock_k                   ! explicit send/recv: group sizes of send/recv messages
     integer(wi), allocatable :: maps_send_i(:), maps_recv_i(:)      ! PE maps to use explicit send/recv
@@ -90,6 +100,7 @@ contains
         integer(c_size_t) :: bytes_sp
         integer :: dev_id
         integer(wi) :: total_elements
+        integer(8) :: my_iptr
         ! -----------------------------------------------------------------------
         integer(wi) ip, npage, dummy
         character(len=32) bakfile, block
@@ -109,6 +120,13 @@ contains
         elseif (trim(adjustl(sRes)) == 'asynchronous') then; trp_mode_i = TLAB_MPI_TRP_ASYNCHRONOUS
         elseif (trim(adjustl(sRes)) == 'sendrecv') then; trp_mode_i = TLAB_MPI_TRP_SENDRECV
         elseif (trim(adjustl(sRes)) == 'alltoall') then; trp_mode_i = TLAB_MPI_TRP_ALLTOALL
+        elseif (trim(adjustl(sRes)) == 'apudirect') then
+#ifdef USE_APU
+            trp_mode_i = TLAB_MPI_TRP_APU_DIRECT
+#else
+            call TLab_Write_ASCII(efile, __FILE__//'. TransposeModeI=apudirect requires USE_APU.')
+            call TLab_Stop(DNS_ERROR_OPTION)
+#endif
         else
             call TLab_Write_ASCII(efile, __FILE__//'. Wrong TransposeModeI option.')
             call TLab_Stop(DNS_ERROR_OPTION)
@@ -121,6 +139,13 @@ contains
         elseif (trim(adjustl(sRes)) == 'asynchronous') then; trp_mode_k = TLAB_MPI_TRP_ASYNCHRONOUS
         elseif (trim(adjustl(sRes)) == 'sendrecv') then; trp_mode_k = TLAB_MPI_TRP_SENDRECV
         elseif (trim(adjustl(sRes)) == 'alltoall') then; trp_mode_k = TLAB_MPI_TRP_ALLTOALL
+        elseif (trim(adjustl(sRes)) == 'apudirect') then
+#ifdef USE_APU
+            trp_mode_k = TLAB_MPI_TRP_APU_DIRECT
+#else
+            call TLab_Write_ASCII(efile, __FILE__//'. TransposeModeK=apudirect requires USE_APU.')
+            call TLab_Stop(DNS_ERROR_OPTION)
+#endif
         else
             call TLab_Write_ASCII(efile, __FILE__//'. Wrong TransposeModeK option.')
             call TLab_Stop(DNS_ERROR_OPTION)
@@ -228,10 +253,46 @@ contains
         !   which exceeds 1×size3d = imax*jmax*kmax real elements. 2× covers all cases.
         !   Standard Fortran allocate: on APU unified memory this is device-accessible.
         !   Not needed for SENDRECV or ALLTOALL which use MPI_TYPE_VECTOR via the kernels.
-        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
+        ! APU_DIRECT also needs wrk_mpi_dp: complex exec functions fall back to ASYNC behaviour
+        ! (no mode-4 path for complex — complex transposes are infrequent and dp already).
+        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS .or. &
+            trp_mode_i == TLAB_MPI_TRP_APU_DIRECT   .or. trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
             allocate (wrk_mpi_dp(2*imax*jmax*kmax))
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated dp flat-MPI staging buffer (2 x size3d).')
         end if
+
+#ifdef USE_APU
+        ! APU direct mode: allocate per-rank device recv buffer and gather all peer C pointers.
+        ! Layout in recv buffer: slot r (0-indexed) = ims_pro_?*chunk holds data written by rank r.
+        if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT .and. ims_npro_k > 1) then
+            apu_size_k = int(imax, wi)*int(jmax, wi)*int(kmax, wi)
+            dev_id = omp_get_default_device()
+            apu_recv_cptr_k = omp_target_alloc(int(apu_size_k, c_size_t)*c_sizeof(1.0_dp), dev_id)
+            if (.not. c_associated(apu_recv_cptr_k)) then
+                call TLab_Write_ASCII(efile, __FILE__//'. omp_target_alloc failed for APU K recv buffer.')
+                call TLab_Stop(DNS_ERROR_ALLOC)
+            end if
+            call c_f_pointer(apu_recv_cptr_k, apu_recv_fptr_k, [apu_size_k])
+            allocate (apu_peer_iptr_k(0:ims_npro_k - 1))
+            my_iptr = transfer(apu_recv_cptr_k, 0_8)
+            call MPI_Allgather(my_iptr, 1, MPI_INTEGER8, apu_peer_iptr_k, 1, MPI_INTEGER8, ims_comm_z, ims_err)
+            call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated K APU direct recv buffer.')
+        end if
+        if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT .and. ims_npro_i > 1) then
+            apu_size_i = int(imax, wi)*int(jmax, wi)*int(kmax, wi)
+            dev_id = omp_get_default_device()
+            apu_recv_cptr_i = omp_target_alloc(int(apu_size_i, c_size_t)*c_sizeof(1.0_dp), dev_id)
+            if (.not. c_associated(apu_recv_cptr_i)) then
+                call TLab_Write_ASCII(efile, __FILE__//'. omp_target_alloc failed for APU I recv buffer.')
+                call TLab_Stop(DNS_ERROR_ALLOC)
+            end if
+            call c_f_pointer(apu_recv_cptr_i, apu_recv_fptr_i, [apu_size_i])
+            allocate (apu_peer_iptr_i(0:ims_npro_i - 1))
+            my_iptr = transfer(apu_recv_cptr_i, 0_8)
+            call MPI_Allgather(my_iptr, 1, MPI_INTEGER8, apu_peer_iptr_i, 1, MPI_INTEGER8, ims_comm_x, ims_err)
+            call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated I APU direct recv buffer.')
+        end if
+#endif
 
         ! -----------------------------------------------------------------------
         ! Create basic transposition plans used for partial X and partial Z; could be in another module...
@@ -402,6 +463,10 @@ contains
 
         ! -----------------------------------------------------------------------
         integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, npage, flat_off, disp_ns, mas
+#ifdef USE_APU
+        real(dp), pointer :: apu_pfptr_k(:) => null()
+        integer(8) :: apu_iptr_tmp
+#endif
 
 #ifdef PROFILE_ON
         real(wp) time_loc_1, time_loc_2
@@ -417,7 +482,7 @@ contains
         npage    = nlines_p * ims_npro_k   ! total lines spanning all K ranks
         mas      = nmax_p * nlines_p       ! elements per peer message
 
-        if (trp_datatype_k == MPI_REAL4 .and. wp == dp) then
+        if (trp_datatype_k == MPI_REAL4 .and. wp == dp .and. trp_mode_k /= TLAB_MPI_TRP_APU_DIRECT) then
             size = trp_plan%size3d
             a_wrk => wrk_mpi_fptr(1:size)
             b_wrk => wrk_mpi_fptr(size + 1:2*size)
@@ -526,6 +591,36 @@ contains
                 ! Step 4: single WAITALL for all sends and receives
                 call MPI_WAITALL(l, request, status, ims_err)
                 nullify (c_wrk_dp)
+#ifdef USE_APU
+            else if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
+                ! APU direct: rank ims_pro_k writes its K-strip for peer m directly into peer m's
+                ! device recv buffer at offset ims_pro_k*chunk.  No MPI data movement.
+                ! After MPI_Barrier, each rank's apu_recv_fptr_k is ready; flat-copy to b.
+                ! Layout invariant: apu_recv_fptr_k[p*chunk] holds rank p's contribution, same
+                ! as b[p*chunk] layout (b[r*chunk] = data from rank r in K-Forward).
+                size = trp_plan%size3d
+                do m = 0, ims_npro_k - 1
+                    apu_iptr_tmp = apu_peer_iptr_k(m)
+                    call c_f_pointer(transfer(apu_iptr_tmp, c_null_ptr), apu_pfptr_k, [apu_size_k])
+                    flat_off = ims_pro_k * nmax_p * nlines_p  ! slot for this rank in peer m's buf
+                    disp_ns  = m * nlines_p                   ! = trp_plan%disp_s(m+1)
+                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            apu_pfptr_k(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
+                        end do
+                    end do
+                    !$omp end target teams distribute parallel do
+                end do
+                call MPI_Barrier(ims_comm_z, ims_err)
+                ! apu_recv_fptr_k layout matches b layout — flat copy
+                !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                do i = 1, size
+                    b(i) = apu_recv_fptr_k(i)
+                end do
+                !$omp end target teams distribute parallel do
+                nullify (apu_pfptr_k)
+#endif
             else
                 call Transpose_Kernel_Double(a(1:trp_plan%size3d), maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                              b(1:trp_plan%size3d), maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
@@ -553,7 +648,8 @@ contains
         nmax_p   = trp_plan%nmax
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k
-        if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
+        ! APU_DIRECT falls back to ASYNC for complex (dp path, no sp conversion needed anyway)
+        if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             do m = 1, ims_npro_k
@@ -598,6 +694,10 @@ contains
 
         ! -----------------------------------------------------------------------
         integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, npage, flat_off, disp_nr, mas
+#ifdef USE_APU
+        real(dp), pointer :: apu_pfptr_k(:) => null()
+        integer(8) :: apu_iptr_tmp
+#endif
 #ifdef PROFILE_ON
         real(wp) time_loc_1, time_loc_2
 #endif
@@ -612,7 +712,7 @@ contains
         npage    = nlines_p * ims_npro_k
         mas      = nmax_p * nlines_p
 
-        if (trp_datatype_k == MPI_REAL4 .and. wp == dp) then
+        if (trp_datatype_k == MPI_REAL4 .and. wp == dp .and. trp_mode_k /= TLAB_MPI_TRP_APU_DIRECT) then
             size = trp_plan%size3d
             if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
                 ! Q1: merge unpack + sp→dp into one pass; only 2 sp slots needed.
@@ -731,6 +831,37 @@ contains
 #endif
                 end do
                 nullify (c_wrk_dp)
+#ifdef USE_APU
+            else if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
+                ! APU direct K-Backward: rank ims_pro_k writes b[m*chunk] to peer m's recv buf at offset
+                ! ims_pro_k*chunk (i.e., returns each peer's contribution back to them).
+                ! After barrier, unpack apu_recv_fptr_k[p*chunk] → a[p*nlines_p + i*npage + j + 1].
+                size = trp_plan%size3d
+                do m = 0, ims_npro_k - 1
+                    apu_iptr_tmp = apu_peer_iptr_k(m)
+                    call c_f_pointer(transfer(apu_iptr_tmp, c_null_ptr), apu_pfptr_k, [apu_size_k])
+                    flat_off = ims_pro_k * nmax_p * nlines_p  ! slot for this rank in peer m's buf
+                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    do i = 1, nmax_p * nlines_p
+                        apu_pfptr_k(flat_off + i) = b(m * nmax_p * nlines_p + i)
+                    end do
+                    !$omp end target teams distribute parallel do
+                end do
+                call MPI_Barrier(ims_comm_z, ims_err)
+                ! Unpack: apu_recv_fptr_k[p*chunk + i*nlines_p + j] → a[p*nlines_p + i*npage + j]
+                do m = 0, ims_npro_k - 1
+                    flat_off = m * nmax_p * nlines_p
+                    disp_nr  = m * nlines_p     ! = trp_plan%disp_s(m+1)
+                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            a(disp_nr + i*npage + j + 1) = apu_recv_fptr_k(flat_off + i*nlines_p + j + 1)
+                        end do
+                    end do
+                    !$omp end target teams distribute parallel do
+                end do
+                nullify (apu_pfptr_k)
+#endif
             else
                 call Transpose_Kernel_Double(b(1:trp_plan%size3d), maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                              a(1:trp_plan%size3d), maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
@@ -758,7 +889,8 @@ contains
         nmax_p   = trp_plan%nmax
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k
-        if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
+        ! APU_DIRECT falls back to ASYNC for complex
+        if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             do j = 1, ims_npro_k, trp_sizBlock_k
@@ -803,6 +935,10 @@ contains
 
         ! -----------------------------------------------------------------------
         integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_nr, mas
+#ifdef USE_APU
+        real(dp), pointer :: apu_pfptr_i(:) => null()
+        integer(8) :: apu_iptr_tmp
+#endif
 
         ! #######################################################################
         nmax_p    = trp_plan%nmax
@@ -810,7 +946,7 @@ contains
         nmax_full = nmax_p * ims_npro_i   ! total elements per line across all I ranks (stride in recv)
         mas       = nmax_p * nlines_p
 
-        if (trp_datatype_i == MPI_REAL4 .and. wp == dp) then
+        if (trp_datatype_i == MPI_REAL4 .and. wp == dp .and. trp_mode_i /= TLAB_MPI_TRP_APU_DIRECT) then
             size = trp_plan%size3d
             if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
                 ! Q1: merge unpack + sp→dp into one pass; only 2 sp slots needed.
@@ -929,6 +1065,37 @@ contains
 #endif
                 end do
                 nullify (c_wrk_dp)
+#ifdef USE_APU
+            else if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
+                ! APU direct I-Forward: disp_s(m+1) = m*chunk (contiguous in a), so rank ims_pro_i
+                ! writes a[m*chunk+1 : (m+1)*chunk] directly to peer m's recv buf at ims_pro_i*chunk.
+                ! After barrier, unpack apu_recv_fptr_i[p*chunk + i*nmax_p + j] → b[p*nmax_p + i*nmax_full + j].
+                size = trp_plan%size3d
+                do m = 0, ims_npro_i - 1
+                    apu_iptr_tmp = apu_peer_iptr_i(m)
+                    call c_f_pointer(transfer(apu_iptr_tmp, c_null_ptr), apu_pfptr_i, [apu_size_i])
+                    flat_off = ims_pro_i * nmax_p * nlines_p  ! slot for this rank in peer m's buf
+                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    do i = 1, nmax_p * nlines_p
+                        apu_pfptr_i(flat_off + i) = a(m * nmax_p * nlines_p + i)
+                    end do
+                    !$omp end target teams distribute parallel do
+                end do
+                call MPI_Barrier(ims_comm_x, ims_err)
+                ! Unpack interleaved: apu_recv_fptr_i[p*chunk + i*nmax_p + j] → b[p*nmax_p + i*nmax_full + j]
+                do m = 0, ims_npro_i - 1
+                    flat_off = m * nmax_p * nlines_p
+                    disp_nr  = m * nmax_p       ! = trp_plan%disp_r(m+1)
+                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    do i = 0, nlines_p - 1
+                        do j = 0, nmax_p - 1
+                            b(disp_nr + i*nmax_full + j + 1) = apu_recv_fptr_i(flat_off + i*nmax_p + j + 1)
+                        end do
+                    end do
+                    !$omp end target teams distribute parallel do
+                end do
+                nullify (apu_pfptr_i)
+#endif
             else
                 call Transpose_Kernel_Double(a(1:trp_plan%size3d), maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                              b(1:trp_plan%size3d), maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
@@ -951,7 +1118,8 @@ contains
         nmax_p    = trp_plan%nmax
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i
-        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
+        ! APU_DIRECT falls back to ASYNC for complex
+        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             do j = 1, ims_npro_i, trp_sizBlock_i
@@ -996,6 +1164,10 @@ contains
 
         ! -----------------------------------------------------------------------
         integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_ns, mas
+#ifdef USE_APU
+        real(dp), pointer :: apu_pfptr_i(:) => null()
+        integer(8) :: apu_iptr_tmp
+#endif
 
         ! #######################################################################
         nmax_p    = trp_plan%nmax
@@ -1003,7 +1175,7 @@ contains
         nmax_full = nmax_p * ims_npro_i
         mas       = nmax_p * nlines_p
 
-        if (trp_datatype_i == MPI_REAL4 .and. wp == dp) then
+        if (trp_datatype_i == MPI_REAL4 .and. wp == dp .and. trp_mode_i /= TLAB_MPI_TRP_APU_DIRECT) then
             size = trp_plan%size3d
             if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
                 ! Q1: pack directly from b (dp→sp+strided→flat in one pass); only 2 sp slots needed.
@@ -1123,6 +1295,34 @@ contains
                 ! Step 4: single WAITALL for all sends and receives
                 call MPI_WAITALL(l, request, status, ims_err)
                 nullify (c_wrk_dp)
+#ifdef USE_APU
+            else if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
+                ! APU direct I-Backward: rank ims_pro_i packs b[m*nmax_p + i*nmax_full + j] for peer m
+                ! and writes directly to peer m's recv buf at ims_pro_i*chunk.
+                ! After barrier, apu_recv_fptr_i is flat (same as a layout) — copy to a.
+                size = trp_plan%size3d
+                do m = 0, ims_npro_i - 1
+                    apu_iptr_tmp = apu_peer_iptr_i(m)
+                    call c_f_pointer(transfer(apu_iptr_tmp, c_null_ptr), apu_pfptr_i, [apu_size_i])
+                    flat_off = ims_pro_i * nmax_p * nlines_p  ! slot for this rank in peer m's buf
+                    disp_ns  = m * nmax_p                     ! = trp_plan%disp_r(m+1)
+                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    do i = 0, nlines_p - 1
+                        do j = 0, nmax_p - 1
+                            apu_pfptr_i(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
+                        end do
+                    end do
+                    !$omp end target teams distribute parallel do
+                end do
+                call MPI_Barrier(ims_comm_x, ims_err)
+                ! apu_recv_fptr_i layout matches a layout (a[p*chunk] = data from rank p) — flat copy
+                !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                do i = 1, size
+                    a(i) = apu_recv_fptr_i(i)
+                end do
+                !$omp end target teams distribute parallel do
+                nullify (apu_pfptr_i)
+#endif
             else
                 call Transpose_Kernel_Double(b(1:trp_plan%size3d), maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                              a(1:trp_plan%size3d), maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
@@ -1145,7 +1345,8 @@ contains
         nmax_p    = trp_plan%nmax
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i
-        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
+        ! APU_DIRECT falls back to ASYNC for complex
+        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             do m = 1, ims_npro_i
