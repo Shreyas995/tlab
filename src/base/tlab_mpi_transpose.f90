@@ -593,32 +593,32 @@ contains
                 nullify (c_wrk_dp)
 #ifdef USE_APU
             else if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
-                ! APU direct: rank ims_pro_k writes its K-strip for peer m directly into peer m's
-                ! device recv buffer at offset ims_pro_k*chunk.  No MPI data movement.
-                ! After MPI_Barrier, each rank's apu_recv_fptr_k is ready; flat-copy to b.
-                ! Layout invariant: apu_recv_fptr_k[p*chunk] holds rank p's contribution, same
-                ! as b[p*chunk] layout (b[r*chunk] = data from rank r in K-Forward).
+                ! APU direct K-Forward: all ranks share unified HBM on MI300 APU.
+                ! CPU threads write each rank's K-strip directly into every peer's recv buffer.
+                ! !$omp target is NOT used here: apu_pfptr_k points to a peer's omp_target_alloc
+                ! buffer; the Cray OpenMP runtime would attempt to re-map it and crash (GPU trap).
+                ! On APU unified memory, CPU threads have full access to all device allocations.
                 size = trp_plan%size3d
                 do m = 0, ims_npro_k - 1
                     apu_iptr_tmp = apu_peer_iptr_k(m)
                     call c_f_pointer(transfer(apu_iptr_tmp, c_null_ptr), apu_pfptr_k, [apu_size_k])
                     flat_off = ims_pro_k * nmax_p * nlines_p  ! slot for this rank in peer m's buf
                     disp_ns  = m * nlines_p                   ! = trp_plan%disp_s(m+1)
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    !$omp parallel do collapse(2) schedule(static)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
                             apu_pfptr_k(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
                         end do
                     end do
-                    !$omp end target teams distribute parallel do
+                    !$omp end parallel do
                 end do
                 call MPI_Barrier(ims_comm_z, ims_err)
-                ! apu_recv_fptr_k layout matches b layout — flat copy
-                !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                ! Flat copy: apu_recv_fptr_k layout matches b layout
+                !$omp parallel do schedule(static)
                 do i = 1, size
                     b(i) = apu_recv_fptr_k(i)
                 end do
-                !$omp end target teams distribute parallel do
+                !$omp end parallel do
                 nullify (apu_pfptr_k)
 #endif
             else
@@ -833,32 +833,30 @@ contains
                 nullify (c_wrk_dp)
 #ifdef USE_APU
             else if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
-                ! APU direct K-Backward: rank ims_pro_k writes b[m*chunk] to peer m's recv buf at offset
-                ! ims_pro_k*chunk (i.e., returns each peer's contribution back to them).
-                ! After barrier, unpack apu_recv_fptr_k[p*chunk] → a[p*nlines_p + i*npage + j + 1].
+                ! APU direct K-Backward — CPU threads only (see K-Forward comment re: GPU trap).
                 size = trp_plan%size3d
                 do m = 0, ims_npro_k - 1
                     apu_iptr_tmp = apu_peer_iptr_k(m)
                     call c_f_pointer(transfer(apu_iptr_tmp, c_null_ptr), apu_pfptr_k, [apu_size_k])
                     flat_off = ims_pro_k * nmax_p * nlines_p  ! slot for this rank in peer m's buf
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp parallel do schedule(static)
                     do i = 1, nmax_p * nlines_p
                         apu_pfptr_k(flat_off + i) = b(m * nmax_p * nlines_p + i)
                     end do
-                    !$omp end target teams distribute parallel do
+                    !$omp end parallel do
                 end do
                 call MPI_Barrier(ims_comm_z, ims_err)
                 ! Unpack: apu_recv_fptr_k[p*chunk + i*nlines_p + j] → a[p*nlines_p + i*npage + j]
                 do m = 0, ims_npro_k - 1
                     flat_off = m * nmax_p * nlines_p
                     disp_nr  = m * nlines_p     ! = trp_plan%disp_s(m+1)
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    !$omp parallel do collapse(2) schedule(static)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
                             a(disp_nr + i*npage + j + 1) = apu_recv_fptr_k(flat_off + i*nlines_p + j + 1)
                         end do
                     end do
-                    !$omp end target teams distribute parallel do
+                    !$omp end parallel do
                 end do
                 nullify (apu_pfptr_k)
 #endif
@@ -1067,32 +1065,30 @@ contains
                 nullify (c_wrk_dp)
 #ifdef USE_APU
             else if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
-                ! APU direct I-Forward: disp_s(m+1) = m*chunk (contiguous in a), so rank ims_pro_i
-                ! writes a[m*chunk+1 : (m+1)*chunk] directly to peer m's recv buf at ims_pro_i*chunk.
-                ! After barrier, unpack apu_recv_fptr_i[p*chunk + i*nmax_p + j] → b[p*nmax_p + i*nmax_full + j].
+                ! APU direct I-Forward — CPU threads only (see K-Forward comment re: GPU trap).
                 size = trp_plan%size3d
                 do m = 0, ims_npro_i - 1
                     apu_iptr_tmp = apu_peer_iptr_i(m)
                     call c_f_pointer(transfer(apu_iptr_tmp, c_null_ptr), apu_pfptr_i, [apu_size_i])
                     flat_off = ims_pro_i * nmax_p * nlines_p  ! slot for this rank in peer m's buf
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp parallel do schedule(static)
                     do i = 1, nmax_p * nlines_p
                         apu_pfptr_i(flat_off + i) = a(m * nmax_p * nlines_p + i)
                     end do
-                    !$omp end target teams distribute parallel do
+                    !$omp end parallel do
                 end do
                 call MPI_Barrier(ims_comm_x, ims_err)
                 ! Unpack interleaved: apu_recv_fptr_i[p*chunk + i*nmax_p + j] → b[p*nmax_p + i*nmax_full + j]
                 do m = 0, ims_npro_i - 1
                     flat_off = m * nmax_p * nlines_p
                     disp_nr  = m * nmax_p       ! = trp_plan%disp_r(m+1)
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    !$omp parallel do collapse(2) schedule(static)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
                             b(disp_nr + i*nmax_full + j + 1) = apu_recv_fptr_i(flat_off + i*nmax_p + j + 1)
                         end do
                     end do
-                    !$omp end target teams distribute parallel do
+                    !$omp end parallel do
                 end do
                 nullify (apu_pfptr_i)
 #endif
@@ -1297,30 +1293,28 @@ contains
                 nullify (c_wrk_dp)
 #ifdef USE_APU
             else if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
-                ! APU direct I-Backward: rank ims_pro_i packs b[m*nmax_p + i*nmax_full + j] for peer m
-                ! and writes directly to peer m's recv buf at ims_pro_i*chunk.
-                ! After barrier, apu_recv_fptr_i is flat (same as a layout) — copy to a.
+                ! APU direct I-Backward — CPU threads only (see K-Forward comment re: GPU trap).
                 size = trp_plan%size3d
                 do m = 0, ims_npro_i - 1
                     apu_iptr_tmp = apu_peer_iptr_i(m)
                     call c_f_pointer(transfer(apu_iptr_tmp, c_null_ptr), apu_pfptr_i, [apu_size_i])
                     flat_off = ims_pro_i * nmax_p * nlines_p  ! slot for this rank in peer m's buf
                     disp_ns  = m * nmax_p                     ! = trp_plan%disp_r(m+1)
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    !$omp parallel do collapse(2) schedule(static)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
                             apu_pfptr_i(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
                         end do
                     end do
-                    !$omp end target teams distribute parallel do
+                    !$omp end parallel do
                 end do
                 call MPI_Barrier(ims_comm_x, ims_err)
-                ! apu_recv_fptr_i layout matches a layout (a[p*chunk] = data from rank p) — flat copy
-                !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                ! Flat copy: apu_recv_fptr_i layout matches a layout
+                !$omp parallel do schedule(static)
                 do i = 1, size
                     a(i) = apu_recv_fptr_i(i)
                 end do
-                !$omp end target teams distribute parallel do
+                !$omp end parallel do
                 nullify (apu_pfptr_i)
 #endif
             else
