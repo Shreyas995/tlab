@@ -34,6 +34,7 @@ subroutine IBM_SPLINE_XYZ(is, fld, fld_mod, g, isize_nob, isize_nob_be, nob, nob
     use TLab_Arrays, only: wrk1d
     use FDM, only: fdm_dt
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
+    use Cubic_Splines
 
     implicit none
 
@@ -75,6 +76,7 @@ subroutine IBM_SPLINE_XYZ(is, fld, fld_mod, g, isize_nob, isize_nob_be, nob, nob
                     bc(:) = 2 ! fixed first derivative at endpoints
                     m1 = (ya(2) - ya(1))/(xa(2) - xa(1)); bcval(1) = m1
                     m2 = (ya(ia) - ya(ia - 1))/(xa(ia) - xa(ia - 1)); bcval(2) = m2
+!DIR$ INLINE CUBIC_SPLINE    
                     call CUBIC_SPLINE(bc, bcval, ia, ib, xa(1:ia), ya(1:ia), xb(1:ib), yb(1:ib), wrk1d)
                     ! force yb at interface to physical BCs again, to get exact boundary values here
                     if (is /= 0) then
