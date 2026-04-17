@@ -41,12 +41,14 @@ module TLabMPI_Transpose
     integer, parameter :: TLAB_MPI_TRP_APU_DIRECT = 4    ! APU: direct GPU writes to peer device buffers, MPI_Barrier sync
 
 #ifdef USE_APU
-    ! APU direct mode state: one device recv buffer per direction, C pointers gathered across ranks.
-    ! Buffer size = imax*jmax*kmax dp elements, sufficient for all real transpose plans.
+    ! APU direct mode state: shared-memory MPI windows, one per direction.
+    ! Each rank allocates its recv buffer as a shared segment so all ranks
+    ! in the communicator can write directly to each other's buffers via
+    ! MPI_Win_shared_query pointers (valid in every process's address space).
     integer(wi) :: apu_size_k = 0_wi, apu_size_i = 0_wi
-    type(c_ptr) :: apu_recv_cptr_k = c_null_ptr, apu_recv_cptr_i = c_null_ptr
+    type(MPI_Win) :: apu_win_k, apu_win_i
     real(dp), pointer :: apu_recv_fptr_k(:) => null(), apu_recv_fptr_i(:) => null()
-    integer(8), allocatable :: apu_peer_iptr_k(:), apu_peer_iptr_i(:) ! peer recv-buf addresses as int8
+    type(c_ptr), allocatable :: apu_peer_cptr_k(:), apu_peer_cptr_i(:) ! per-rank pointers from Win_shared_query
 #endif
 
     integer(wi) :: trp_sizBlock_i, trp_sizBlock_k                   ! explicit send/recv: group sizes of send/recv messages
@@ -100,7 +102,9 @@ contains
         integer(c_size_t) :: bytes_sp
         integer :: dev_id
         integer(wi) :: total_elements
-        integer(8) :: my_iptr
+        integer(MPI_ADDRESS_KIND) :: win_query_size
+        integer :: win_disp_unit
+        type(c_ptr) :: win_baseptr
         ! -----------------------------------------------------------------------
         integer(wi) ip, npage, dummy
         character(len=32) bakfile, block
@@ -262,34 +266,40 @@ contains
         end if
 
 #ifdef USE_APU
-        ! APU direct mode: allocate per-rank device recv buffer and gather all peer C pointers.
-        ! Layout in recv buffer: slot r (0-indexed) = ims_pro_?*chunk holds data written by rank r.
+        ! APU direct mode: allocate per-rank shared-memory MPI windows so every rank in the
+        ! communicator gets a pointer into every other rank's recv buffer segment.
+        ! MPI_Win_allocate_shared maps all segments into the calling process's address space
+        ! (via sysv/posix shared memory), solving the cross-process virtual-address problem
+        ! that broke the previous omp_target_alloc + integer(8) address sharing approach.
+        ! Layout in recv buffer: slot r*chunk holds data written by rank r.
         if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT .and. ims_npro_k > 1) then
             apu_size_k = int(imax, wi)*int(jmax, wi)*int(kmax, wi)
-            dev_id = omp_get_default_device()
-            apu_recv_cptr_k = omp_target_alloc(int(apu_size_k, c_size_t)*c_sizeof(1.0_dp), dev_id)
-            if (.not. c_associated(apu_recv_cptr_k)) then
-                call TLab_Write_ASCII(efile, __FILE__//'. omp_target_alloc failed for APU K recv buffer.')
+            call MPI_Win_allocate_shared(int(apu_size_k, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
+                                         int(c_sizeof(1.0_dp)), MPI_INFO_NULL, ims_comm_z, win_baseptr, apu_win_k, ims_err)
+            if (ims_err /= MPI_SUCCESS) then
+                call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU K recv buffer.')
                 call TLab_Stop(DNS_ERROR_ALLOC)
             end if
-            call c_f_pointer(apu_recv_cptr_k, apu_recv_fptr_k, [apu_size_k])
-            allocate (apu_peer_iptr_k(0:ims_npro_k - 1))
-            my_iptr = transfer(apu_recv_cptr_k, 0_8)
-            call MPI_Allgather(my_iptr, 1, MPI_INTEGER8, apu_peer_iptr_k, 1, MPI_INTEGER8, ims_comm_z, ims_err)
+            call c_f_pointer(win_baseptr, apu_recv_fptr_k, [apu_size_k])
+            allocate (apu_peer_cptr_k(0:ims_npro_k - 1))
+            do ip = 0, ims_npro_k - 1
+                call MPI_Win_shared_query(apu_win_k, ip, win_query_size, win_disp_unit, apu_peer_cptr_k(ip), ims_err)
+            end do
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated K APU direct recv buffer.')
         end if
         if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT .and. ims_npro_i > 1) then
             apu_size_i = int(imax, wi)*int(jmax, wi)*int(kmax, wi)
-            dev_id = omp_get_default_device()
-            apu_recv_cptr_i = omp_target_alloc(int(apu_size_i, c_size_t)*c_sizeof(1.0_dp), dev_id)
-            if (.not. c_associated(apu_recv_cptr_i)) then
-                call TLab_Write_ASCII(efile, __FILE__//'. omp_target_alloc failed for APU I recv buffer.')
+            call MPI_Win_allocate_shared(int(apu_size_i, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
+                                         int(c_sizeof(1.0_dp)), MPI_INFO_NULL, ims_comm_x, win_baseptr, apu_win_i, ims_err)
+            if (ims_err /= MPI_SUCCESS) then
+                call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU I recv buffer.')
                 call TLab_Stop(DNS_ERROR_ALLOC)
             end if
-            call c_f_pointer(apu_recv_cptr_i, apu_recv_fptr_i, [apu_size_i])
-            allocate (apu_peer_iptr_i(0:ims_npro_i - 1))
-            my_iptr = transfer(apu_recv_cptr_i, 0_8)
-            call MPI_Allgather(my_iptr, 1, MPI_INTEGER8, apu_peer_iptr_i, 1, MPI_INTEGER8, ims_comm_x, ims_err)
+            call c_f_pointer(win_baseptr, apu_recv_fptr_i, [apu_size_i])
+            allocate (apu_peer_cptr_i(0:ims_npro_i - 1))
+            do ip = 0, ims_npro_i - 1
+                call MPI_Win_shared_query(apu_win_i, ip, win_query_size, win_disp_unit, apu_peer_cptr_i(ip), ims_err)
+            end do
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated I APU direct recv buffer.')
         end if
 #endif
@@ -465,7 +475,6 @@ contains
         integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, npage, flat_off, disp_ns, mas
 #ifdef USE_APU
         real(dp), pointer :: apu_pfptr_k(:) => null()
-        integer(8) :: apu_iptr_tmp
 #endif
 
 #ifdef PROFILE_ON
@@ -593,17 +602,14 @@ contains
                 nullify (c_wrk_dp)
 #ifdef USE_APU
             else if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
-                ! APU direct K-Forward: all ranks share unified HBM on MI300 APU.
-                ! CPU threads write each rank's K-strip directly into every peer's recv buffer.
-                ! !$omp target is NOT used here: apu_pfptr_k points to a peer's omp_target_alloc
-                ! buffer; the Cray OpenMP runtime would attempt to re-map it and crash (GPU trap).
-                ! On APU unified memory, CPU threads have full access to all device allocations.
+                ! Each rank writes its own chunk into every peer's recv buffer at slot own_rank*chunk.
+                ! After Win_fence, apu_recv_fptr_k[r*chunk] = data from rank r (all peers complete).
                 size = trp_plan%size3d
+                call MPI_Win_fence(0, apu_win_k, ims_err)
                 do m = 0, ims_npro_k - 1
-                    apu_iptr_tmp = apu_peer_iptr_k(m)
-                    call c_f_pointer(transfer(apu_iptr_tmp, c_null_ptr), apu_pfptr_k, [apu_size_k])
-                    flat_off = ims_pro_k * nmax_p * nlines_p  ! slot for this rank in peer m's buf
-                    disp_ns  = m * nlines_p                   ! = trp_plan%disp_s(m+1)
+                    call c_f_pointer(apu_peer_cptr_k(m), apu_pfptr_k, [apu_size_k])
+                    flat_off = ims_pro_k * nmax_p * nlines_p
+                    disp_ns  = m * nlines_p
                     !$omp parallel do collapse(2) schedule(static)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
@@ -612,8 +618,8 @@ contains
                     end do
                     !$omp end parallel do
                 end do
-                call MPI_Barrier(ims_comm_z, ims_err)
-                ! Flat copy: apu_recv_fptr_k layout matches b layout
+                call MPI_Win_fence(0, apu_win_k, ims_err)
+                ! recv buffer is now fully populated: flat copy to b
                 !$omp parallel do schedule(static)
                 do i = 1, size
                     b(i) = apu_recv_fptr_k(i)
@@ -696,7 +702,6 @@ contains
         integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, npage, flat_off, disp_nr, mas
 #ifdef USE_APU
         real(dp), pointer :: apu_pfptr_k(:) => null()
-        integer(8) :: apu_iptr_tmp
 #endif
 #ifdef PROFILE_ON
         real(wp) time_loc_1, time_loc_2
@@ -833,23 +838,23 @@ contains
                 nullify (c_wrk_dp)
 #ifdef USE_APU
             else if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
-                ! APU direct K-Backward — CPU threads only (see K-Forward comment re: GPU trap).
+                ! Reverse of K-Forward: b is in the fully-assembled K-space layout.
+                ! Each rank writes its own flat chunk into every peer's recv buffer at slot own_rank*chunk.
                 size = trp_plan%size3d
+                call MPI_Win_fence(0, apu_win_k, ims_err)
                 do m = 0, ims_npro_k - 1
-                    apu_iptr_tmp = apu_peer_iptr_k(m)
-                    call c_f_pointer(transfer(apu_iptr_tmp, c_null_ptr), apu_pfptr_k, [apu_size_k])
-                    flat_off = ims_pro_k * nmax_p * nlines_p  ! slot for this rank in peer m's buf
+                    call c_f_pointer(apu_peer_cptr_k(m), apu_pfptr_k, [apu_size_k])
+                    flat_off = ims_pro_k * nmax_p * nlines_p
                     !$omp parallel do schedule(static)
                     do i = 1, nmax_p * nlines_p
                         apu_pfptr_k(flat_off + i) = b(m * nmax_p * nlines_p + i)
                     end do
                     !$omp end parallel do
                 end do
-                call MPI_Barrier(ims_comm_z, ims_err)
-                ! Unpack: apu_recv_fptr_k[p*chunk + i*nlines_p + j] → a[p*nlines_p + i*npage + j]
+                call MPI_Win_fence(0, apu_win_k, ims_err)
                 do m = 0, ims_npro_k - 1
                     flat_off = m * nmax_p * nlines_p
-                    disp_nr  = m * nlines_p     ! = trp_plan%disp_s(m+1)
+                    disp_nr  = m * nlines_p
                     !$omp parallel do collapse(2) schedule(static)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
@@ -935,7 +940,6 @@ contains
         integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_nr, mas
 #ifdef USE_APU
         real(dp), pointer :: apu_pfptr_i(:) => null()
-        integer(8) :: apu_iptr_tmp
 #endif
 
         ! #######################################################################
@@ -1065,23 +1069,23 @@ contains
                 nullify (c_wrk_dp)
 #ifdef USE_APU
             else if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
-                ! APU direct I-Forward — CPU threads only (see K-Forward comment re: GPU trap).
+                ! Each rank writes its own flat chunk into every peer's recv buffer at slot own_rank*chunk.
+                ! After Win_fence, apu_recv_fptr_i[r*chunk] = data from rank r; unpack into strided b.
                 size = trp_plan%size3d
+                call MPI_Win_fence(0, apu_win_i, ims_err)
                 do m = 0, ims_npro_i - 1
-                    apu_iptr_tmp = apu_peer_iptr_i(m)
-                    call c_f_pointer(transfer(apu_iptr_tmp, c_null_ptr), apu_pfptr_i, [apu_size_i])
-                    flat_off = ims_pro_i * nmax_p * nlines_p  ! slot for this rank in peer m's buf
+                    call c_f_pointer(apu_peer_cptr_i(m), apu_pfptr_i, [apu_size_i])
+                    flat_off = ims_pro_i * nmax_p * nlines_p
                     !$omp parallel do schedule(static)
                     do i = 1, nmax_p * nlines_p
                         apu_pfptr_i(flat_off + i) = a(m * nmax_p * nlines_p + i)
                     end do
                     !$omp end parallel do
                 end do
-                call MPI_Barrier(ims_comm_x, ims_err)
-                ! Unpack interleaved: apu_recv_fptr_i[p*chunk + i*nmax_p + j] → b[p*nmax_p + i*nmax_full + j]
+                call MPI_Win_fence(0, apu_win_i, ims_err)
                 do m = 0, ims_npro_i - 1
                     flat_off = m * nmax_p * nlines_p
-                    disp_nr  = m * nmax_p       ! = trp_plan%disp_r(m+1)
+                    disp_nr  = m * nmax_p
                     !$omp parallel do collapse(2) schedule(static)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
@@ -1162,7 +1166,6 @@ contains
         integer(wi) size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_ns, mas
 #ifdef USE_APU
         real(dp), pointer :: apu_pfptr_i(:) => null()
-        integer(8) :: apu_iptr_tmp
 #endif
 
         ! #######################################################################
@@ -1293,13 +1296,14 @@ contains
                 nullify (c_wrk_dp)
 #ifdef USE_APU
             else if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
-                ! APU direct I-Backward — CPU threads only (see K-Forward comment re: GPU trap).
+                ! Reverse of I-Forward: b is in fully-assembled X-space layout (strided).
+                ! Each rank packs its strided chunk from b into every peer's recv buffer at slot own_rank*chunk.
                 size = trp_plan%size3d
+                call MPI_Win_fence(0, apu_win_i, ims_err)
                 do m = 0, ims_npro_i - 1
-                    apu_iptr_tmp = apu_peer_iptr_i(m)
-                    call c_f_pointer(transfer(apu_iptr_tmp, c_null_ptr), apu_pfptr_i, [apu_size_i])
-                    flat_off = ims_pro_i * nmax_p * nlines_p  ! slot for this rank in peer m's buf
-                    disp_ns  = m * nmax_p                     ! = trp_plan%disp_r(m+1)
+                    call c_f_pointer(apu_peer_cptr_i(m), apu_pfptr_i, [apu_size_i])
+                    flat_off = ims_pro_i * nmax_p * nlines_p
+                    disp_ns  = m * nmax_p
                     !$omp parallel do collapse(2) schedule(static)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
@@ -1308,8 +1312,8 @@ contains
                     end do
                     !$omp end parallel do
                 end do
-                call MPI_Barrier(ims_comm_x, ims_err)
-                ! Flat copy: apu_recv_fptr_i layout matches a layout
+                call MPI_Win_fence(0, apu_win_i, ims_err)
+                ! recv buffer layout matches a (flat, 1:1 copy)
                 !$omp parallel do schedule(static)
                 do i = 1, size
                     a(i) = apu_recv_fptr_i(i)
