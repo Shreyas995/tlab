@@ -610,21 +610,21 @@ contains
                     call c_f_pointer(apu_peer_cptr_k(m), apu_pfptr_k, [apu_size_k])
                     flat_off = ims_pro_k * nmax_p * nlines_p
                     disp_ns  = m * nlines_p
-                    !$omp parallel do collapse(2) schedule(static)
+                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
                             apu_pfptr_k(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
                         end do
                     end do
-                    !$omp end parallel do
+                    !$omp end target teams distribute parallel do
                 end do
                 call MPI_Win_fence(0, apu_win_k, ims_err)
                 ! recv buffer is now fully populated: flat copy to b
-                !$omp parallel do schedule(static)
+                !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
                 do i = 1, size
                     b(i) = apu_recv_fptr_k(i)
                 end do
-                !$omp end parallel do
+                !$omp end target teams distribute parallel do
                 nullify (apu_pfptr_k)
 #endif
             else
@@ -845,23 +845,23 @@ contains
                 do m = 0, ims_npro_k - 1
                     call c_f_pointer(apu_peer_cptr_k(m), apu_pfptr_k, [apu_size_k])
                     flat_off = ims_pro_k * nmax_p * nlines_p
-                    !$omp parallel do schedule(static)
+                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
                     do i = 1, nmax_p * nlines_p
                         apu_pfptr_k(flat_off + i) = b(m * nmax_p * nlines_p + i)
                     end do
-                    !$omp end parallel do
+                    !$omp end target teams distribute parallel do
                 end do
                 call MPI_Win_fence(0, apu_win_k, ims_err)
                 do m = 0, ims_npro_k - 1
                     flat_off = m * nmax_p * nlines_p
                     disp_nr  = m * nlines_p
-                    !$omp parallel do collapse(2) schedule(static)
+                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
                             a(disp_nr + i*npage + j + 1) = apu_recv_fptr_k(flat_off + i*nlines_p + j + 1)
                         end do
                     end do
-                    !$omp end parallel do
+                    !$omp end target teams distribute parallel do
                 end do
                 nullify (apu_pfptr_k)
 #endif
@@ -1076,23 +1076,23 @@ contains
                 do m = 0, ims_npro_i - 1
                     call c_f_pointer(apu_peer_cptr_i(m), apu_pfptr_i, [apu_size_i])
                     flat_off = ims_pro_i * nmax_p * nlines_p
-                    !$omp parallel do schedule(static)
+                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
                     do i = 1, nmax_p * nlines_p
                         apu_pfptr_i(flat_off + i) = a(m * nmax_p * nlines_p + i)
                     end do
-                    !$omp end parallel do
+                    !$omp end target teams distribute parallel do
                 end do
                 call MPI_Win_fence(0, apu_win_i, ims_err)
                 do m = 0, ims_npro_i - 1
                     flat_off = m * nmax_p * nlines_p
                     disp_nr  = m * nmax_p
-                    !$omp parallel do collapse(2) schedule(static)
+                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
                             b(disp_nr + i*nmax_full + j + 1) = apu_recv_fptr_i(flat_off + i*nmax_p + j + 1)
                         end do
                     end do
-                    !$omp end parallel do
+                    !$omp end target teams distribute parallel do
                 end do
                 nullify (apu_pfptr_i)
 #endif
@@ -1304,21 +1304,21 @@ contains
                     call c_f_pointer(apu_peer_cptr_i(m), apu_pfptr_i, [apu_size_i])
                     flat_off = ims_pro_i * nmax_p * nlines_p
                     disp_ns  = m * nmax_p
-                    !$omp parallel do collapse(2) schedule(static)
+                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
                             apu_pfptr_i(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
                         end do
                     end do
-                    !$omp end parallel do
+                    !$omp end target teams distribute parallel do
                 end do
                 call MPI_Win_fence(0, apu_win_i, ims_err)
                 ! recv buffer layout matches a (flat, 1:1 copy)
-                !$omp parallel do schedule(static)
+                !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
                 do i = 1, size
                     a(i) = apu_recv_fptr_i(i)
                 end do
-                !$omp end parallel do
+                !$omp end target teams distribute parallel do
                 nullify (apu_pfptr_i)
 #endif
             else
