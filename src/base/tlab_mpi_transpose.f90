@@ -39,6 +39,7 @@ module TLabMPI_Transpose
     integer, parameter :: TLAB_MPI_TRP_SENDRECV = 2
     integer, parameter :: TLAB_MPI_TRP_ALLTOALL = 3
     integer, parameter :: TLAB_MPI_TRP_APU_DIRECT = 4    ! APU: direct GPU writes to peer device buffers, MPI_Barrier sync
+    integer, parameter :: TLAB_MPI_TRP_APU_ASYNC  = 5    ! APU: intra-node direct writes + inter-node MPI ISEND/IRECV
 
 #ifdef USE_APU
     ! APU direct mode state: shared-memory MPI windows, one per direction.
@@ -49,6 +50,12 @@ module TLabMPI_Transpose
     type(MPI_Win) :: apu_win_k, apu_win_i
     real(dp), pointer :: apu_recv_fptr_k(:) => null(), apu_recv_fptr_i(:) => null()
     type(c_ptr), allocatable :: apu_peer_cptr_k(:), apu_peer_cptr_i(:) ! per-rank pointers from Win_shared_query
+    ! APU_ASYNC state: node-local shared windows + intra-node rank detection
+    integer(wi) :: apu_async_size_k = 0_wi, apu_async_size_i = 0_wi
+    type(MPI_Win) :: apu_async_win_k, apu_async_win_i
+    real(dp), pointer :: apu_async_recv_k(:) => null(), apu_async_recv_i(:) => null()
+    type(c_ptr), allocatable :: apu_async_peer_k(:), apu_async_peer_i(:)
+    logical, allocatable :: apu_async_is_local_k(:), apu_async_is_local_i(:)
 #endif
 
     integer(wi) :: trp_sizBlock_i, trp_sizBlock_k                   ! explicit send/recv: group sizes of send/recv messages
@@ -105,6 +112,11 @@ contains
         integer(MPI_ADDRESS_KIND) :: win_query_size
         integer :: win_disp_unit
         type(c_ptr) :: win_baseptr
+#ifdef USE_APU
+        type(MPI_Comm)  :: apu_async_shmem_comm
+        type(MPI_Group) :: apu_async_group_dir, apu_async_group_shmem
+        integer, allocatable :: apu_async_src_ranks(:), apu_async_trans_ranks(:)
+#endif
         ! -----------------------------------------------------------------------
         integer(wi) ip, npage, dummy
         character(len=32) bakfile, block
@@ -131,6 +143,13 @@ contains
             call TLab_Write_ASCII(efile, __FILE__//'. TransposeModeI=apudirect requires USE_APU.')
             call TLab_Stop(DNS_ERROR_OPTION)
 #endif
+        elseif (trim(adjustl(sRes)) == 'apuasync') then
+#ifdef USE_APU
+            trp_mode_i = TLAB_MPI_TRP_APU_ASYNC
+#else
+            call TLab_Write_ASCII(efile, __FILE__//'. TransposeModeI=apuasync requires USE_APU.')
+            call TLab_Stop(DNS_ERROR_OPTION)
+#endif
         else
             call TLab_Write_ASCII(efile, __FILE__//'. Wrong TransposeModeI option.')
             call TLab_Stop(DNS_ERROR_OPTION)
@@ -148,6 +167,13 @@ contains
             trp_mode_k = TLAB_MPI_TRP_APU_DIRECT
 #else
             call TLab_Write_ASCII(efile, __FILE__//'. TransposeModeK=apudirect requires USE_APU.')
+            call TLab_Stop(DNS_ERROR_OPTION)
+#endif
+        elseif (trim(adjustl(sRes)) == 'apuasync') then
+#ifdef USE_APU
+            trp_mode_k = TLAB_MPI_TRP_APU_ASYNC
+#else
+            call TLab_Write_ASCII(efile, __FILE__//'. TransposeModeK=apuasync requires USE_APU.')
             call TLab_Stop(DNS_ERROR_OPTION)
 #endif
         else
@@ -260,7 +286,8 @@ contains
         ! APU_DIRECT also needs wrk_mpi_dp: complex exec functions fall back to ASYNC behaviour
         ! (no mode-4 path for complex — complex transposes are infrequent and dp already).
         if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS .or. &
-            trp_mode_i == TLAB_MPI_TRP_APU_DIRECT   .or. trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
+            trp_mode_i == TLAB_MPI_TRP_APU_DIRECT   .or. trp_mode_k == TLAB_MPI_TRP_APU_DIRECT   .or. &
+            trp_mode_i == TLAB_MPI_TRP_APU_ASYNC    .or. trp_mode_k == TLAB_MPI_TRP_APU_ASYNC) then
             allocate (wrk_mpi_dp(2*imax*jmax*kmax))
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated dp flat-MPI staging buffer (2 x size3d).')
         end if
@@ -301,6 +328,76 @@ contains
                 call MPI_Win_shared_query(apu_win_i, ip, win_query_size, win_disp_unit, apu_peer_cptr_i(ip), ims_err)
             end do
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated I APU direct recv buffer.')
+        end if
+        ! APU_ASYNC: node-local shared windows using MPI_COMM_TYPE_SHARED sub-communicators.
+        ! Each rank splits ims_comm_z/x into a node-local communicator; the shared window
+        ! is allocated only over that sub-communicator. Ranks absent from it are inter-node
+        ! peers handled via standard ISEND/IRECV.
+        if (trp_mode_k == TLAB_MPI_TRP_APU_ASYNC .and. ims_npro_k > 1) then
+            apu_async_size_k = int(imax, wi)*int(jmax, wi)*int(kmax, wi)
+            allocate (apu_async_is_local_k(0:ims_npro_k - 1))
+            allocate (apu_async_peer_k(0:ims_npro_k - 1))
+            apu_async_peer_k = c_null_ptr
+            ! Build node-local communicator and detect intra-node K peers
+            call MPI_Comm_split_type(ims_comm_z, MPI_COMM_TYPE_SHARED, ims_pro_k, MPI_INFO_NULL, apu_async_shmem_comm, ims_err)
+            call MPI_Comm_group(ims_comm_z, apu_async_group_dir, ims_err)
+            call MPI_Comm_group(apu_async_shmem_comm, apu_async_group_shmem, ims_err)
+            allocate (apu_async_src_ranks(0:ims_npro_k - 1), apu_async_trans_ranks(0:ims_npro_k - 1))
+            do ip = 0, ims_npro_k - 1; apu_async_src_ranks(ip) = ip; end do
+            call MPI_Group_translate_ranks(apu_async_group_dir, ims_npro_k, apu_async_src_ranks, &
+                                           apu_async_group_shmem, apu_async_trans_ranks, ims_err)
+            do ip = 0, ims_npro_k - 1
+                apu_async_is_local_k(ip) = (apu_async_trans_ranks(ip) /= MPI_UNDEFINED)
+            end do
+            deallocate (apu_async_src_ranks, apu_async_trans_ranks)
+            call MPI_Group_free(apu_async_group_dir, ims_err)
+            call MPI_Group_free(apu_async_group_shmem, ims_err)
+            ! Allocate shared window on the node-local sub-communicator
+            call MPI_Win_allocate_shared(int(apu_async_size_k, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
+                                         int(c_sizeof(1.0_dp)), MPI_INFO_NULL, apu_async_shmem_comm, win_baseptr, apu_async_win_k, ims_err)
+            if (ims_err /= MPI_SUCCESS) then
+                call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU_ASYNC K recv buffer.')
+                call TLab_Stop(DNS_ERROR_ALLOC)
+            end if
+            call c_f_pointer(win_baseptr, apu_async_recv_k, [apu_async_size_k])
+            do ip = 0, ims_npro_k - 1
+                if (apu_async_is_local_k(ip)) &
+                    call MPI_Win_shared_query(apu_async_win_k, ip, win_query_size, win_disp_unit, apu_async_peer_k(ip), ims_err)
+            end do
+            call MPI_Comm_free(apu_async_shmem_comm, ims_err)
+            call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated K APU_ASYNC recv buffer.')
+        end if
+        if (trp_mode_i == TLAB_MPI_TRP_APU_ASYNC .and. ims_npro_i > 1) then
+            apu_async_size_i = int(imax, wi)*int(jmax, wi)*int(kmax, wi)
+            allocate (apu_async_is_local_i(0:ims_npro_i - 1))
+            allocate (apu_async_peer_i(0:ims_npro_i - 1))
+            apu_async_peer_i = c_null_ptr
+            call MPI_Comm_split_type(ims_comm_x, MPI_COMM_TYPE_SHARED, ims_pro_i, MPI_INFO_NULL, apu_async_shmem_comm, ims_err)
+            call MPI_Comm_group(ims_comm_x, apu_async_group_dir, ims_err)
+            call MPI_Comm_group(apu_async_shmem_comm, apu_async_group_shmem, ims_err)
+            allocate (apu_async_src_ranks(0:ims_npro_i - 1), apu_async_trans_ranks(0:ims_npro_i - 1))
+            do ip = 0, ims_npro_i - 1; apu_async_src_ranks(ip) = ip; end do
+            call MPI_Group_translate_ranks(apu_async_group_dir, ims_npro_i, apu_async_src_ranks, &
+                                           apu_async_group_shmem, apu_async_trans_ranks, ims_err)
+            do ip = 0, ims_npro_i - 1
+                apu_async_is_local_i(ip) = (apu_async_trans_ranks(ip) /= MPI_UNDEFINED)
+            end do
+            deallocate (apu_async_src_ranks, apu_async_trans_ranks)
+            call MPI_Group_free(apu_async_group_dir, ims_err)
+            call MPI_Group_free(apu_async_group_shmem, ims_err)
+            call MPI_Win_allocate_shared(int(apu_async_size_i, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
+                                         int(c_sizeof(1.0_dp)), MPI_INFO_NULL, apu_async_shmem_comm, win_baseptr, apu_async_win_i, ims_err)
+            if (ims_err /= MPI_SUCCESS) then
+                call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU_ASYNC I recv buffer.')
+                call TLab_Stop(DNS_ERROR_ALLOC)
+            end if
+            call c_f_pointer(win_baseptr, apu_async_recv_i, [apu_async_size_i])
+            do ip = 0, ims_npro_i - 1
+                if (apu_async_is_local_i(ip)) &
+                    call MPI_Win_shared_query(apu_async_win_i, ip, win_query_size, win_disp_unit, apu_async_peer_i(ip), ims_err)
+            end do
+            call MPI_Comm_free(apu_async_shmem_comm, ims_err)
+            call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated I APU_ASYNC recv buffer.')
         end if
 #endif
 
@@ -491,7 +588,8 @@ contains
         npage    = nlines_p * ims_npro_k   ! total lines spanning all K ranks
         mas      = nmax_p * nlines_p       ! elements per peer message
 
-        if (trp_datatype_k == MPI_REAL4 .and. wp == dp .and. trp_mode_k /= TLAB_MPI_TRP_APU_DIRECT) then
+        if (trp_datatype_k == MPI_REAL4 .and. wp == dp .and. &
+            trp_mode_k /= TLAB_MPI_TRP_APU_DIRECT .and. trp_mode_k /= TLAB_MPI_TRP_APU_ASYNC) then
             size = trp_plan%size3d
             a_wrk => wrk_mpi_fptr(1:size)
             b_wrk => wrk_mpi_fptr(size + 1:2*size)
@@ -626,6 +724,65 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
                 nullify (apu_pfptr_k)
+            else if (trp_mode_k == TLAB_MPI_TRP_APU_ASYNC) then
+                ! Hybrid: intra-node peers receive via direct shared-memory writes (APU_DIRECT style);
+                ! inter-node peers receive via MPI ISEND/IRECV. Unified recv buffer apu_async_recv_k
+                ! holds all data after both synchronisation barriers complete.
+                size = trp_plan%size3d
+                call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+                ! Step 1: post IRECVs for inter-node peers before Win_fence (non-blocking, independent)
+                l = 0
+                do m = 0, ims_npro_k - 1
+                    if (.not. apu_async_is_local_k(m)) then
+                        l = l + 1
+                        call MPI_IRECV(apu_async_recv_k(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
+                    end if
+                end do
+                ! Step 2: open shared-window epoch (collective over node-local comm)
+                call MPI_Win_fence(0, apu_async_win_k, ims_err)
+                ! Step 3: intra-node — push our chunk to each intra-node peer's recv buffer slot
+                do m = 0, ims_npro_k - 1
+                    if (apu_async_is_local_k(m)) then
+                        call c_f_pointer(apu_async_peer_k(m), apu_pfptr_k, [apu_async_size_k])
+                        flat_off = ims_pro_k * nmax_p * nlines_p
+                        disp_ns  = m * nlines_p
+                        !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                        do i = 0, nmax_p - 1
+                            do j = 0, nlines_p - 1
+                                apu_pfptr_k(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
+                            end do
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end do
+                ! Step 4: inter-node — pack strided chunk into flat buffer and ISEND
+                do m = 0, ims_npro_k - 1
+                    if (.not. apu_async_is_local_k(m)) then
+                        flat_off = m * nmax_p * nlines_p
+                        disp_ns  = m * nlines_p
+                        !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                        do i = 0, nmax_p - 1
+                            do j = 0, nlines_p - 1
+                                c_wrk_dp(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
+                            end do
+                        end do
+                        !$omp end target teams distribute parallel do
+                        l = l + 1
+                        call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
+                    end if
+                end do
+                ! Step 5: close epoch (all intra-node writes complete) and wait for inter-node
+                call MPI_Win_fence(0, apu_async_win_k, ims_err)
+                if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+                ! Step 6: flat copy from unified recv buffer to b
+                !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                do i = 1, size
+                    b(i) = apu_async_recv_k(i)
+                end do
+                !$omp end target teams distribute parallel do
+                nullify (c_wrk_dp, apu_pfptr_k)
 #endif
             else
                 call Transpose_Kernel_Double(a(1:trp_plan%size3d), maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
@@ -654,8 +811,9 @@ contains
         nmax_p   = trp_plan%nmax
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k
-        ! APU_DIRECT falls back to ASYNC for complex (dp path, no sp conversion needed anyway)
-        if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
+        ! APU_DIRECT and APU_ASYNC fall back to ASYNC for complex (dp path, no sp conversion needed)
+        if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_k == TLAB_MPI_TRP_APU_DIRECT .or. &
+            trp_mode_k == TLAB_MPI_TRP_APU_ASYNC) then
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             do m = 1, ims_npro_k
@@ -717,7 +875,8 @@ contains
         npage    = nlines_p * ims_npro_k
         mas      = nmax_p * nlines_p
 
-        if (trp_datatype_k == MPI_REAL4 .and. wp == dp .and. trp_mode_k /= TLAB_MPI_TRP_APU_DIRECT) then
+        if (trp_datatype_k == MPI_REAL4 .and. wp == dp .and. &
+            trp_mode_k /= TLAB_MPI_TRP_APU_DIRECT .and. trp_mode_k /= TLAB_MPI_TRP_APU_ASYNC) then
             size = trp_plan%size3d
             if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
                 ! Q1: merge unpack + sp→dp into one pass; only 2 sp slots needed.
@@ -864,6 +1023,58 @@ contains
                     !$omp end target teams distribute parallel do
                 end do
                 nullify (apu_pfptr_k)
+            else if (trp_mode_k == TLAB_MPI_TRP_APU_ASYNC) then
+                ! Hybrid backward: each rank pushes b[m*chunk] to intra-node peer m's recv buffer at
+                ! our slot (ims_pro_k*chunk), and ISENDs b[m*chunk] to inter-node peers.
+                ! After sync, apu_async_recv_k[m*chunk] = b[ims_pro_k*chunk] from rank m → unpack to a.
+                size = trp_plan%size3d
+                ! Step 1: post IRECVs from inter-node peers into recv buffer (they send b[ims_pro_k*chunk])
+                l = 0
+                do m = 0, ims_npro_k - 1
+                    if (.not. apu_async_is_local_k(m)) then
+                        l = l + 1
+                        call MPI_IRECV(apu_async_recv_k(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
+                    end if
+                end do
+                ! Step 2: open shared-window epoch
+                call MPI_Win_fence(0, apu_async_win_k, ims_err)
+                ! Step 3: intra-node — push b[m*chunk] into peer m's recv buffer at our slot
+                do m = 0, ims_npro_k - 1
+                    if (apu_async_is_local_k(m)) then
+                        call c_f_pointer(apu_async_peer_k(m), apu_pfptr_k, [apu_async_size_k])
+                        flat_off = ims_pro_k * nmax_p * nlines_p
+                        !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                        do i = 1, nmax_p * nlines_p
+                            apu_pfptr_k(flat_off + i) = b(m * nmax_p * nlines_p + i)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end do
+                ! Step 4: inter-node — ISEND b[m*chunk] to peer m
+                do m = 0, ims_npro_k - 1
+                    if (.not. apu_async_is_local_k(m)) then
+                        l = l + 1
+                        call MPI_ISEND(b(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
+                    end if
+                end do
+                ! Step 5: close epoch and wait for inter-node
+                call MPI_Win_fence(0, apu_async_win_k, ims_err)
+                if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+                ! Step 6: unpack recv buffer — recv_k[m*chunk] contains data from rank m
+                do m = 0, ims_npro_k - 1
+                    flat_off = m * nmax_p * nlines_p
+                    disp_nr  = m * nlines_p
+                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            a(disp_nr + i*npage + j + 1) = apu_async_recv_k(flat_off + i*nlines_p + j + 1)
+                        end do
+                    end do
+                    !$omp end target teams distribute parallel do
+                end do
+                nullify (apu_pfptr_k)
 #endif
             else
                 call Transpose_Kernel_Double(b(1:trp_plan%size3d), maps_recv_k(:), trp_plan%disp_r(:), trp_plan%type_r, &
@@ -892,8 +1103,9 @@ contains
         nmax_p   = trp_plan%nmax
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k
-        ! APU_DIRECT falls back to ASYNC for complex
-        if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
+        ! APU_DIRECT and APU_ASYNC fall back to ASYNC for complex
+        if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_k == TLAB_MPI_TRP_APU_DIRECT .or. &
+            trp_mode_k == TLAB_MPI_TRP_APU_ASYNC) then
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             do j = 1, ims_npro_k, trp_sizBlock_k
@@ -948,7 +1160,8 @@ contains
         nmax_full = nmax_p * ims_npro_i   ! total elements per line across all I ranks (stride in recv)
         mas       = nmax_p * nlines_p
 
-        if (trp_datatype_i == MPI_REAL4 .and. wp == dp .and. trp_mode_i /= TLAB_MPI_TRP_APU_DIRECT) then
+        if (trp_datatype_i == MPI_REAL4 .and. wp == dp .and. &
+            trp_mode_i /= TLAB_MPI_TRP_APU_DIRECT .and. trp_mode_i /= TLAB_MPI_TRP_APU_ASYNC) then
             size = trp_plan%size3d
             if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
                 ! Q1: merge unpack + sp→dp into one pass; only 2 sp slots needed.
@@ -1095,6 +1308,59 @@ contains
                     !$omp end target teams distribute parallel do
                 end do
                 nullify (apu_pfptr_i)
+            else if (trp_mode_i == TLAB_MPI_TRP_APU_ASYNC) then
+                ! Hybrid I-forward: a is flat (rank m's chunk at a[m*chunk]).
+                ! Intra-node: push a[m*chunk] directly to peer m's recv buffer at our slot.
+                ! Inter-node: IRECV then ISEND a[m*chunk] via MPI.
+                ! After sync, recv_i[m*chunk] = a[m*chunk] from rank m → strided unpack to b.
+                size = trp_plan%size3d
+                ! Step 1: post IRECVs for inter-node peers
+                l = 0
+                do m = 0, ims_npro_i - 1
+                    if (.not. apu_async_is_local_i(m)) then
+                        l = l + 1
+                        call MPI_IRECV(apu_async_recv_i(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
+                    end if
+                end do
+                ! Step 2: open shared-window epoch
+                call MPI_Win_fence(0, apu_async_win_i, ims_err)
+                ! Step 3: intra-node — push a[m*chunk] to peer m's recv buffer at our slot
+                do m = 0, ims_npro_i - 1
+                    if (apu_async_is_local_i(m)) then
+                        call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
+                        flat_off = ims_pro_i * nmax_p * nlines_p
+                        !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                        do i = 1, nmax_p * nlines_p
+                            apu_pfptr_i(flat_off + i) = a(m * nmax_p * nlines_p + i)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end do
+                ! Step 4: inter-node — ISEND a[m*chunk] to peer m (contiguous, no packing needed)
+                do m = 0, ims_npro_i - 1
+                    if (.not. apu_async_is_local_i(m)) then
+                        l = l + 1
+                        call MPI_ISEND(a(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
+                    end if
+                end do
+                ! Step 5: close epoch and wait for inter-node
+                call MPI_Win_fence(0, apu_async_win_i, ims_err)
+                if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+                ! Step 6: strided unpack from unified recv buffer to b
+                do m = 0, ims_npro_i - 1
+                    flat_off = m * nmax_p * nlines_p
+                    disp_nr  = m * nmax_p
+                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    do i = 0, nlines_p - 1
+                        do j = 0, nmax_p - 1
+                            b(disp_nr + i*nmax_full + j + 1) = apu_async_recv_i(flat_off + i*nmax_p + j + 1)
+                        end do
+                    end do
+                    !$omp end target teams distribute parallel do
+                end do
+                nullify (apu_pfptr_i)
 #endif
             else
                 call Transpose_Kernel_Double(a(1:trp_plan%size3d), maps_send_i(:), trp_plan%disp_s(:), trp_plan%type_s, &
@@ -1118,8 +1384,9 @@ contains
         nmax_p    = trp_plan%nmax
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i
-        ! APU_DIRECT falls back to ASYNC for complex
-        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
+        ! APU_DIRECT and APU_ASYNC fall back to ASYNC for complex
+        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_i == TLAB_MPI_TRP_APU_DIRECT .or. &
+            trp_mode_i == TLAB_MPI_TRP_APU_ASYNC) then
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             do j = 1, ims_npro_i, trp_sizBlock_i
@@ -1174,7 +1441,8 @@ contains
         nmax_full = nmax_p * ims_npro_i
         mas       = nmax_p * nlines_p
 
-        if (trp_datatype_i == MPI_REAL4 .and. wp == dp .and. trp_mode_i /= TLAB_MPI_TRP_APU_DIRECT) then
+        if (trp_datatype_i == MPI_REAL4 .and. wp == dp .and. &
+            trp_mode_i /= TLAB_MPI_TRP_APU_DIRECT .and. trp_mode_i /= TLAB_MPI_TRP_APU_ASYNC) then
             size = trp_plan%size3d
             if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
                 ! Q1: pack directly from b (dp→sp+strided→flat in one pass); only 2 sp slots needed.
@@ -1320,6 +1588,65 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
                 nullify (apu_pfptr_i)
+            else if (trp_mode_i == TLAB_MPI_TRP_APU_ASYNC) then
+                ! Hybrid I-backward: b is in X-space layout (strided, disp_r stride).
+                ! Each rank packs strided b[m] into peer m's recv buffer at our slot (intra)
+                ! or into c_wrk_dp for ISEND (inter). After sync, recv_i is flat → a.
+                size = trp_plan%size3d
+                call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+                ! Step 1: post IRECVs for inter-node peers (they send b[ims_pro_i*chunk] strided→flat)
+                l = 0
+                do m = 0, ims_npro_i - 1
+                    if (.not. apu_async_is_local_i(m)) then
+                        l = l + 1
+                        call MPI_IRECV(apu_async_recv_i(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
+                    end if
+                end do
+                ! Step 2: open shared-window epoch
+                call MPI_Win_fence(0, apu_async_win_i, ims_err)
+                ! Step 3: intra-node — pack strided b[m] into peer m's recv buffer at our slot
+                do m = 0, ims_npro_i - 1
+                    if (apu_async_is_local_i(m)) then
+                        call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
+                        flat_off = ims_pro_i * nmax_p * nlines_p
+                        disp_ns  = m * nmax_p
+                        !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                        do i = 0, nlines_p - 1
+                            do j = 0, nmax_p - 1
+                                apu_pfptr_i(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
+                            end do
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end do
+                ! Step 4: inter-node — pack strided b[m] into flat buffer and ISEND
+                do m = 0, ims_npro_i - 1
+                    if (.not. apu_async_is_local_i(m)) then
+                        flat_off = m * nmax_p * nlines_p
+                        disp_ns  = m * nmax_p
+                        !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                        do i = 0, nlines_p - 1
+                            do j = 0, nmax_p - 1
+                                c_wrk_dp(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
+                            end do
+                        end do
+                        !$omp end target teams distribute parallel do
+                        l = l + 1
+                        call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
+                                       trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
+                    end if
+                end do
+                ! Step 5: close epoch and wait for inter-node
+                call MPI_Win_fence(0, apu_async_win_i, ims_err)
+                if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+                ! Step 6: flat copy from unified recv buffer to a
+                !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                do i = 1, size
+                    a(i) = apu_async_recv_i(i)
+                end do
+                !$omp end target teams distribute parallel do
+                nullify (c_wrk_dp, apu_pfptr_i)
 #endif
             else
                 call Transpose_Kernel_Double(b(1:trp_plan%size3d), maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
@@ -1343,8 +1670,9 @@ contains
         nmax_p    = trp_plan%nmax
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i
-        ! APU_DIRECT falls back to ASYNC for complex
-        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
+        ! APU_DIRECT and APU_ASYNC fall back to ASYNC for complex
+        if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_i == TLAB_MPI_TRP_APU_DIRECT .or. &
+            trp_mode_i == TLAB_MPI_TRP_APU_ASYNC) then
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             do m = 1, ims_npro_i
