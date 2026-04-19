@@ -43,9 +43,6 @@ module IBM_VARS
   ! boundary values of scalar fields 
   real(wp),    dimension(MAX_VARS)                :: ibmscaljmin, ibmscaljmax 
 
-  ! work array for splines
-  real(wp),    dimension(:), allocatable         :: xa, xb, ya, yb
-
   ! gammas for conditional averages & scalar boundary values applied in solids
   real(wp),    dimension(:),   allocatable       :: dy, facu, facl
   real(wp),    dimension(:),   allocatable       :: gamma_0, gamma_1

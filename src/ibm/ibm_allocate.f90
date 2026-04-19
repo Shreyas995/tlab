@@ -111,14 +111,6 @@ subroutine IBM_ALLOCATE(C_FILE_LOC)
     call TLab_Allocate_INT(C_FILE_LOC, nobj_e, [isize_nobj_be], 'nobj_e')
     call TLab_Allocate_INT(C_FILE_LOC, nobk_e, [isize_nobk_be], 'nobk_e')
 
-    ! xa, ya (spline arrays input)
-    call TLab_Allocate_Real(C_FILE_LOC, xa, [nspl], 'xa')
-    call TLab_Allocate_Real(C_FILE_LOC, ya, [nspl], 'ya')
-
-    ! xb, yb (spline arrays output)
-    call TLab_Allocate_Real(C_FILE_LOC, xb, [isize_wrk1d_ibm], 'xb')
-    call TLab_Allocate_Real(C_FILE_LOC, yb, [isize_wrk1d_ibm], 'yb')
-
     ! gammas for conditional averages
     call TLab_Allocate_Real(C_FILE_LOC, dy, [jmax - 1], 'dy')
     call TLab_Allocate_Real(C_FILE_LOC, facu, [jmax - 2], 'facu')

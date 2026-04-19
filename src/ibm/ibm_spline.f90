@@ -29,9 +29,10 @@
 
 subroutine IBM_SPLINE_XYZ(is, fld, fld_mod, g, isize_nob, isize_nob_be, nob, nob_b, nob_e, ibm_case)
     use TLab_Constants, only: efile, wp, wi
-    use IBM_VARS, only: xa, xb, ya, yb, ibmscaljmin
+    ! xa/ya/xb/yb replaced by local allocatables — removes shared global state (Phase 1: thread-safety prep).
+    use IBM_VARS, only: nspl, isize_wrk1d_ibm, ibmscaljmin
     use TLab_Memory, only: isize_field
-    use TLab_Arrays, only: wrk1d
+    ! wrk1d replaced by local wrk_loc — same reason.
     use FDM, only: fdm_dt
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use Cubic_Splines
@@ -52,39 +53,48 @@ subroutine IBM_SPLINE_XYZ(is, fld, fld_mod, g, isize_nob, isize_nob_be, nob, nob
     integer(wi), dimension(2) :: bc
     real(wp), dimension(2) :: bcval
     real(wp) :: m1, m2
+    ! Local scratch — own storage instead of module globals.
+    ! CUBIC_SPLINE expects wrk(norg,11); passing 1D wrk_loc(nspl*11) is the same convention as wrk1d.
+    real(wp), allocatable :: xa_loc(:), ya_loc(:), xb_loc(:), yb_loc(:), wrk_loc(:)
+
     ! ================================================================== !
     ! cf. ibm_allocate.f90
     nlines = isize_nob
 
-    ! index convention on contiguous lines
-    ! ||...-ip_fl-x-(fluid points)-x-ip_il||---(solid points)---||ip_ir-x-(fluid points)-x-ip_fr-...||
-
-    splines = .true.  ! 1. case doesn't need splines
     fld_mod = fld     ! never modify u,v,w,s directly !
 
     ! index ii (dummy index; for x,y,z: ii == jk,ik,ij)
+    ! Each ii is independent: writes stride by nlines so different ii never alias.
+    !$omp parallel do &
+    !$omp   private(xa_loc, ya_loc, xb_loc, yb_loc, wrk_loc) &
+    !$omp   private(ip, iob, ia, ib, l, iu_il, iu_ir, n) &
+    !$omp   private(splines, bc, bcval, m1, m2)
     do ii = 1, nlines          ! index of ii-plane, loop over plane and check for objects in each line
         if (nob(ii) /= 0) then ! if line contains immersed object(s) --yes-->  spline interpolation
+            allocate (xa_loc(nspl), ya_loc(nspl))
+            allocate (xb_loc(isize_wrk1d_ibm), yb_loc(isize_wrk1d_ibm))
+            allocate (wrk_loc(nspl*11))
+            splines = .true.
             ip = 0
             do iob = 1, nob(ii)    ! loop over immersed object(s)
-                call IBM_SPLINE_VECTOR(is, ibm_case(ip + ii), fld, g, xa, ya, xb, ia, ib, nob_b(ip + ii), nob_e(ip + ii), nlines, ii)
+                call IBM_SPLINE_VECTOR(is, ibm_case(ip + ii), fld, g, xa_loc, ya_loc, xb_loc, ia, ib, nob_b(ip + ii), nob_e(ip + ii), nlines, ii)
                 if (ibm_case(ip + ii) == 1) splines = .false.
                 ! ================================================================== !
                 ! spline interpolation and fill gap in fld_ibm
                 if (splines) then
                     ! generate splines (other possibility: natural boundary conditions)
                     bc(:) = 2 ! fixed first derivative at endpoints
-                    m1 = (ya(2) - ya(1))/(xa(2) - xa(1)); bcval(1) = m1
-                    m2 = (ya(ia) - ya(ia - 1))/(xa(ia) - xa(ia - 1)); bcval(2) = m2
-!DIR$ INLINE CUBIC_SPLINE    
-                    call CUBIC_SPLINE(bc, bcval, ia, ib, xa(1:ia), ya(1:ia), xb(1:ib), yb(1:ib), wrk1d)
+                    m1 = (ya_loc(2) - ya_loc(1))/(xa_loc(2) - xa_loc(1)); bcval(1) = m1
+                    m2 = (ya_loc(ia) - ya_loc(ia - 1))/(xa_loc(ia) - xa_loc(ia - 1)); bcval(2) = m2
+!DIR$ INLINE CUBIC_SPLINE
+                    call CUBIC_SPLINE(bc, bcval, ia, ib, xa_loc(1:ia), ya_loc(1:ia), xb_loc(1:ib), yb_loc(1:ib), wrk_loc)
                     ! force yb at interface to physical BCs again, to get exact boundary values here
                     if (is /= 0) then
-                        yb(1) = ibmscaljmin(is)
-                        yb(ib) = ibmscaljmin(is)
+                        yb_loc(1) = ibmscaljmin(is)
+                        yb_loc(ib) = ibmscaljmin(is)
                     else
-                        yb(1) = 0.0_wp
-                        yb(ib) = 0.0_wp
+                        yb_loc(1) = 0.0_wp
+                        yb_loc(ib) = 0.0_wp
                     end if
                     ! fld index of left interface
                     iu_il = (nob_b(ip + ii) - 1)*nlines + ii
@@ -95,9 +105,9 @@ subroutine IBM_SPLINE_XYZ(is, fld, fld_mod, g, isize_nob, isize_nob_be, nob, nob
                         do l = 1, ib
                             if ((iu_il + (l - 1)*nlines) <= (g%size*nlines)) then
                                 n = n + 1
-                                fld_mod(iu_il + (l - 1)*nlines) = yb(l)
+                                fld_mod(iu_il + (l - 1)*nlines) = yb_loc(l)
                             else if ((iu_il + (l - 1)*nlines) >= (g%size*nlines)) then
-                                fld_mod(ii + (l - n - 1)*nlines) = yb(l)
+                                fld_mod(ii + (l - n - 1)*nlines) = yb_loc(l)
                             else
                                 call TLab_Write_ASCII(efile, 'IBM SPLINE. Error in replacing spline in the solid.')
                                 call TLab_Stop(DNS_ERROR_CUBIC_SPLINE)
@@ -105,22 +115,24 @@ subroutine IBM_SPLINE_XYZ(is, fld, fld_mod, g, isize_nob, isize_nob_be, nob, nob
                         end do
                     else if (((nob_e(ip + ii)) == 1 + (nob_b(ip + ii))) .and. (g%periodic .eqv. .false.)) then ! condition for case 8
                         do l = 1, (nob_e(ip + ii))
-                            fld_mod((l - 1)*nlines + ii) = yb(l + 1)
+                            fld_mod((l - 1)*nlines + ii) = yb_loc(l + 1)
                         end do
                     else if (((nob_e(ip + ii)) == (nob_b(ip + ii))) .and. (g%periodic .eqv. .false.)) then ! condition for case 9
                         do l = 1, (nob_e(ip + ii))
-                            fld_mod((l - 1)*nlines + ii) = yb(l + 2)
+                            fld_mod((l - 1)*nlines + ii) = yb_loc(l + 2)
                         end do
                     else ! default execution
                         do l = 1, ib
-                            fld_mod(iu_il + (l - 1)*nlines) = yb(l)
+                            fld_mod(iu_il + (l - 1)*nlines) = yb_loc(l)
                         end do
                     end if
                 end if
                 ip = ip + nlines
             end do
+            deallocate (xa_loc, ya_loc, xb_loc, yb_loc, wrk_loc)
         end if
     end do
+    !$omp end parallel do
 
     return
 end subroutine IBM_SPLINE_XYZ

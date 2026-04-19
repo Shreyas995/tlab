@@ -234,24 +234,28 @@ contains
         end if
 
         ! -----------------------------------------------------------------------
-        ! local PE mappings for explicit send/recv
-        allocate (maps_send_i(ims_npro_i))
-        allocate (maps_recv_i(ims_npro_i))
-        do ip = 0, ims_npro_i - 1
-            maps_send_i(ip + 1) = ip
-            maps_recv_i(ip + 1) = mod(ims_npro_i - ip, ims_npro_i)
-        end do
-        maps_send_i = cshift(maps_send_i, ims_pro_i)
-        maps_recv_i = cshift(maps_recv_i, -ims_pro_i)
+        ! local PE mappings for explicit send/recv (only needed when multiple ranks per direction)
+        if (ims_npro_i > 1) then
+            allocate (maps_send_i(ims_npro_i))
+            allocate (maps_recv_i(ims_npro_i))
+            do ip = 0, ims_npro_i - 1
+                maps_send_i(ip + 1) = ip
+                maps_recv_i(ip + 1) = mod(ims_npro_i - ip, ims_npro_i)
+            end do
+            maps_send_i = cshift(maps_send_i, ims_pro_i)
+            maps_recv_i = cshift(maps_recv_i, -ims_pro_i)
+        end if
 
-        allocate (maps_send_k(ims_npro_k))
-        allocate (maps_recv_k(ims_npro_k))
-        do ip = 0, ims_npro_k - 1
-            maps_send_k(ip + 1) = ip
-            maps_recv_k(ip + 1) = mod(ims_npro_k - ip, ims_npro_k)
-        end do
-        maps_send_k = cshift(maps_send_k, ims_pro_k)
-        maps_recv_k = cshift(maps_recv_k, -ims_pro_k)
+        if (ims_npro_k > 1) then
+            allocate (maps_send_k(ims_npro_k))
+            allocate (maps_recv_k(ims_npro_k))
+            do ip = 0, ims_npro_k - 1
+                maps_send_k(ip + 1) = ip
+                maps_recv_k(ip + 1) = mod(ims_npro_k - ip, ims_npro_k)
+            end do
+            maps_send_k = cshift(maps_send_k, ims_pro_k)
+            maps_recv_k = cshift(maps_recv_k, -ims_pro_k)
+        end if
 
         ! -----------------------------------------------------------------------
         ! ALLTOALLW scratch arrays: only allocated when at least one direction uses ALLTOALL mode.
