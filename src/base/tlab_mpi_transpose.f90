@@ -644,7 +644,7 @@ contains
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
             l = 0
-            ! 1: post IRECVs for inter-node peers before opening the shared-window epoch
+            ! Step 1: post IRECVs for inter-node peers before opening the shared-window epoch
             do m = 0, ims_npro_k - 1
                 if (.not. apu_async_is_local_k(m)) then
                     l = l + 1
@@ -652,9 +652,9 @@ contains
                                    trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
                 end if
             end do
-            ! 2: open shared-window epoch (collective over node-local communicator)
+            ! Step 2: open shared-window epoch (collective over node-local communicator)
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
-            ! 3: intra-node — push our strided chunk directly to each peer's recv buffer slot
+            ! Step 3: intra-node — push our strided chunk directly to each peer's recv buffer slot
             do m = 0, ims_npro_k - 1
                 if (apu_async_is_local_k(m)) then
                     call c_f_pointer(apu_async_peer_k(m), apu_pfptr_k, [apu_async_size_k])
@@ -669,7 +669,7 @@ contains
                     !$omp end target teams distribute parallel do
                 end if
             end do
-            ! 4: inter-node — pack strided chunk into flat staging buffer and ISEND
+            ! Step 4: inter-node — pack strided chunk into flat staging buffer and ISEND
             do m = 0, ims_npro_k - 1
                 if (.not. apu_async_is_local_k(m)) then
                     flat_off = m * nmax_p * nlines_p
@@ -686,10 +686,10 @@ contains
                                    trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
                 end if
             end do
-            ! 5: close epoch (all intra-node writes done) and wait for inter-node MPI
+            ! Step 5: close epoch (all intra-node writes done) and wait for inter-node MPI
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            ! 6: recv buffer is fully populated; flat copy to b
+            ! Step 6: recv buffer is fully populated; flat copy to b
             !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
             do i = 1, size
                 b(i) = apu_async_recv_k(i)
@@ -721,7 +721,7 @@ contains
 #endif
                 if (trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS) then
                     ! IRECVs posted before GPU pack so network can prepare while GPU runs.
-                    ! 1: post all IRECVs
+                    ! Step 1: post all IRECVs
                     l = 0
                     do m = 1, ims_npro_k
                         nr = maps_recv_k(m) + 1; ipr = nr - 1
@@ -729,7 +729,7 @@ contains
                         call MPI_IRECV(b_wrk(trp_plan%disp_r(nr) + 1), nmax_p*nlines_p, MPI_REAL4, &
                                        ipr, ims_tag, ims_comm_z, request(l), ims_err)
                     end do
-                    ! 2: GPU gather: a_wrk (strided) → c_wrk (flat)
+                    ! Step 2: GPU gather: a_wrk (strided) → c_wrk (flat)
                     do m = 1, ims_npro_k
                         ns = maps_send_k(m) + 1
                         flat_off = (ns - 1)*nmax_p*nlines_p
@@ -746,14 +746,14 @@ contains
                         !$omp end target teams distribute parallel do
 #endif
                     end do
-                    ! 3: post all ISENDs from flat c_wrk
+                    ! Step 3: post all ISENDs from flat c_wrk
                     do m = 1, ims_npro_k
                         ns = maps_send_k(m) + 1; ips = ns - 1
                         l = l + 1
                         call MPI_ISEND(c_wrk((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
                                        ips, ims_tag, ims_comm_z, request(l), ims_err)
                     end do
-                    ! 4: single WAITALL for all sends and receives
+                    ! Step 4: single WAITALL for all sends and receives
                     call MPI_WAITALL(l, request, status, ims_err)
                 else
                     call Transpose_Kernel_Single(a_wrk, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
@@ -777,7 +777,7 @@ contains
                     ! IRECVs posted before GPU pack so network and GPU overlap.
                     size = trp_plan%size3d
                     call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
-                    ! 1: post all IRECVs
+                    ! Step 1: post all IRECVs
                     l = 0
                     do m = 1, ims_npro_k
                         nr = maps_recv_k(m) + 1; ipr = nr - 1
@@ -785,7 +785,7 @@ contains
                         call MPI_IRECV(b(trp_plan%disp_r(nr) + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, ipr, ims_tag, ims_comm_z, request(l), ims_err)
                     end do
-                    ! 2: GPU gather: a (strided) → c_wrk_dp (flat)
+                    ! Step 2: GPU gather: a (strided) → c_wrk_dp (flat)
                     do m = 1, ims_npro_k
                         ns = maps_send_k(m) + 1
                         flat_off = (ns - 1)*nmax_p*nlines_p
@@ -802,14 +802,14 @@ contains
                         !$omp end target teams distribute parallel do
 #endif
                     end do
-                    ! 3: post all ISENDs from flat c_wrk_dp
+                    ! Step 3: post all ISENDs from flat c_wrk_dp
                     do m = 1, ims_npro_k
                         ns = maps_send_k(m) + 1; ips = ns - 1
                         l = l + 1
                         call MPI_ISEND(c_wrk_dp((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, ips, ims_tag, ims_comm_z, request(l), ims_err)
                     end do
-                    ! 4: single WAITALL for all sends and receives
+                    ! Step 4: single WAITALL for all sends and receives
                     call MPI_WAITALL(l, request, status, ims_err)
                     nullify (c_wrk_dp)
                 else
@@ -836,8 +836,8 @@ contains
         ! K-Forward (complex): same strided-to-flat scatter as the real version but for complex(dp).
         ! apu_cx_all spans all peers' windows reinterpreted as complex; stride in complex units = apu_stride_k/2.
         ! APU_ASYNC has no dedicated complex path and falls back to ASYNCHRONOUS MPI.
-        complex(wp), intent(in) :: a(*)
-        complex(wp), intent(out) :: b(*)
+        complex(wp), intent(in) :: a(:)
+        complex(wp), intent(out) :: b(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
@@ -994,7 +994,7 @@ contains
             ! in the same layout as in APU_DIRECT and is scattered to a.
             size = trp_plan%size3d
             l = 0
-            ! 1: post IRECVs for inter-node peers
+            ! Step 1: post IRECVs for inter-node peers
             do m = 0, ims_npro_k - 1
                 if (.not. apu_async_is_local_k(m)) then
                     l = l + 1
@@ -1002,9 +1002,9 @@ contains
                                    trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
                 end if
             end do
-            ! 2: open shared-window epoch
+            ! Step 2: open shared-window epoch
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
-            ! 3: intra-node — push b[m*chunk] into peer m's recv buffer at our slot
+            ! Step 3: intra-node — push b[m*chunk] into peer m's recv buffer at our slot
             do m = 0, ims_npro_k - 1
                 if (apu_async_is_local_k(m)) then
                     call c_f_pointer(apu_async_peer_k(m), apu_pfptr_k, [apu_async_size_k])
@@ -1016,7 +1016,7 @@ contains
                     !$omp end target teams distribute parallel do
                 end if
             end do
-            ! 4: inter-node — ISEND b[m*chunk] directly (already flat, no packing needed)
+            ! Step 4: inter-node — ISEND b[m*chunk] directly (already flat, no packing needed)
             do m = 0, ims_npro_k - 1
                 if (.not. apu_async_is_local_k(m)) then
                     l = l + 1
@@ -1024,10 +1024,10 @@ contains
                                    trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
                 end if
             end do
-            ! 5: close epoch and wait for inter-node MPI
+            ! Step 5: close epoch and wait for inter-node MPI
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            ! 6: unpack recv buffer — recv_k[m*chunk] = data from rank m → scatter to a
+            ! Step 6: unpack recv buffer — recv_k[m*chunk] = data from rank m → scatter to a
             do m = 0, ims_npro_k - 1
                 flat_off = m * nmax_p * nlines_p
                 disp_nr  = m * nlines_p
@@ -1062,7 +1062,7 @@ contains
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
-                    ! 1: IRECVs (note backward map swap: mrecv=maps_send_k, msend=maps_recv_k)
+                    ! Step 1: IRECVs (note backward map swap: mrecv=maps_send_k, msend=maps_recv_k)
                     l = 0
                     do m = 1, ims_npro_k
                         nr = maps_send_k(m) + 1; ipr = nr - 1
@@ -1070,16 +1070,16 @@ contains
                         call MPI_IRECV(c_wrk((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
                                        ipr, ims_tag, ims_comm_z, request(l), ims_err)
                     end do
-                    ! 2: ISENDs
+                    ! Step 2: ISENDs
                     do m = 1, ims_npro_k
                         ns = maps_recv_k(m) + 1; ips = ns - 1
                         l = l + 1
                         call MPI_ISEND(b_wrk(trp_plan%disp_r(ns) + 1), nmax_p*nlines_p, MPI_REAL4, &
                                        ips, ims_tag, ims_comm_z, request(l), ims_err)
                     end do
-                    ! 3: WAITALL
+                    ! Step 3: WAITALL
                     call MPI_WAITALL(l, request, status, ims_err)
-                    ! 4: GPU unpack: flat c_wrk → strided a (sp→dp merged)
+                    ! Step 4: GPU unpack: flat c_wrk → strided a (sp→dp merged)
                     do m = 1, ims_npro_k
                         nr = maps_send_k(m) + 1
                         flat_off = (nr - 1)*nmax_p*nlines_p
@@ -1130,7 +1130,7 @@ contains
                     ! b is already flat K-space; ISEND directly, recv into c_wrk_dp, scatter to a.
                     size = trp_plan%size3d
                     call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
-                    ! 1: IRECVs
+                    ! Step 1: IRECVs
                     l = 0
                     do m = 1, ims_npro_k
                         nr = maps_send_k(m) + 1; ipr = nr - 1
@@ -1138,16 +1138,16 @@ contains
                         call MPI_IRECV(c_wrk_dp((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, ipr, ims_tag, ims_comm_z, request(l), ims_err)
                     end do
-                    ! 2: ISENDs from flat b
+                    ! Step 2: ISENDs from flat b
                     do m = 1, ims_npro_k
                         ns = maps_recv_k(m) + 1; ips = ns - 1
                         l = l + 1
                         call MPI_ISEND(b(trp_plan%disp_r(ns) + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, ips, ims_tag, ims_comm_z, request(l), ims_err)
                     end do
-                    ! 3: WAITALL
+                    ! Step 3: WAITALL
                     call MPI_WAITALL(l, request, status, ims_err)
-                    ! 4: GPU scatter: flat c_wrk_dp → strided a
+                    ! Step 4: GPU scatter: flat c_wrk_dp → strided a
                     do m = 1, ims_npro_k
                         nr = maps_send_k(m) + 1
                         flat_off = (nr - 1)*nmax_p*nlines_p
@@ -1187,8 +1187,8 @@ contains
     !########################################################################
     subroutine TLabMPI_Trp_ExecK_Backward_Complex(b, a, trp_plan)
         ! K-Backward (complex): inverse of K-Forward_Complex. b is flat; a is strided.
-        complex(wp), intent(in) :: b(*)
-        complex(wp), intent(out) :: a(*)
+        complex(wp), intent(in) :: b(:)
+        complex(wp), intent(out) :: a(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
 
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
@@ -1338,7 +1338,7 @@ contains
             ! a is flat (a[m*chunk] for peer m); both paths fill apu_async_recv_i, then scatter to b.
             size = trp_plan%size3d
             l = 0
-            ! 1: post IRECVs for inter-node peers
+            ! Step 1: post IRECVs for inter-node peers
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
                     l = l + 1
@@ -1346,9 +1346,9 @@ contains
                                    trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
                 end if
             end do
-            ! 2: open shared-window epoch
+            ! Step 2: open shared-window epoch
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
-            ! 3: intra-node — push a[m*chunk] directly to peer m's recv buffer at our slot
+            ! Step 3: intra-node — push a[m*chunk] directly to peer m's recv buffer at our slot
             do m = 0, ims_npro_i - 1
                 if (apu_async_is_local_i(m)) then
                     call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
@@ -1360,7 +1360,7 @@ contains
                     !$omp end target teams distribute parallel do
                 end if
             end do
-            ! 4: inter-node — ISEND a[m*chunk] (already flat, no packing needed)
+            ! Step 4: inter-node — ISEND a[m*chunk] (already flat, no packing needed)
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
                     l = l + 1
@@ -1368,10 +1368,10 @@ contains
                                    trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
                 end if
             end do
-            ! 5: close epoch and wait for inter-node MPI
+            ! Step 5: close epoch and wait for inter-node MPI
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            ! 6: unpack recv buffer → strided b
+            ! Step 6: unpack recv buffer → strided b
             do m = 0, ims_npro_i - 1
                 flat_off = m * nmax_p * nlines_p
                 disp_nr  = m * nmax_p
@@ -1405,7 +1405,7 @@ contains
 #ifdef USE_APU
                     !$omp end target teams distribute parallel do
 #endif
-                    ! 1: IRECVs
+                    ! Step 1: IRECVs
                     l = 0
                     do m = 1, ims_npro_i
                         nr = maps_recv_i(m) + 1; ipr = nr - 1
@@ -1413,16 +1413,16 @@ contains
                         call MPI_IRECV(c_wrk((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
                                        ipr, ims_tag, ims_comm_x, request(l), ims_err)
                     end do
-                    ! 2: ISENDs from flat a_wrk
+                    ! Step 2: ISENDs from flat a_wrk
                     do m = 1, ims_npro_i
                         ns = maps_send_i(m) + 1; ips = ns - 1
                         l = l + 1
                         call MPI_ISEND(a_wrk(trp_plan%disp_s(ns) + 1), nmax_p*nlines_p, MPI_REAL4, &
                                        ips, ims_tag, ims_comm_x, request(l), ims_err)
                     end do
-                    ! 3: WAITALL
+                    ! Step 3: WAITALL
                     call MPI_WAITALL(l, request, status, ims_err)
-                    ! 4: GPU unpack flat c_wrk → strided b (sp→dp merged)
+                    ! Step 4: GPU unpack flat c_wrk → strided b (sp→dp merged)
                     do m = 1, ims_npro_i
                         nr = maps_recv_i(m) + 1
                         flat_off = (nr - 1)*nmax_p*nlines_p
@@ -1473,7 +1473,7 @@ contains
                     ! a is already flat; ISEND directly, recv into c_wrk_dp, scatter to strided b.
                     size = trp_plan%size3d
                     call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
-                    ! 1: IRECVs
+                    ! Step 1: IRECVs
                     l = 0
                     do m = 1, ims_npro_i
                         nr = maps_recv_i(m) + 1; ipr = nr - 1
@@ -1481,16 +1481,16 @@ contains
                         call MPI_IRECV(c_wrk_dp((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
                     end do
-                    ! 2: ISENDs from flat a
+                    ! Step 2: ISENDs from flat a
                     do m = 1, ims_npro_i
                         ns = maps_send_i(m) + 1; ips = ns - 1
                         l = l + 1
                         call MPI_ISEND(a(trp_plan%disp_s(ns) + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
                     end do
-                    ! 3: WAITALL
+                    ! Step 3: WAITALL
                     call MPI_WAITALL(l, request, status, ims_err)
-                    ! 4: GPU scatter flat c_wrk_dp → strided b
+                    ! Step 4: GPU scatter flat c_wrk_dp → strided b
                     do m = 1, ims_npro_i
                         nr = maps_recv_i(m) + 1
                         flat_off = (nr - 1)*nmax_p*nlines_p
@@ -1527,8 +1527,8 @@ contains
         ! I-Forward (complex): flat I-space chunks in a → strided X-space layout in b.
         ! a(m*chunk + i) where chunk = nmax_p*nlines_p, m = peer index, i = local element.
         ! b(m*nmax_p + i*nmax_full + j + 1): strided with full-width stride nmax_full = nmax_p*npro.
-        complex(wp), intent(in) :: a(*)
-        complex(wp), intent(out) :: b(*)
+        complex(wp), intent(in) :: a(:)
+        complex(wp), intent(out) :: b(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_nr
 #ifdef USE_APU
@@ -1684,7 +1684,7 @@ contains
             ! After sync: recv buffer is flat → a.
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
-            ! 1: post IRECVs for inter-node peers into their slots in the async recv window.
+            ! Step 1: post IRECVs for inter-node peers into their slots in the async recv window.
             l = 0
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
@@ -1693,9 +1693,9 @@ contains
                                    trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
                 end if
             end do
-            ! 2: open shared-window epoch for intra-node writes.
+            ! Step 2: open shared-window epoch for intra-node writes.
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
-            ! 3: intra-node — pack strided b[m] into peer m's shared recv buffer at our slot.
+            ! Step 3: intra-node — pack strided b[m] into peer m's shared recv buffer at our slot.
             do m = 0, ims_npro_i - 1
                 if (apu_async_is_local_i(m)) then
                     call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
@@ -1710,7 +1710,7 @@ contains
                     !$omp end target teams distribute parallel do
                 end if
             end do
-            ! 4: inter-node — pack strided b[m] into flat c_wrk_dp then ISEND.
+            ! Step 4: inter-node — pack strided b[m] into flat c_wrk_dp then ISEND.
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
                     flat_off = m * nmax_p * nlines_p
@@ -1727,10 +1727,10 @@ contains
                                    trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
                 end if
             end do
-            ! 5: close window epoch; wait for inter-node sends/recvs to complete.
+            ! Step 5: close window epoch; wait for inter-node sends/recvs to complete.
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            ! 6: flat copy from unified async recv buffer to a (1:1).
+            ! Step 6: flat copy from unified async recv buffer to a (1:1).
             !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
             do i = 1, size
                 a(i) = apu_async_recv_i(i)
@@ -1749,7 +1749,7 @@ contains
                     ! Pipeline: post IRECVs → GPU dp→sp+strided→flat pack → ISENDs → WAITALL → sp→dp.
                     a_wrk => wrk_mpi_fptr(1:size)           ! recv: flat sp staging → sp→dp to a
                     c_wrk => wrk_mpi_fptr(size + 1:2*size)  ! send: packed from b dp→sp+strided→flat
-                    ! 1: post all IRECVs into flat a_wrk recv slots before pack starts.
+                    ! Step 1: post all IRECVs into flat a_wrk recv slots before pack starts.
                     l = 0
                     do m = 1, ims_npro_i
                         nr = maps_send_i(m) + 1; ipr = nr - 1
@@ -1757,7 +1757,7 @@ contains
                         call MPI_IRECV(a_wrk(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, MPI_REAL4, &
                                        ipr, ims_tag, ims_comm_x, request(l), ims_err)
                     end do
-                    ! 2: GPU pack b→c_wrk (dp→sp+strided→flat) while recv buffers prepare.
+                    ! Step 2: GPU pack b→c_wrk (dp→sp+strided→flat) while recv buffers prepare.
                     do m = 1, ims_npro_i
                         ns = maps_recv_i(m) + 1
                         flat_off = (ns - 1)*nmax_p*nlines_p
@@ -1774,14 +1774,14 @@ contains
                         !$omp end target teams distribute parallel do
 #endif
                     end do
-                    ! 3: post all ISENDs from packed flat c_wrk.
+                    ! Step 3: post all ISENDs from packed flat c_wrk.
                     do m = 1, ims_npro_i
                         ns = maps_recv_i(m) + 1; ips = ns - 1
                         l = l + 1
                         call MPI_ISEND(c_wrk((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, MPI_REAL4, &
                                        ips, ims_tag, ims_comm_x, request(l), ims_err)
                     end do
-                    ! 4: single WAITALL for all sends and receives.
+                    ! Step 4: single WAITALL for all sends and receives.
                     call MPI_WAITALL(l, request, status, ims_err)
                     ! sp→dp: flat 1:1 conversion of recv buffer to a.
 #ifdef USE_APU
@@ -1829,7 +1829,7 @@ contains
                     ! Pipeline: post IRECVs → GPU strided→flat pack → ISENDs → WAITALL.
                     size = trp_plan%size3d
                     call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
-                    ! 1: post all IRECVs into flat a recv slots before pack starts.
+                    ! Step 1: post all IRECVs into flat a recv slots before pack starts.
                     l = 0
                     do m = 1, ims_npro_i
                         nr = maps_send_i(m) + 1; ipr = nr - 1
@@ -1837,7 +1837,7 @@ contains
                         call MPI_IRECV(a(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
                     end do
-                    ! 2: GPU pack b→c_wrk_dp (strided→flat) while network prepares recv buffers.
+                    ! Step 2: GPU pack b→c_wrk_dp (strided→flat) while network prepares recv buffers.
                     do m = 1, ims_npro_i
                         ns = maps_recv_i(m) + 1
                         flat_off = (ns - 1)*nmax_p*nlines_p
@@ -1854,14 +1854,14 @@ contains
                         !$omp end target teams distribute parallel do
 #endif
                     end do
-                    ! 3: post all ISENDs from packed flat c_wrk_dp.
+                    ! Step 3: post all ISENDs from packed flat c_wrk_dp.
                     do m = 1, ims_npro_i
                         ns = maps_recv_i(m) + 1; ips = ns - 1
                         l = l + 1
                         call MPI_ISEND(c_wrk_dp((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
                     end do
-                    ! 4: single WAITALL for all sends and receives.
+                    ! Step 4: single WAITALL for all sends and receives.
                     call MPI_WAITALL(l, request, status, ims_err)
                     nullify (c_wrk_dp)
                 else
@@ -1882,8 +1882,8 @@ contains
         ! I-Backward (complex): inverse of I-Forward. Reverses strided X-space (b) → flat I-space (a).
         ! b(m*nmax_p + i*nmax_full + j + 1): strided X-space, nmax_full = nmax_p*npro.
         ! a: flat output, chunks of nmax_p*nlines_p per peer (mirrors forward input layout).
-        complex(wp), intent(in) :: b(*)
-        complex(wp), intent(out) :: a(*)
+        complex(wp), intent(in) :: b(:)
+        complex(wp), intent(out) :: a(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_ns
 #ifdef USE_APU
