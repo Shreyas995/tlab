@@ -343,7 +343,7 @@ contains
         ! #######################################################################
 #ifdef USE_MPI
         if (ims_npro_k > 1) then
-            call TLabMPI_Trp_ExecK_Forward(in, out, tmpi_plan_fftz)
+            call TLabMPI_Trp_ExecK_Forward(in(1:isize_txc_field), out(1:isize_txc_field), tmpi_plan_fftz)
             p_org(1:tmpi_plan_fftz%nlines, 1:size_fft_z) => out(1:isize_txc_field)
             p_dst(1:tmpi_plan_fftz%nlines, 1:size_fft_z) => in(1:isize_txc_field)
         else
@@ -373,7 +373,7 @@ contains
 
 #ifdef USE_MPI
         if (ims_npro_k > 1) then
-            call TLabMPI_Trp_ExecK_Backward(in, out, tmpi_plan_fftz)
+            call TLabMPI_Trp_ExecK_Backward(in(1:isize_txc_field), out(1:isize_txc_field), tmpi_plan_fftz)
         end if
 #endif
 
@@ -395,7 +395,7 @@ contains
         ! #######################################################################
 #ifdef USE_MPI
         if (ims_npro_k > 1) then
-            call TLabMPI_Trp_ExecK_Forward(in, out, tmpi_plan_fftz)
+            call TLabMPI_Trp_ExecK_Forward(in(1:isize_txc_field), out(1:isize_txc_field), tmpi_plan_fftz)
             p_org(1:tmpi_plan_fftz%nlines, 1:size_fft_z) => out(1:isize_txc_field)
             p_dst(1:tmpi_plan_fftz%nlines, 1:size_fft_z) => in(1:isize_txc_field)
         else
@@ -425,7 +425,7 @@ contains
 
 #ifdef USE_MPI
         if (ims_npro_k > 1) then
-            call TLabMPI_Trp_ExecK_Backward(in, out, tmpi_plan_fftz)
+            call TLabMPI_Trp_ExecK_Backward(in(1:isize_txc_field), out(1:isize_txc_field), tmpi_plan_fftz)
         end if
 #endif
 
