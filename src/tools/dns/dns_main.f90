@@ -67,7 +67,7 @@ program DNS
     
     ! ###################################################################
     call TLab_Start()
-    call Tlab_Debug_Initialize()
+    ! call Tlab_Debug_Initialize()
     call TLab_Initialize_Parameters(ifile)
 #ifdef USE_MPI
     call TLabMPI_Initialize(ifile)
@@ -253,7 +253,7 @@ program DNS
 
     write (str, *) itime
     call TLab_Write_ASCII(lfile, 'Starting time integration at It'//trim(adjustl(str))//'.')
-    call Tlab_Debug_Initialize()
+    !call Tlab_Debug_Initialize()
 
     do
         if (itime >= nitera_last) exit
