@@ -41,6 +41,9 @@ contains
 
 !########################################################################
 
+    ! NOT TESTED ON CPU: called only when nd=size(fdm_int2%lhs,4)=3 (e.g. CompactDirect4, nb_diag=[3,3]).
+    ! Case93 uses CompactDirect6 (nb_diag=[3,5], nd=5) -> PENTADSS_APU is called instead.
+    ! MUST BE TESTED ON HUNTER APU with a CompactDirect4 case (EllipticOrder=CompactDirect4).
     subroutine TRIDSS_APU(len, nmax, klen, ilen, fdmi, f)
         implicit none
         integer(wi), intent(IN) :: nmax  ! dimension of tridiagonal systems
@@ -59,6 +62,8 @@ contains
          if (len <= 0) then
             goto 999
         end if
+        ! APU TARGET REGION: not executed on CPU (USE_APU not defined locally).
+        ! Test this entire subroutine on Hunter APU with EllipticOrder=CompactDirect4.
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i, k, n) &
@@ -68,7 +73,7 @@ contains
         do i = 1, ilen
             do k = 1, klen
                 do l = 1, len
-                    do n = 3, nmax
+                    do n = 3, nmax-1
                         f(l + 2*(n-1), k, i) = f(l + 2*(n-1), k, i) + fdmi%lhs(k, i ,n ,1)*f(l + 2*(n-2), k, i)
                     end do
                 end do
@@ -77,11 +82,11 @@ contains
         ! -----------------------------------------------------------------------
                 n = nmax - 1
                 do l = 1, len
-                    f(l+2*(nmax-1), k, i) = f(l+2*(nmax-1), k, i)*fdmi%lhs(k, i, nmax, 2)
+                    f(l+2*(nmax-2), k, i) = f(l+2*(nmax-2), k, i)*fdmi%lhs(k, i, nmax-1, 2)
                 end do
 
                 do l = 1, len
-                    do n = nmax - 2, 1, -1
+                    do n = nmax - 2, 2, -1
                         f(l+2*(n-1), k, i) = f(l+2*(n-1), k, i) + fdmi%lhs(k, i, n, 3)*f(l+2*n, k, i)*fdmi%lhs(k, i, n, 2)
                     end do
                 end do
@@ -142,9 +147,12 @@ contains
     end subroutine PENTADSS_APU
 !########################################################################
 
+    ! NOT TESTED ON CPU: called only when nd=size(fdm_int2%lhs,4)=7 (nb_diag(2)=7).
+    ! Case93 uses CompactDirect6 (nb_diag=[3,5], nd=5) -> PENTADSS_APU is called instead.
+    ! MUST BE TESTED ON HUNTER APU with a 7-diagonal elliptic scheme.
     subroutine HEPTADSS_APU(len, nmax, klen, ilen, fdmi, frc)
         implicit none
-        
+
         integer(wi) len, nmax, klen, ilen
         type(fdm_integral_dt2), intent(in) :: fdmi   !real(wp), dimension(nmax), intent(IN) :: a, b, c, d, e
         real(wp), dimension(1:len*nmax, 1:klen, 1:ilen), intent(INOUT) :: frc
@@ -155,6 +163,8 @@ contains
     ! -----------------------------------------------------------------------
     ! Solve Ly=frc, forward
     ! -----------------------------------------------------------------------
+        ! APU TARGET REGION: not executed on CPU (USE_APU not defined locally).
+        ! Test this entire subroutine on Hunter APU with a 7-diagonal elliptic scheme.
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) private(i, k, n) &
         !$omp if (ilen*klen*len > mas)
@@ -162,9 +172,9 @@ contains
         do i = 1, ilen
             do k = 1, klen
                 do ij = 1, len
-                    frc(ij+len, k, i) = frc(ij+len, k, i)*fdmi%lhs(k, i, 1, 3) ! Normalize first eqn. See HEPTADFS
-                    frc(ij+2*len, k, i) = frc(ij+2*len, k, i)- frc(ij+len, k, i)*fdmi%lhs(k, i, 2, 3)
-                    frc(ij+3*len, k, i) = frc(ij+3*len, k, i) - frc(ij+2*len, k, i)*fdmi%lhs(k, i, 3, 3) - frc(ij+len, k, i)*fdmi%lhs(k, i, 3, 2)
+                    frc(ij+len, k, i) = frc(ij+len, k, i)*fdmi%lhs(k, i, 2, 3) ! Normalize first eqn. See HEPTADFS
+                    frc(ij+2*len, k, i) = frc(ij+2*len, k, i)- frc(ij+len, k, i)*fdmi%lhs(k, i, 3, 3)
+                    frc(ij+3*len, k, i) = frc(ij+3*len, k, i) - frc(ij+2*len, k, i)*fdmi%lhs(k, i, 4, 3) - frc(ij+len, k, i)*fdmi%lhs(k, i, 4, 2)
                 end do
 
                 do n = 5, nmax-1
@@ -182,7 +192,7 @@ contains
                     frc(ij+2*(n-3), k, i) = (frc(ij+2*(n-3), k, i) - frc(ij+2*(n-2), k, i)*fdmi%lhs(k, i, n-2, 5) - frc(ij+2*(n-1), k, i)*fdmi%lhs(k, i, n-2, 6))/fdmi%lhs(k, i, n-2, 4)
                 end do
 
-                do n = nmax - 4, 1, -1
+                do n = nmax - 4, 2, -1
 #ifdef USE_APU
                     !$omp simd
 #endif

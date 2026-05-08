@@ -67,11 +67,6 @@ program DNS
     
     ! ###################################################################
     call TLab_Start()
-<<<<<<< HEAD
-    !call Tlab_Debug_Initialize()
-=======
-    ! call Tlab_Debug_Initialize()
->>>>>>> 2b0e3b2eea894ceb54cb0ed5d72a9d64cb0fd7c6
     call TLab_Initialize_Parameters(ifile)
 #ifdef USE_MPI
     call TLabMPI_Initialize(ifile)
