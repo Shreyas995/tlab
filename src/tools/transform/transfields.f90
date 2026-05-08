@@ -448,8 +448,6 @@ program TRANSFIELDS
 
         end if
 
-        call TLab_Write_ASCII(efile, 'Changing grid variable. Code to be fixed.')
-        call TLab_Stop(DNS_ERROR_UNDEVELOP)
         ! g(2)%scale = g_dst(2)%scale     ! watch out, overwriting grid information
         ! g(2)%size = jmax_aux
 
