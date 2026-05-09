@@ -472,11 +472,11 @@ contains
         end select
 
         
-! #ifdef USE_APU
-!         call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
-! #else
+#ifdef USE_APU
+        call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
+#else
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
-! #endif
+#endif
 
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
