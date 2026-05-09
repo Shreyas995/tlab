@@ -38,5 +38,8 @@ module Tlab_Type
         real(wp), allocatable :: rhs(:, :, :, :)
     end type fdm_integral_dt2
 
+    !$omp declare mapper(fdm_integral_dt2 :: v) &
+    !$omp    map(to: v%mode_fdm, v%lambda, v%bc, v%rhs_b, v%rhs_t, v%lhs, v%rhs)
+
 end module Tlab_Type
 !########################################################################
