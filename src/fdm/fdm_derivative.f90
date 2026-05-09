@@ -14,7 +14,6 @@ module FDM_Derivative
     private
 
     type, public :: fdm_derivative_dt
-        sequence
         integer mode_fdm                            ! finite-difference method
         integer(wi) size                            ! # of grid points, for convenience in the code
         logical :: periodic = .false.

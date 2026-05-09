@@ -293,7 +293,7 @@ contains
 #ifdef USE_MPI
         if (ims_npro_i > 1) then
             call c_f_pointer(c_loc(in), r_in, shape=[isize_txc_field])
-            call c_f_pointer(c_loc(out), c_out, shape=[(nx/2 + 1)*ims_npro_i, nz])
+            call c_f_pointer(c_loc(out), c_out, shape=[(nx/2 + 1)*ims_npro_i, tmpi_plan_dx%nlines])
 
             call TLabMPI_Trp_ExecI_Forward(in(:), c_out(:, 1), tmpi_plan_fftx)
 

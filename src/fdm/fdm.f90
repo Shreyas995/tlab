@@ -13,7 +13,6 @@ module FDM
     private
 
     type, public :: fdm_dt
-        sequence
         character*8 name
         integer(wi) size
         logical :: uniform = .false.

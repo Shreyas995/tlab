@@ -173,7 +173,6 @@ subroutine IBM_IO_READ_BIT_GEOMETRY(wrk3d, stag)
 
     ! pass memory address from double precision array to int1 array
     call c_f_pointer(c_loc(wrk3d), int_wrk, shape=[imax_bit*jmax*kmax])
-    int_wrk(:) = int(wrk3d(:), 1)
 
     ! header without params
     ! read eps field as int(1)
