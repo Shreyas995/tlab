@@ -452,7 +452,7 @@ contains
         real(wp), intent(inout) :: dsdx(nlines, g%size)                  ! dsdx
 
         ! -------------------------------------------------------------------
-        integer(wi) ij
+        integer(wi) ij, n_size
         integer ibc
         real(wp), pointer :: uf(:, :), dsf(:, :)
 
@@ -475,6 +475,7 @@ contains
         ! ###################################################################
         ! Operation; diffusivity included in 2.-order derivativelu2_p
         ! ###################################################################
+        n_size = nlines*g%size
         if (dealiasing%type /= DNS_FILTER_NONE) then
             uf(1:nlines, 1:g%size) => wrkdea(1:nlines*g%size, 1)
             dsf(1:nlines, 1:g%size) => wrkdea(1:nlines*g%size, 2)
@@ -491,10 +492,10 @@ contains
             else
 #ifdef USE_APU
             !$omp target teams distribute parallel do private( ij ) &
-            !$omp shared(nlines,g,result,uf,dsf) &
-            !$omp if (nlines*g%size > mas)
+            !$omp shared(nlines,result,uf,dsf) firstprivate(n_size) &
+            !$omp if (n_size > mas)
 #endif
-                do ij = 1, nlines*g%size
+                do ij = 1, n_size
                     result(ij, 1) = result(ij, 1) - uf(ij, 1)*dsf(ij, 1)
                 end do
 #ifdef USE_APU
@@ -513,10 +514,10 @@ contains
             else
 #ifdef USE_APU
             !$omp target teams distribute parallel do private( ij ) &
-            !$omp shared(nlines,g,result,u,dsdx) &
-            !$omp if (nlines*g%size > mas)
+            !$omp shared(nlines,result,u,dsdx) firstprivate(n_size) &
+            !$omp if (n_size > mas)
 #endif
-                do ij = 1, nlines*g%size ! offload to APU
+                do ij = 1, n_size ! offload to APU
                     result(ij, 1) = result(ij, 1) - u(ij, 1)*dsdx(ij, 1)
                 end do
 #ifdef USE_APU
