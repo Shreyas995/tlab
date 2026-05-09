@@ -275,7 +275,7 @@ contains
         if (allocated(wrk3d)) call c_f_pointer(c_loc(wrk3d), p_wrk3d, shape=[imax, jmax, kmax])
         if (allocated(wrk2d)) p_wrk2d(1:imax, 1:kmax, 1:inb_wrk2d) => wrk2d(1:imax*kmax*inb_wrk2d, 1)    ! this is the most common wrk2d dimensions
         ! if (allocated(wrk2d)) p2_wrk2d(1:2,1:imax/2,1:kmax,1:inb_wrk2d) => wrk2d(1:imax*kmax*inb_wrk2d, 1)
-        if (allocated(wrk1d)) p_wrk1d(1:jmax, 1:inb_wrk1d) => wrk1d(1:jmax*inb_wrk1d, 1)                 ! this is the most common wrk1d dimensions
+        if (allocated(wrk1d)) call c_f_pointer(c_loc(wrk1d), p_wrk1d, [jmax, inb_wrk1d])
 
         idummy = shape(txc)
         if (idummy(2) >= 1) tmp1(1:imax, 1:jmax, 1:kmax) => txc(1:isize_field, 1)
