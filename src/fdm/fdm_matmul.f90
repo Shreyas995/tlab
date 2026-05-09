@@ -68,22 +68,22 @@ module FDM_MatMul
 #define r6_i(j) rhs(j,6)
 #define r7_i(j) rhs(j,7)
 
-#define r0b(k,i,j) fdmi%rhs_b(k,i,j,0)
-#define r1b(k,i,j) fdmi%rhs_b(k,i,j,1)
-#define r2b(k,i,j) fdmi%rhs_b(k,i,j,2)
-#define r3b(k,i,j) fdmi%rhs_b(k,i,j,3)
-#define r4b(k,i,j) fdmi%rhs_b(k,i,j,4)
-#define r5b(k,i,j) fdmi%rhs_b(k,i,j,5)
-#define r6b(k,i,j) fdmi%rhs_b(k,i,j,6)
-#define r7b(k,i,j) fdmi%rhs_b(k,i,j,7)
+#define r0b(k,i,j) loc_rhs_b(k,i,j,0)
+#define r1b(k,i,j) loc_rhs_b(k,i,j,1)
+#define r2b(k,i,j) loc_rhs_b(k,i,j,2)
+#define r3b(k,i,j) loc_rhs_b(k,i,j,3)
+#define r4b(k,i,j) loc_rhs_b(k,i,j,4)
+#define r5b(k,i,j) loc_rhs_b(k,i,j,5)
+#define r6b(k,i,j) loc_rhs_b(k,i,j,6)
+#define r7b(k,i,j) loc_rhs_b(k,i,j,7)
 
-#define r1t(k,i,j) fdmi%rhs_t(k,i,j,1)
-#define r2t(k,i,j) fdmi%rhs_t(k,i,j,2)
-#define r3t(k,i,j) fdmi%rhs_t(k,i,j,3)
-#define r4t(k,i,j) fdmi%rhs_t(k,i,j,4)
-#define r5t(k,i,j) fdmi%rhs_t(k,i,j,5)
-#define r6t(k,i,j) fdmi%rhs_t(k,i,j,6)
-#define r7t(k,i,j) fdmi%rhs_t(k,i,j,7)
+#define r1t(k,i,j) loc_rhs_t(k,i,j,1)
+#define r2t(k,i,j) loc_rhs_t(k,i,j,2)
+#define r3t(k,i,j) loc_rhs_t(k,i,j,3)
+#define r4t(k,i,j) loc_rhs_t(k,i,j,4)
+#define r5t(k,i,j) loc_rhs_t(k,i,j,5)
+#define r6t(k,i,j) loc_rhs_t(k,i,j,6)
+#define r7t(k,i,j) loc_rhs_t(k,i,j,7)
 
 contains
     ! #######################################################################
@@ -323,8 +323,9 @@ contains
         ! #######################################################################
         len = size(f,1)
 
-        lp0 = 2*nx    ; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3 
-        lp5 = 2*nx - 5; lp4 = 2*nx - 4; lp7 = 2*nx - 7; lp6 = 2*nx - 6 
+        lp0 = 2*nx    ; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3
+        lp5 = 2*nx - 5; lp4 = 2*nx - 4; lp7 = 2*nx - 7; lp6 = 2*nx - 6
+        associate(loc_rhs_b => fdmi%rhs_b, loc_rhs_t => fdmi%rhs_t)
         ! -------------------------------------------------------------------
         ! Boundary; the first 3/2+1+1=3 rows might be different
         if (any([BCS_MIN, BCS_BOTH] == ibc)) then
@@ -553,6 +554,7 @@ contains
 #endif
             end if
         end if
+        end associate
         return
     end subroutine MatMul_3d_APU
 
@@ -1208,8 +1210,9 @@ contains
         ! print '(A, I5, I5, F15.7)', nd = size(rhs, 2)    ! # diagonals, should be 5
         ! size(u,2) and size(f,2) should be nx
         ! size(u,1) and size(f,1) and size(bcs_b) and size(bcs_t) should be the same (number of equations to solve)
-        lp0 = 2*nx; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3; lp4 = 2*nx - 4; lp5 = 2*nx - 5; lp6 = 2*nx - 6; 
+        lp0 = 2*nx; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3; lp4 = 2*nx - 4; lp5 = 2*nx - 5; lp6 = 2*nx - 6;
         lp7 = 2*nx - 7; lp8 = 2*nx - 8; lp9 = 2*nx - 9; lp10 = 2*nx - 10; lp11 = 2*nx - 11; lp12 = 2*nx - 12
+        associate(loc_rhs_b => fdmi%rhs_b, loc_rhs_t => fdmi%rhs_t)
         ! -------------------------------------------------------------------
         ! Boundary; the first 5/2+1+1=4 rows might be different
         if (any([BCS_MIN, BCS_BOTH] == ibc)) then
@@ -1348,6 +1351,7 @@ contains
             !$omp end target teams distribute parallel do
 #endif
         end if
+        end associate
 
         return
     end subroutine MatMul_5d_APU

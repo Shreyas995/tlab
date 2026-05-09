@@ -1278,28 +1278,29 @@ contains
             call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines*nx, 1:klines, 1:ilines))
         end select
         
+        associate(bc => fdmi_int2%bc, lhs => fdmi_int2%lhs)
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i,j,k,bcs) &
-        !$omp shared(ilines,klines,nlines,fdmi_int2,result,p2_wrk2d,nx,ndl) &
+        !$omp shared(ilines,klines,nlines,bc,lhs,result,p2_wrk2d,nx,ndl) &
         !$omp if (ilines * klines * nlines > mas)
 #endif
         do i = 1, ilines
             do k = 1, klines
-                bcs = fdmi_int2%bc(k,i)
+                bcs = bc(k,i)
                 !   Corrections to the BCS_DD to account for Neumann
                 if ((BCS_ND == bcs) .or. (BCS_NN == bcs) ) then
                     do j = 1, nlines
                         result(j, k, i) = p2_wrk2d(j, k, i, 1) &
-                                + fdmi_int2%lhs(k, i, 1, 1)*result(j+nlines, k, i) + fdmi_int2%lhs(k, i, 1, 2)*result(2*nlines+j, k, i) + fdmi_int2%lhs(k, i, 1, 3)*result(3*nlines+j, k, i)
+                                + lhs(k, i, 1, 1)*result(j+nlines, k, i) + lhs(k, i, 1, 2)*result(2*nlines+j, k, i) + lhs(k, i, 1, 3)*result(3*nlines+j, k, i)
                     end do
                 end if
 
                 if ((BCS_DN == bcs) .or. (BCS_NN == bcs)) then
                     do j = 1, nlines
                         result(2*(nx-1)+j, k, i) = p2_wrk2d(j, k, i, 2) &
-                                    + fdmi_int2%lhs(k, i, nx, ndl)*result(2*(nx-2)+j, k, i) + fdmi_int2%lhs(k, i, nx, ndl - 1)*result(2*(nx-3)+j, k, i) &
-                                    + fdmi_int2%lhs(k, i, nx, ndl - 2)*result(2*(nx-4)+j, k, i)
+                                    + lhs(k, i, nx, ndl)*result(2*(nx-2)+j, k, i) + lhs(k, i, nx, ndl - 1)*result(2*(nx-3)+j, k, i) &
+                                    + lhs(k, i, nx, ndl - 2)*result(2*(nx-4)+j, k, i)
                     end do
                 end if
             end do
@@ -1308,6 +1309,7 @@ contains
 #ifdef USE_APU
         !$omp end target teams distribute parallel do
 #endif
+        end associate
         return
     end subroutine FDM_Int2_Solve_APU
     
