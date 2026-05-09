@@ -30,7 +30,6 @@ module Tlab_Type
     end type fdm_integral_dt
 
     type, public :: fdm_integral_dt2
-        sequence
         integer mode_fdm                          ! original finite-difference method; only informative
         real(wp), allocatable :: lambda(:,:)                           ! constant of the equation
         integer, allocatable :: bc(:,:)                                ! type of boundary condition, [ BCS_MIN, BCS_MAX ]
