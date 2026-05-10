@@ -44,7 +44,17 @@ endif()
 
 # set(DRAGONEGG_FLAGS "-finline-aggressive -fslp-vectorize  -fmerge-all-constants") #  -mmadd4 -mfp64 -enable-strided-vectorization")
 set(USER_Fortran_FLAGS         "-eZ ${USER_OMP_FLAGS} ${USER_APU_FLAGS} ${USER_profile_FLAGS} ") #-fallow-argument-mismatch from gnu-version10
+# Test 1
 # set(USER_Fortran_FLAGS_RELEASE "-g -O0 -R abc -m4" ) #these will be ignored:  -fprefetch-loop-arrays --param prefetch-latency=300") 
+# Test 2
+set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -m4")
+# Test 3
+set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -hunroll2 -hfusion2 -m4")
+# Test 4
+set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -hunroll2 -hfusion2 -hipa2 -m4")
+# Test 5
+set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -hunroll2 -hfusion2 -hipa2 -hfp1 -m4")
+# Test 6
 set(USER_Fortran_FLAGS_RELEASE "-hipa2 -hfp2 -hunroll2 -hfusion2 -hscalar1 -m4" ) #these will be ignored:  -fprefetch-loop-arrays --param prefetch-latency=300") 
 
 if ( NOT CMAKE_BUILD_TYPE ) 
