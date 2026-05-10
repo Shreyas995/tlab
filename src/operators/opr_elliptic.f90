@@ -409,12 +409,6 @@ contains
         ! p_wrk3d(1:2*ny, 1:nz, 1:nx/2 + 1) => wrk3d(1:isize_txc_field)
         call c_f_pointer(c_loc(wrk2d), p2_wrk2d, shape=[2, nz, isize_line, 2])
 
-        ! ============== PASS 2 DEBUG: Poisson driver entry ==============
-        call TLab_Debug_Print_3D('[E0_poisson_in] p',     p)
-        call TLab_Debug_Print_2D('[E0_poisson_in] bcs_hb', bcs_hb)
-        call TLab_Debug_Print_2D('[E0_poisson_in] bcs_ht', bcs_ht)
-        ! ================================================================
-
         ! #######################################################################
         ! Fourier transform of forcing term; output of this section in array tmp1
         ! #######################################################################
@@ -422,25 +416,14 @@ contains
         p(1:nx, 1, 1:nz) = bcs_hb(1:nx, 1:nz)       ! Passing boundary conditions in forcing array
         p(1:nx, ny, 1:nz) = bcs_ht(1:nx, 1:nz)
 
-        ! ============== PASS 2 DEBUG: after applying BCs to p ==============
-        call TLab_Debug_Print_3D('[E1_pwithBC]', p)
-        ! ===================================================================
-
         if (fft_z_on) then
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp2)
-            call TLab_Debug_Print_1D_c('[E2_after_FFT_X_fwd]', c_tmp2)
             call OPR_Fourier_Z_Forward(c_tmp2, c_tmp1) ! tmp2 might be overwritten; cannot use wrk3d
-            call TLab_Debug_Print_1D_c('[E3_after_FFT_Z_fwd]', c_tmp1)
         else
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp1)
-            call TLab_Debug_Print_1D_c('[E2_after_FFT_X_fwd_only]', c_tmp1)
         end if
 
         tmp1 = tmp1*norm
-
-        ! ============== PASS 2 DEBUG: after norm scaling ==============
-        call TLab_Debug_Print_3D('[E3b_after_norm]', tmp1)
-        ! ===============================================================
 
         ! ###################################################################
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
@@ -451,9 +434,6 @@ contains
 ! #else
         call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
 ! #endif
-        ! ============== PASS 2 DEBUG: after forward transpose ==============
-        call TLab_Debug_Print_1D_c('[E4_after_transpose_fwd]', c_tmp2)
-        ! ===================================================================
 
         p_wrk3d(:,:,:) = 0.0_wp
 #define f(j,k,i) tmp2(j,k,i)
@@ -480,9 +460,6 @@ contains
             !$omp end target teams distribute parallel do
 #endif
             call FDM_Int2_Solve_APU(2, i_max, nz, fdm_int2, rhs_d, f(1:2*ny, 1:nz, 1:i_max), u(1:2*ny, 1:nz, 1:i_max), p2_wrk2d(1:2, 1:nz, 1:i_max, 1:2))
-            ! ============== PASS 2 DEBUG: after FDM_Int2_Solve_APU (BCS_NN) ==============
-            call TLab_Debug_Print_3D('[E5_after_FDM_Int2_Solve_APU]', p_wrk3d)
-            ! =============================================================================
 
         case default            ! Need to calculate and factorize LHS
             do i = 1, i_max
@@ -493,9 +470,6 @@ contains
                     call FDM_Int2_Solve(2, fdm_int2_loc, fdm_int2_loc%rhs, f(:, k, i), u(:, k, i), wrk2d)
                 end do
             end do
-            ! ============== PASS 2 DEBUG: after FDM_Int2_Solve (CPU path) ==============
-            call TLab_Debug_Print_3D('[E5_after_FDM_Int2_Solve_CPU]', p_wrk3d)
-            ! ===========================================================================
         end select
 
 
@@ -504,28 +478,19 @@ contains
 ! #else
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
 ! #endif
-        ! ============== PASS 2 DEBUG: after backward transpose ==============
-        call TLab_Debug_Print_1D_c('[E6_after_transpose_bwd]', c_tmp1)
-        ! ====================================================================
 
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
         ! ###################################################################
         if (fft_z_on) then
             call OPR_Fourier_Z_Backward(c_tmp1, c_wrk3d)          ! tmp1 might be overwritten
-            call TLab_Debug_Print_2D_c('[E7_after_FFT_Z_bwd]', c_wrk3d)
             call OPR_Fourier_X_Backward(nx, ny, nz, c_wrk3d, p)   ! wrk3d might be overwritten
-            call TLab_Debug_Print_3D('[E8_after_FFT_X_bwd]', p)
         else
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
-            call TLab_Debug_Print_3D('[E8_after_FFT_X_bwd_only]', p)
         end if
 
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
-            ! ============== PASS 2 DEBUG: after OPR_Partial_Y ==============
-            call TLab_Debug_Print_3D('[E9_after_partial_y] dpdy', dpdy)
-            ! ================================================================
         end if
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)

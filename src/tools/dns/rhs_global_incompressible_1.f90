@@ -90,14 +90,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         end do
     end if
 
-    ! ============== PASS 3 DEBUG: RHS entry ==============
-    call TLab_Debug_Print_1D('[R0_RHS_entry] tmp1', tmp1)
-    call TLab_Debug_Print_1D('[R0_RHS_entry] u',    u)
-    call TLab_Debug_Print_1D('[R0_RHS_entry] v',    v)
-    call TLab_Debug_Print_1D('[R0_RHS_entry] w',    w)
-    call TLab_Debug_Print_2D('[R0_RHS_entry] hq',   hq)
-    ! ======================================================
-
     ! #######################################################################
     ! Diffusion and advection terms
     ! #######################################################################
@@ -107,31 +99,13 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     ! Diagonal terms and transposed velocity arrays
     call OPR_Burgers_X(OPR_B_SELF, 0, imax, jmax, kmax, bcs, u, u, tmp1, tmp4) ! store u transposed in tmp4
-    ! ============== PASS 3 DEBUG: after OPR_Burgers_X(u,u) ==============
-    call TLab_Debug_Print_1D('[R1_after_BurgX_uu] tmp1', tmp1)
-    ! ====================================================================
 
     call OPR_Burgers_Y(OPR_B_SELF, 0, imax, jmax, kmax, bcs, v, v, tmp2, tmp5) ! store v transposed in tmp5
     call OPR_Burgers_Z(OPR_B_SELF, 0, imax, jmax, kmax, bcs, w, w, tmp3, tmp6) ! store w transposed in tmp6
-    ! ============== PASS 3 DEBUG: after Burgers_Y/Z(vv,ww) ==============
-    call TLab_Debug_Print_1D('[R2_after_BurgYZ_vvww] tmp1', tmp1)
-    call TLab_Debug_Print_1D('[R2_after_BurgYZ_vvww] tmp2', tmp2)
-    call TLab_Debug_Print_1D('[R2_after_BurgYZ_vvww] tmp3', tmp3)
-    ! ===================================================================
-
-    ! ============== PASS 4 DEBUG: hq state before Ox momentum ==============
-    call TLab_Debug_Print_2D('[R2a_hq_before_Ox]', hq)
-    ! =======================================================================
 
     ! Ox momentum equation
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, v, tmp7, tmp9, tmp5) ! tmp5 contains v transposed
-    ! ============== PASS 4 DEBUG: after Burgers_Y(u,v) for Ox ==============
-    call TLab_Debug_Print_1D('[R2b_after_BurgY_uv] tmp7', tmp7)
-    ! =======================================================================
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
-    ! ============== PASS 4 DEBUG: after Burgers_Z(u,w) for Ox ==============
-    call TLab_Debug_Print_1D('[R2c_after_BurgZ_uw] tmp8', tmp8)
-    ! =======================================================================
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
@@ -147,19 +121,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
-    ! ============== PASS 4 DEBUG: after Ox momentum update ==============
-    call TLab_Debug_Print_2D('[R2d_hq_after_Ox]', hq)
-    ! ====================================================================
 
     ! Oy momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
-    ! ============== PASS 4 DEBUG: after Burgers_X(v,u) for Oy ==============
-    call TLab_Debug_Print_1D('[R2e_after_BurgX_vu] tmp7', tmp7)
-    ! =======================================================================
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
-    ! ============== PASS 4 DEBUG: after Burgers_Z(v,w) for Oy ==============
-    call TLab_Debug_Print_1D('[R2f_after_BurgZ_vw] tmp8', tmp8)
-    ! =======================================================================
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
@@ -177,19 +142,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
-    ! ============== PASS 4 DEBUG: after Oy momentum update ==============
-    call TLab_Debug_Print_2D('[R2g_hq_after_Oy]', hq)
-    ! ====================================================================
 
     ! Oz momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
-    ! ============== PASS 4 DEBUG: after Burgers_X(w,u) for Oz ==============
-    call TLab_Debug_Print_1D('[R2h_after_BurgX_wu] tmp7', tmp7)
-    ! =======================================================================
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, v, tmp8, tmp9, tmp5) ! tmp5 contains v transposed
-    ! ============== PASS 4 DEBUG: after Burgers_Y(w,v) for Oz ==============
-    call TLab_Debug_Print_1D('[R2i_after_BurgY_wv] tmp8', tmp8)
-    ! =======================================================================
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
 #ifdef USE_APU
@@ -206,9 +162,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
-    ! ============== PASS 4 DEBUG: after Oz momentum update ==============
-    call TLab_Debug_Print_2D('[R2j_hq_after_Oz]', hq)
-    ! ====================================================================
 
     ! IBM
     if (imode_ibm == 1) then
@@ -332,12 +285,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         end if
 
     end if
-    ! ============== PASS 3 DEBUG: before final divergence sum ==============
-    call TLab_Debug_Print_1D('[R4_before_div_sum] tmp1', tmp1)
-    call TLab_Debug_Print_1D('[R4_before_div_sum] tmp2', tmp2)
-    call TLab_Debug_Print_1D('[R4_before_div_sum] tmp3', tmp3)
-    ! =======================================================================
-
     ! -----------------------------------------------------------------------
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
@@ -352,10 +299,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
-
-    ! ============== PASS 3 DEBUG: after divergence sum (Poisson forcing) ==============
-    call TLab_Debug_Print_1D('[R5_after_div_sum] tmp1', tmp1)
-    ! ==================================================================================
 
     ! -----------------------------------------------------------------------
     ! Neumman BCs in d/dy(p) s.t. v=0 (no-penetration)
@@ -377,10 +320,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         BcsFlowJmin%ref(:, :, 2) = p_bcs(:, 1, :)
         BcsFlowJmax%ref(:, :, 2) = p_bcs(:, jmax, :)
     end if
-
-    ! ============== PASS 3 DEBUG: just before OPR_Poisson call ==============
-    call TLab_Debug_Print_1D('[R6_before_Poisson] tmp1', tmp1)
-    ! ========================================================================
 
     ! pressure in tmp1, Oy derivative in tmp3
     call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, p_tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)

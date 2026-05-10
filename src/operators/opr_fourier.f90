@@ -232,10 +232,6 @@ contains
         real(wp), pointer :: r_out(:) => null()
 #endif
 
-        ! ============== PASS 2 DEBUG: FX_Forward entry ==============
-        call TLab_Debug_Print_1D('[FX_fwd_in]', in)
-        ! ============================================================
-
         ! #######################################################################
 
 #ifdef USE_MPI
@@ -275,10 +271,6 @@ contains
         end if
 #endif
 
-        ! ============== PASS 2 DEBUG: FX_Forward exit ==============
-        call TLab_Debug_Print_1D_c('[FX_fwd_out]', out)
-        ! ===========================================================
-
         return
     end subroutine OPR_Fourier_X_Forward
 
@@ -296,10 +288,6 @@ contains
         integer(wi) i, ip, iold, inew, isize_line
         real(wp), pointer :: r_in(:) => null()
 #endif
-
-        ! ============== PASS 2 DEBUG: FX_Backward entry ==============
-        call TLab_Debug_Print_1D_c('[FX_bwd_in]', in)
-        ! =============================================================
 
         !########################################################################
 #ifdef USE_MPI
@@ -339,10 +327,6 @@ contains
         end if
 #endif
 
-        ! ============== PASS 2 DEBUG: FX_Backward exit ==============
-        call TLab_Debug_Print_1D('[FX_bwd_out]', out)
-        ! ============================================================
-
         return
     end subroutine OPR_Fourier_X_Backward
 
@@ -355,10 +339,6 @@ contains
         ! -----------------------------------------------------------------------
         complex(wp), pointer :: p_org(:, :), p_dst(:, :)
         integer(wi) k_old1, k_old2, k_new1, k_new2
-
-        ! ============== PASS 2 DEBUG: FZ_Forward entry ==============
-        call TLab_Debug_Print_1D_c('[FZ_fwd_in]', in(1:isize_txc_field))
-        ! ============================================================
 
         ! #######################################################################
 #ifdef USE_MPI
@@ -399,10 +379,6 @@ contains
 
         nullify (p_org, p_dst)
 
-        ! ============== PASS 2 DEBUG: FZ_Forward exit ==============
-        call TLab_Debug_Print_1D_c('[FZ_fwd_out]', out(1:isize_txc_field))
-        ! ===========================================================
-
         return
     end subroutine OPR_Fourier_Z_Forward
 
@@ -415,10 +391,6 @@ contains
         ! -----------------------------------------------------------------------
         complex(wp), pointer :: p_org(:, :), p_dst(:, :)
         integer(wi) k_old1, k_old2, k_new1, k_new2
-
-        ! ============== PASS 2 DEBUG: FZ_Backward entry ==============
-        call TLab_Debug_Print_1D_c('[FZ_bwd_in]', in(1:isize_txc_field))
-        ! =============================================================
 
         ! #######################################################################
 #ifdef USE_MPI
@@ -458,10 +430,6 @@ contains
 #endif
 
         nullify (p_org, p_dst)
-
-        ! ============== PASS 2 DEBUG: FZ_Backward exit ==============
-        call TLab_Debug_Print_1D_c('[FZ_bwd_out]', out(1:isize_txc_field))
-        ! ============================================================
 
         return
     end subroutine OPR_Fourier_Z_Backward

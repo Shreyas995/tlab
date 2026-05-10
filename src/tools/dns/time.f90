@@ -218,14 +218,6 @@ contains
             if (scal_on) hs = 0.0_wp
             if (part%type /= PART_TYPE_NONE) l_hq = 0.0_wp
         end if
-
-        ! ============== PASS 1 DEBUG: pre-loop state ==============
-        if (flow_on) call TLab_Debug_Print_2D('[T0_q]', q)
-        if (scal_on) call TLab_Debug_Print_2D('[T0_s]', s)
-        if (flow_on) call TLab_Debug_Print_2D('[T0_hq]', hq)
-        if (scal_on) call TLab_Debug_Print_2D('[T0_hs]', hs)
-        ! ==========================================================
-
         !########################################################################
         ! Loop over the sub-stages
         !########################################################################
@@ -236,14 +228,6 @@ contains
             ! -------------------------------------------------------------------
             dte = dtime*kdt(rkm_substep)
             etime = rtime + dtime*ktime(rkm_substep)
-
-            ! ============== PASS 1 DEBUG: point A - start of substep ==============
-            write(dbg_string, '(A,I1)') '[A_pre_substep] sub=', rkm_substep
-            if (flow_on) call TLab_Debug_Print_2D(trim(dbg_string), q,  'q')
-            if (scal_on) call TLab_Debug_Print_2D(trim(dbg_string), s,  's')
-            if (flow_on) call TLab_Debug_Print_2D(trim(dbg_string), hq, 'hq')
-            if (scal_on) call TLab_Debug_Print_2D(trim(dbg_string), hs, 'hs')
-            ! ======================================================================
 
 #ifdef USE_PROFILE
             call system_clock(t_srt, PROC_CYCLES, MAX_CYCLES)
@@ -265,21 +249,7 @@ contains
 
             end select
 
-            ! ============== PASS 1 DEBUG: point B - after physics substep ==============
-            write(dbg_string, '(A,I1)') '[B_post_substep] sub=', rkm_substep
-            if (flow_on) call TLab_Debug_Print_2D(trim(dbg_string), q,  'q')
-            if (scal_on) call TLab_Debug_Print_2D(trim(dbg_string), s,  's')
-            if (flow_on) call TLab_Debug_Print_2D(trim(dbg_string), hq, 'hq')
-            if (scal_on) call TLab_Debug_Print_2D(trim(dbg_string), hs, 'hs')
-            ! ===========================================================================
-
             call FI_DIAGNOSTIC(imax, jmax, kmax, q, s)
-
-            ! ============== PASS 1 DEBUG: point C - after FI_DIAGNOSTIC ==============
-            write(dbg_string, '(A,I1)') '[C_post_diag] sub=', rkm_substep
-            if (flow_on) call TLab_Debug_Print_2D(trim(dbg_string), q, 'q')
-            if (scal_on) call TLab_Debug_Print_2D(trim(dbg_string), s, 's')
-            ! =========================================================================
 
             call DNS_BOUNDS_LIMIT()
 !            if (int(logs_data(1)) /= 0) return ! Error detected

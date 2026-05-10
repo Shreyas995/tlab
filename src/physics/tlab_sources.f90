@@ -35,7 +35,6 @@ contains
 ! #######################################################################
     subroutine TLab_Sources_Flow(q, s, hq, tmp1)
         use TLab_Time, only: rtime
-        use Tlab_Debug
         real(wp), intent(in) :: q(isize_field, inb_flow), s(isize_field, inb_scal)
         real(wp), intent(out) :: hq(isize_field, inb_flow)
         real(wp), intent(inout) :: tmp1(isize_field)
@@ -48,19 +47,11 @@ contains
         ILEN = isize_field
 #endif
 
-        ! ============== PASS 5 DEBUG: TLab_Sources_Flow entry ==============
-        call TLab_Debug_Print_2D('[S0_SrcFlow_in] q',  q)
-        call TLab_Debug_Print_2D('[S0_SrcFlow_in] hq', hq)
-        ! ===================================================================
-
         ! -----------------------------------------------------------------------
         ! Coriolis. Remember that coriolis%vector already contains the Rossby #.
         ! -----------------------------------------------------------------------
 
         call Rotation_Coriolis(coriolis, imax, jmax, kmax, q, hq)
-        ! ============== PASS 5 DEBUG: after Rotation_Coriolis ==============
-        call TLab_Debug_Print_2D('[S1_after_Coriolis] hq', hq)
-        ! ===================================================================
 
         ! -----------------------------------------------------------------------
         do iq = 1, 3

@@ -107,7 +107,6 @@ contains
 
 
     subroutine PENTADSS_APU(len, nmax, klen, ilen, fdmi, f) !a = fdmi%lhs(2:, 1), b =fdmi%lhs(2:, 2), c =fdmi%lhs(2:, 3), d =fdmi%lhs(2:, 4), e =fdmi%lhs(2:, 5), result(:, 2:))
-        use Tlab_Debug
         implicit none
 
         integer(wi) nmax, len, klen, ilen
@@ -118,10 +117,6 @@ contains
         ! -----------------------------------------------------------------------
         ! Solve Ly=f, forward
         ! -----------------------------------------------------------------------
-
-        ! ============== PASS 2 DEBUG: PENTADSS_APU entry ==============
-        call TLab_Debug_Print_3D('[P0_PENTADSS_in] f', f)
-        ! ==============================================================
         block
             real(wp), pointer :: lhs(:,:,:,:)
             lhs => fdmi%lhs
@@ -157,10 +152,6 @@ contains
         !$omp end target teams distribute parallel do
 #endif
         end block
-
-        ! ============== PASS 2 DEBUG: PENTADSS_APU exit ==============
-        call TLab_Debug_Print_3D('[P1_PENTADSS_out] f', f)
-        ! =============================================================
         return
     end subroutine PENTADSS_APU
 !########################################################################
