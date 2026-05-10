@@ -15,15 +15,12 @@ endif()
 add_executable(dns.x ${sourcefiles})
 target_link_libraries(dns.x statistics physics mappings operators particles filters fdm ibm thermodynamics ${LEVEL1_LIBS} ${LIBS})
 
-# APU target regions in tools/dns: force -O0 for the optimization-bug bisection.
-# These are the per-timestep RHS and time-integrator files.
+# Force -O0 on ALL files in src/tools/dns/ — every per-timestep file.
+# RK time-stepping has 3 substages (_1, _2, _3); substages 2 and 3 were
+# previously at -O2 and are likely the source of the velocity zeroing bug.
+file(GLOB dns_files "${CMAKE_CURRENT_SOURCE_DIR}/dns/*.f90")
 set_source_files_properties(
-    ${CMAKE_CURRENT_SOURCE_DIR}/dns/time.f90
-    ${CMAKE_CURRENT_SOURCE_DIR}/dns/rhs_flow_global_incompressible_1.f90
-    ${CMAKE_CURRENT_SOURCE_DIR}/dns/rhs_global_incompressible_1.f90
-    ${CMAKE_CURRENT_SOURCE_DIR}/dns/rhs_flow_global_2.f90
-    ${CMAKE_CURRENT_SOURCE_DIR}/dns/rhs_scal_global_incompressible_1.f90
-    ${CMAKE_CURRENT_SOURCE_DIR}/dns/rhs_scal_global_2.f90
+    ${dns_files}
     PROPERTIES COMPILE_FLAGS "-O0"
 )
 if (PSFFT_LIB)

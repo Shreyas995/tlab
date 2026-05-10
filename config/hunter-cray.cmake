@@ -96,16 +96,24 @@ set(USER_Fortran_FLAGS         "-eZ ${USER_OMP_FLAGS} ${USER_APU_FLAGS} ${USER_p
 #   derivatives every step; not in the -O0 list because no target regions).
 #
 # ============================================================================
-# Test 12 (ACTIVE): Force ALL files in src/operators/ and src/utils/ to -O0.
-# This covers opr_partial, opr_filter, opr_interpolate, opr_check, opr_odes,
-# all the linear*, averages, integration, etc. Together with Test 11's 17
-# files, this puts most computation paths at -O0.
+# Test 12: All src/operators + src/utils at -O0 (43 files total).
+# RESULT: dt+D# correct, CFL=0, dilatation=±Infinity (was NaN before).
+# Velocity field zeroed except for isolated huge spikes. Bug is in code
+# that runs every RK substage but isn't covered yet.
 #
-#   - If this WORKS  -> the bug is in operators/* or utils/* (very likely
-#                       opr_partial). We bisect by re-enabling -O2 on each.
-#   - If this CRASHES-> bug is somewhere else entirely (mappings, particles,
-#                       statistics, or src/tools/dns RHS files we haven't
-#                       caught yet). Will widen further.
+# Key insight: only the FIRST RK substage files (_1.f90) were at -O0.
+# Substages 2 and 3 (rhs_*_2.f90, rhs_*_3.f90) were still at -O2.
+# ============================================================================
+
+# ============================================================================
+# Test 13 (ACTIVE): Force ALL of src/tools/dns and src/base at -O0.
+# Adds RK substages 2 and 3, boundary BCs, halo exchange, pointer setup,
+# and all the time-stepping orchestration code.
+#
+#   - If this WORKS  -> bug is in src/tools/dns or src/base (likely RK
+#                       substages 2/3). Bisect by re-enabling per file.
+#   - If this CRASHES-> the bug is in src/mappings or src/filters or
+#                       src/particles or src/thermodynamics or src/statistics.
 # ============================================================================
 set(USER_Fortran_FLAGS_RELEASE "-O2 -m4")
 
