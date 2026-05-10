@@ -118,9 +118,19 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call TLab_Debug_Print_1D('[R2_after_BurgYZ_vvww] tmp3', tmp3)
     ! ===================================================================
 
+    ! ============== PASS 4 DEBUG: hq state before Ox momentum ==============
+    call TLab_Debug_Print_2D('[R2a_hq_before_Ox]', hq)
+    ! =======================================================================
+
     ! Ox momentum equation
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, v, tmp7, tmp9, tmp5) ! tmp5 contains v transposed
+    ! ============== PASS 4 DEBUG: after Burgers_Y(u,v) for Ox ==============
+    call TLab_Debug_Print_1D('[R2b_after_BurgY_uv] tmp7', tmp7)
+    ! =======================================================================
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
+    ! ============== PASS 4 DEBUG: after Burgers_Z(u,w) for Ox ==============
+    call TLab_Debug_Print_1D('[R2c_after_BurgZ_uw] tmp8', tmp8)
+    ! =======================================================================
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
@@ -129,17 +139,26 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp shared( srt,end,hq,tmp1,tmp7,tmp8 ) &
     !$omp if(end > mas)
 #endif
-    do ij = srt, end 
+    do ij = srt, end
         hq(ij, 1) = hq(ij, 1) + tmp1(ij) + tmp7(ij) + tmp8(ij)
     end do
 
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
+    ! ============== PASS 4 DEBUG: after Ox momentum update ==============
+    call TLab_Debug_Print_2D('[R2d_hq_after_Ox]', hq)
+    ! ====================================================================
 
     ! Oy momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
+    ! ============== PASS 4 DEBUG: after Burgers_X(v,u) for Oy ==============
+    call TLab_Debug_Print_1D('[R2e_after_BurgX_vu] tmp7', tmp7)
+    ! =======================================================================
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
+    ! ============== PASS 4 DEBUG: after Burgers_Z(v,w) for Oy ==============
+    call TLab_Debug_Print_1D('[R2f_after_BurgZ_vw] tmp8', tmp8)
+    ! =======================================================================
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
@@ -150,17 +169,26 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp if(end > mas)
 #endif
 
-    do ij = srt, end 
+    do ij = srt, end
         hq(ij, 2) = hq(ij, 2) + tmp2(ij) + tmp7(ij) + tmp8(ij)
     end do
 
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
+    ! ============== PASS 4 DEBUG: after Oy momentum update ==============
+    call TLab_Debug_Print_2D('[R2g_hq_after_Oy]', hq)
+    ! ====================================================================
 
     ! Oz momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
+    ! ============== PASS 4 DEBUG: after Burgers_X(w,u) for Oz ==============
+    call TLab_Debug_Print_1D('[R2h_after_BurgX_wu] tmp7', tmp7)
+    ! =======================================================================
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, v, tmp8, tmp9, tmp5) ! tmp5 contains v transposed
+    ! ============== PASS 4 DEBUG: after Burgers_Y(w,v) for Oz ==============
+    call TLab_Debug_Print_1D('[R2i_after_BurgY_wv] tmp8', tmp8)
+    ! =======================================================================
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
 #ifdef USE_APU
@@ -170,13 +198,16 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp if(end > mas)
 #endif
 
-    do ij = srt, end 
+    do ij = srt, end
         hq(ij, 3) = hq(ij, 3) + tmp3(ij) + tmp7(ij) + tmp8(ij)
     end do
 
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
+    ! ============== PASS 4 DEBUG: after Oz momentum update ==============
+    call TLab_Debug_Print_2D('[R2j_hq_after_Oz]', hq)
+    ! ====================================================================
 
     ! IBM
     if (imode_ibm == 1) then
