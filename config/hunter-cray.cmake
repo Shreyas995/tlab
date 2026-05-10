@@ -119,19 +119,32 @@ set(USER_Fortran_FLAGS         "-eZ ${USER_OMP_FLAGS} ${USER_APU_FLAGS} ${USER_p
 # ============================================================================
 
 # ============================================================================
-# Test 15 (ACTIVE): Properly cast a wide net — every directory's CMakeLists.txt
-# now globs all its *.f90 files and sets them to -O0. fdm_derivative,
-# fdm_base, all physics, all ibm, all particles, all thermodynamics now -O0.
-# Effectively close to a -O0 build, but with -O2 still in effect for the
-# CMake-level link/build commands.
+# Test 15: 163 files at -O0 (effectively whole codebase). RESULT: SAME crash.
+# CFL=0, dilatation=±Inf — identical to Tests 12-14.
 #
-#   - If this WORKS  -> we have a workable production setup.
-#                       Then we narrow down by re-enabling -O2 on dirs/files.
-#   - If this CRASHES-> the bug is in something compiled at the CMake level
-#                       (link step, module file resolution) or external
-#                       (Cray runtime, MPI). Time to file a Cray bug report.
+# This is a major signal: even with the entire user codebase at -O0 forced
+# per-file, the global `-O2` flag at link time produces the same crash.
+# Explanation: Cray CCE 20.0.0's `-O2` enables `-h ipa3` (IPA level 3) which
+# performs cross-object-file optimization at link time. Our per-file -O0 is
+# undone by link-time IPA.
 # ============================================================================
-set(USER_Fortran_FLAGS_RELEASE "-O2 -m4")
+
+# ============================================================================
+# Test 16 (ACTIVE): Add `-h ipa0` to explicitly disable IPA (link-time and
+# compile-time). All 163 files still at -O0 from per-file overrides.
+#
+# Cray flag reference:
+#   -O0 implies -h ipa0  (no IPA)
+#   -O2 implies -h ipa3  (IPA level 3, default — cross-file optimization)
+#
+#   - If this WORKS  -> IPA was the culprit. Then we have a workable production
+#                       setup AND we know the bug is in IPA (not in any
+#                       individual source file).
+#   - If this CRASHES-> the bug is in Cray runtime libraries (libpe,
+#                       libcraympi, libamdhip64) or in the MPI implementation.
+#                       Need to file a Cray bug report.
+# ============================================================================
+set(USER_Fortran_FLAGS_RELEASE "-O2 -h ipa0 -m4")
 
 if ( NOT CMAKE_BUILD_TYPE ) 
   set(CMAKE_BUILD_TYPE RELEASE)  
