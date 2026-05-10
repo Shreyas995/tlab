@@ -72,21 +72,29 @@ set(USER_Fortran_FLAGS         "-eZ ${USER_OMP_FLAGS} ${USER_APU_FLAGS} ${USER_p
 # set(USER_Fortran_FLAGS_RELEASE "-O1 -m4")
 
 # ============================================================================
-# Test 9 (ACTIVE): Global -O2, but the four APU-kernel source files are forced
-# to -O0 via set_source_files_properties() in their respective CMakeLists.txt:
+# Test 9: APU kernels forced to -O0 via per-file CMakeLists.txt overrides.
+# RESULT: Crashed (NaN at first timestep). Bug is NOT in just the four kernels.
+#
+# Files at -O0 in Test 9 (kept):
 #     src/utils/LinearDss.f90       (PENTADSS_APU + friends)
 #     src/utils/tlab_transpose.f90  (TLab_Transpose_COMPLEX_APU)
 #     src/fdm/fdm_matmul.f90        (MatMul_3d_APU, MatMul_5d_APU)
 #     src/fdm/fdm_integral.f90      (FDM_Int2_Solve_APU)
+# ============================================================================
+
+# ============================================================================
+# Test 10 (ACTIVE): Extend -O0 to APU driver layer.
+# Forced to -O0 in addition to the four kernels above:
+#     src/operators/opr_elliptic.f90   (Poisson driver, computes lambda)
+#     src/operators/opr_fourier.f90    (FFT setup, transpose orchestration)
+#     src/base/tlab_mpi_transpose.f90  (MPI transpose with APU paths)
 #
-# Goal: prove (or disprove) that ONE of these APU kernels is being miscompiled.
-#   - If this WORKS  -> bug is in one of the four files. We then re-enable
-#                       optimization on each file individually (toggle the
-#                       set_source_files_properties() lines) until the bad one
-#                       is identified.
-#   - If this CRASHES-> bug is somewhere else (likely in opr_elliptic.f90 or
-#                       opr_fourier.f90 — the Poisson driver path). We then
-#                       extend the -O0 list to include those.
+#   - If this WORKS  -> bug is in opr_elliptic, opr_fourier, or
+#                       tlab_mpi_transpose. We then re-enable each individually
+#                       to identify the bad one.
+#   - If this CRASHES-> the bug is in code OUTSIDE these eight files
+#                       (RHS computation, time integrator, etc.) and we
+#                       cast the net wider in Test 11.
 # ============================================================================
 set(USER_Fortran_FLAGS_RELEASE "-O2 -m4")
 
