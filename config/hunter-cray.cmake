@@ -106,14 +106,21 @@ set(USER_Fortran_FLAGS         "-eZ ${USER_OMP_FLAGS} ${USER_APU_FLAGS} ${USER_p
 # ============================================================================
 
 # ============================================================================
-# Test 13 (ACTIVE): Force ALL of src/tools/dns and src/base at -O0.
-# Adds RK substages 2 and 3, boundary BCs, halo exchange, pointer setup,
-# and all the time-stepping orchestration code.
+# Test 13: 88 files (Test 12 + all of src/tools/dns + src/base).
+# RESULT: SAME as Test 12. CFL=0, dilatation=±Inf. Bug is NOT in any of
+# the per-timestep RK / boundary / halo / pointer-setup files.
+# ============================================================================
+
+# ============================================================================
+# Test 14 (ACTIVE): Adds src/mappings + src/filters + src/statistics at -O0.
+# Filters are the prime suspect: a buggy dealiasing filter applied every step
+# would zero out velocity (matching CFL=0) and produce Inf at certain
+# wavenumbers (matching DilMax=±Inf).
 #
-#   - If this WORKS  -> bug is in src/tools/dns or src/base (likely RK
-#                       substages 2/3). Bisect by re-enabling per file.
-#   - If this CRASHES-> the bug is in src/mappings or src/filters or
-#                       src/particles or src/thermodynamics or src/statistics.
+#   - If this WORKS  -> bug is in mappings, filters, or statistics.
+#                       Bisect within these directories.
+#   - If this CRASHES-> bug is in src/particles or src/thermodynamics
+#                       (or some module file we haven't located yet).
 # ============================================================================
 set(USER_Fortran_FLAGS_RELEASE "-O2 -m4")
 
