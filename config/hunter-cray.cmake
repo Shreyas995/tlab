@@ -44,18 +44,47 @@ endif()
 
 # set(DRAGONEGG_FLAGS "-finline-aggressive -fslp-vectorize  -fmerge-all-constants") #  -mmadd4 -mfp64 -enable-strided-vectorization")
 set(USER_Fortran_FLAGS         "-eZ ${USER_OMP_FLAGS} ${USER_APU_FLAGS} ${USER_profile_FLAGS} ") #-fallow-argument-mismatch from gnu-version10
-# Test 1
-# set(USER_Fortran_FLAGS_RELEASE "-g -O0 -R abc -m4" ) #these will be ignored:  -fprefetch-loop-arrays --param prefetch-latency=300") 
-# Test 2
-set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -m4")
-# Test 3
-set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -hunroll2 -hfusion2 -m4")
-# Test 4
-set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -hunroll2 -hfusion2 -hipa2 -m4")
-# Test 5
-set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -hunroll2 -hfusion2 -hipa2 -hfp1 -m4")
-# Test 6
-set(USER_Fortran_FLAGS_RELEASE "-hipa2 -hfp2 -hunroll2 -hfusion2 -hscalar1 -m4" ) #these will be ignored:  -fprefetch-loop-arrays --param prefetch-latency=300") 
+
+# ============================================================================
+# Optimization flag tests (the LAST uncommented set() wins; earlier ones are overridden)
+# ============================================================================
+# Test 1: Baseline. Works correctly. Slow.
+# set(USER_Fortran_FLAGS_RELEASE "-g -O0 -R abc -m4")
+
+# Test 2: Light scalar opt. Explodes (production turbulent case).
+# set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -m4")
+
+# Test 3: + loop unroll/fusion. Explodes.
+# set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -hunroll2 -hfusion2 -m4")
+
+# Test 4: + IPA. Explodes.
+# set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -hunroll2 -hfusion2 -hipa2 -m4")
+
+# Test 5: + IEEE-equivalent FP. Explodes (rules out FP-precision as the cause).
+# set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -hunroll2 -hfusion2 -hipa2 -hfp1 -m4")
+
+# Test 6: Aggressive (original target). Explodes.
+# set(USER_Fortran_FLAGS_RELEASE "-hipa2 -hfp2 -hunroll2 -hfusion2 -hscalar1 -m4")
+
+# ============================================================================
+# Test 7 (ACTIVE): Optimize host code, but disable device-code (GPU) optimization.
+# Goal: distinguish a Cray device-code optimizer bug from a host-side numerical issue.
+#   - If this WORKS  -> bug is in Cray's GPU code generation under -O2.
+#                        We then pin individual APU subroutines to -O0 to identify the culprit.
+#   - If this CRASHES-> bug is on the host side. We then try Test 8.
+# Cray CCE 20.0.0 syntax for the device-opt-off flag varies; try in order:
+#    1)   -fno-openmp-target-opt
+#    2)   -hnoopenmp_target_optimize
+#    3)   -h omp_target_no_optimize
+# Pick whichever the compiler accepts (the others print a warning and are ignored).
+# ============================================================================
+set(USER_Fortran_FLAGS_RELEASE "-O2 -hscalar1 -hunroll2 -hfusion2 -hipa2 -hfp1 -fno-openmp-target-opt -m4")
+
+# ============================================================================
+# Test 8 (FALLBACK if Test 7 crashes): minimal CPU optimization, no vectorization.
+# Conservative middle-ground between -O0 (works) and -O2 (crashes).
+# ============================================================================
+# set(USER_Fortran_FLAGS_RELEASE "-O1 -m4")
 
 if ( NOT CMAKE_BUILD_TYPE ) 
   set(CMAKE_BUILD_TYPE RELEASE)  

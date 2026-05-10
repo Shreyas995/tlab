@@ -11,6 +11,7 @@ module FDM_MatMul
     use TLab_Constants, only: BCS_PERIODIC
     use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
     use TLab_Debug
+    use, intrinsic :: iso_c_binding, only: c_loc, c_f_pointer
     implicit none
     private
 

@@ -34,6 +34,7 @@ module LinearDss
     use TLab_Constants, only: wp, wi, mas
     use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
     use TLab_Time, only: pentadss_time, heptadss_time, tridss_time
+    use, intrinsic :: iso_c_binding, only: c_loc, c_f_pointer
     PUBLIC :: TRIDSS_APU
     PUBLIC :: PENTADSS_APU
     PUBLIC :: HEPTADSS_APU

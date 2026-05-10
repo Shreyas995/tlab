@@ -15,6 +15,7 @@ module FDM_Integral
     use FDM_Base
     use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
     use LinearDss
+    use, intrinsic :: iso_c_binding, only: c_loc, c_f_pointer
     use Tlab_Debug
 
     implicit none
