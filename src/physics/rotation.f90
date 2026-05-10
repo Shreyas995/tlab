@@ -106,7 +106,7 @@ contains
         type(term_dt), intent(in) :: locProps
         integer(wi), intent(in) :: nx, ny, nz
         real(wp), intent(in) :: u(nx*ny*nz, inb_flow)
-        real(wp), intent(out) :: r(nx*ny*nz, inb_scal)
+        real(wp), intent(inout) :: r(nx*ny*nz, inb_scal)
 
         ! -----------------------------------------------------------------------
         integer(wi) siz, srt, end    !  Variables for OpenMP Partitioning
@@ -133,8 +133,8 @@ contains
             dummy = locProps%vector(2)
             dtr3 = 0.0_wp; dtr1 = 0.0_wp
 #ifdef USE_APU
-        !$omp target teams distribute  parallel do private(ii,dummy) &
-        !$omp shared(srt,end,r,u,geo_w,geo_u) &
+        !$omp target teams distribute  parallel do private(ii) &
+        !$omp shared(srt,end,r,u,geo_w,geo_u) firstprivate(dummy) &
         !$omp if (end > mas)
 #endif
             do ii = srt, end
