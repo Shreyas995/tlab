@@ -112,15 +112,24 @@ set(USER_Fortran_FLAGS         "-eZ ${USER_OMP_FLAGS} ${USER_APU_FLAGS} ${USER_p
 # ============================================================================
 
 # ============================================================================
-# Test 14 (ACTIVE): Adds src/mappings + src/filters + src/statistics at -O0.
-# Filters are the prime suspect: a buggy dealiasing filter applied every step
-# would zero out velocity (matching CFL=0) and produce Inf at certain
-# wavenumbers (matching DilMax=±Inf).
+# Test 14: 108 files. RESULT: same as Test 13. CFL=0, dilatation=±Inf.
+# Critical insight: fdm_derivative.f90 was STILL at -O2 in Tests 9-14
+# because the fdm/CMakeLists.txt only put fdm_matmul + fdm_integral at -O0.
+# This means the actual derivative kernels were never -O0.
+# ============================================================================
+
+# ============================================================================
+# Test 15 (ACTIVE): Properly cast a wide net — every directory's CMakeLists.txt
+# now globs all its *.f90 files and sets them to -O0. fdm_derivative,
+# fdm_base, all physics, all ibm, all particles, all thermodynamics now -O0.
+# Effectively close to a -O0 build, but with -O2 still in effect for the
+# CMake-level link/build commands.
 #
-#   - If this WORKS  -> bug is in mappings, filters, or statistics.
-#                       Bisect within these directories.
-#   - If this CRASHES-> bug is in src/particles or src/thermodynamics
-#                       (or some module file we haven't located yet).
+#   - If this WORKS  -> we have a workable production setup.
+#                       Then we narrow down by re-enabling -O2 on dirs/files.
+#   - If this CRASHES-> the bug is in something compiled at the CMake level
+#                       (link step, module file resolution) or external
+#                       (Cray runtime, MPI). Time to file a Cray bug report.
 # ============================================================================
 set(USER_Fortran_FLAGS_RELEASE "-O2 -m4")
 

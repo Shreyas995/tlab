@@ -10,3 +10,9 @@ endif()
 
 add_library(particles STATIC ${sourcefiles})
 add_dependencies(particles thermodynamics base)
+
+# Force -O0 on all particles files.
+set_source_files_properties(
+    ${sourcefiles}
+    PROPERTIES COMPILE_FLAGS "-O0"
+)
