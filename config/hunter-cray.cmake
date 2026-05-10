@@ -88,25 +88,24 @@ set(USER_Fortran_FLAGS         "-eZ ${USER_OMP_FLAGS} ${USER_APU_FLAGS} ${USER_p
 # ============================================================================
 
 # ============================================================================
-# Test 11 (ACTIVE): Cast a wide net — every file containing !$omp target now -O0.
-# This covers the per-timestep RHS computation and time integrator.
+# Test 11: 17 files (all with !$omp target). RESULT: Crashed but PROGRESS!
+#   - dt, D#, visc are now correct (no longer NaN).
+#   - CFL = 0 (suspicious: implies velocity field is zero).
+#   - DilMin/DilMax = NaN (only the dilatation calc is broken now).
+#   The bug is narrowed. Most likely culprit: opr_partial.f90 (computes ALL
+#   derivatives every step; not in the -O0 list because no target regions).
 #
-# Files at -O0 (16 total, all with !$omp target regions):
-#   src/utils/LinearDss.f90, tlab_transpose.f90
-#   src/fdm/fdm_matmul.f90, fdm_integral.f90
-#   src/operators/opr_elliptic.f90, opr_fourier.f90
-#   src/base/tlab_mpi_transpose.f90
-#   src/physics/opr_burgers.f90, rotation.f90, tlab_sources.f90
-#   src/ibm/ibm_bcs.f90
-#   src/tools/dns/time.f90, rhs_flow_global_incompressible_1.f90,
-#                  rhs_global_incompressible_1.f90, rhs_flow_global_2.f90,
-#                  rhs_scal_global_incompressible_1.f90, rhs_scal_global_2.f90
+# ============================================================================
+# Test 12 (ACTIVE): Force ALL files in src/operators/ and src/utils/ to -O0.
+# This covers opr_partial, opr_filter, opr_interpolate, opr_check, opr_odes,
+# all the linear*, averages, integration, etc. Together with Test 11's 17
+# files, this puts most computation paths at -O0.
 #
-#   - If this WORKS  -> bug is in one of the 16. We then bisect.
-#   - If this CRASHES-> bug is in code WITHOUT !$omp target. That means
-#                       Cray's optimizer is breaking something in pure CPU
-#                       code (extremely unlikely but possible). Then we'd
-#                       need to investigate at a more fundamental level.
+#   - If this WORKS  -> the bug is in operators/* or utils/* (very likely
+#                       opr_partial). We bisect by re-enabling -O2 on each.
+#   - If this CRASHES-> bug is somewhere else entirely (mappings, particles,
+#                       statistics, or src/tools/dns RHS files we haven't
+#                       caught yet). Will widen further.
 # ============================================================================
 set(USER_Fortran_FLAGS_RELEASE "-O2 -m4")
 
