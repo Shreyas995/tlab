@@ -14,15 +14,6 @@ endif()
 
 add_executable(dns.x ${sourcefiles})
 target_link_libraries(dns.x statistics physics mappings operators particles filters fdm ibm thermodynamics ${LEVEL1_LIBS} ${LIBS})
-
-# Force -O0 on ALL files in src/tools/dns/ — every per-timestep file.
-# RK time-stepping has 3 substages (_1, _2, _3); substages 2 and 3 were
-# previously at -O2 and are likely the source of the velocity zeroing bug.
-file(GLOB dns_files "${CMAKE_CURRENT_SOURCE_DIR}/dns/*.f90")
-set_source_files_properties(
-    ${dns_files}
-    PROPERTIES COMPILE_FLAGS "-O0"
-)
 if (PSFFT_LIB)
 set_source_files_properties(dns/rhs_global_incompressible_nbc.f90 PROPERTIES COMPILE_FLAGS "${PSFFT_COMPILE_FLAGS}")
 set_target_properties(dns.x PROPERTIES LINK_FLAGS "${PSFFT_LINK_FLAGS} ${LINK_FLAGS}")
