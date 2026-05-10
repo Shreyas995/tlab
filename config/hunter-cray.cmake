@@ -67,31 +67,28 @@ set(USER_Fortran_FLAGS         "-eZ ${USER_OMP_FLAGS} ${USER_APU_FLAGS} ${USER_p
 # set(USER_Fortran_FLAGS_RELEASE "-hipa2 -hfp2 -hunroll2 -hfusion2 -hscalar1 -m4")
 
 # ============================================================================
-# Test 7 (ACTIVE): -O1 only.
-# -O1 does constant folding, dead-code elim, light inlining. NO vectorization,
-# NO loop transformations, NO IPA across the host/device boundary.
-# This is the cleanest "is the bug -O2-specific?" test using only standard flags.
-#   - If this WORKS  -> the bug is in some -O2 transformation. Vectorization
-#                       is the prime suspect for an iterative Poisson solver.
-#                       Next step: -O2 -h vector0 to confirm.
-#   - If this CRASHES-> bug is in even basic optimization. Then we move to
-#                       per-subroutine !dir$ optimize(0) directives on the
-#                       APU kernels to localize the culprit.
+# Test 7: -O1 only. RESULT: Crashed (NaN at first timestep after restart).
 # ============================================================================
-set(USER_Fortran_FLAGS_RELEASE "-O1 -m4")
+# set(USER_Fortran_FLAGS_RELEASE "-O1 -m4")
 
 # ============================================================================
-# Test 8 (FALLBACK if Test 7 crashes): -O2 with vectorization disabled.
-# If -O1 crashes too, skip to Test 9 instead.
+# Test 9 (ACTIVE): Global -O2, but the four APU-kernel source files are forced
+# to -O0 via set_source_files_properties() in their respective CMakeLists.txt:
+#     src/utils/LinearDss.f90       (PENTADSS_APU + friends)
+#     src/utils/tlab_transpose.f90  (TLab_Transpose_COMPLEX_APU)
+#     src/fdm/fdm_matmul.f90        (MatMul_3d_APU, MatMul_5d_APU)
+#     src/fdm/fdm_integral.f90      (FDM_Int2_Solve_APU)
+#
+# Goal: prove (or disprove) that ONE of these APU kernels is being miscompiled.
+#   - If this WORKS  -> bug is in one of the four files. We then re-enable
+#                       optimization on each file individually (toggle the
+#                       set_source_files_properties() lines) until the bad one
+#                       is identified.
+#   - If this CRASHES-> bug is somewhere else (likely in opr_elliptic.f90 or
+#                       opr_fourier.f90 — the Poisson driver path). We then
+#                       extend the -O0 list to include those.
 # ============================================================================
-# set(USER_Fortran_FLAGS_RELEASE "-O2 -h vector0 -m4")
-
-# ============================================================================
-# Test 9 (FALLBACK if -O1 also crashes): per-subroutine optimization control.
-# Use Cray directive !dir$ optimize(0) inside specific .f90 files to disable
-# optimization on individual APU kernels. Build with -O2 globally.
-# ============================================================================
-# set(USER_Fortran_FLAGS_RELEASE "-O2 -m4")
+set(USER_Fortran_FLAGS_RELEASE "-O2 -m4")
 
 if ( NOT CMAKE_BUILD_TYPE ) 
   set(CMAKE_BUILD_TYPE RELEASE)  
