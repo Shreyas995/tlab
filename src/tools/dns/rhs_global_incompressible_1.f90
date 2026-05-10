@@ -95,6 +95,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call TLab_Debug_Print_1D('[R0_RHS_entry] u',    u)
     call TLab_Debug_Print_1D('[R0_RHS_entry] v',    v)
     call TLab_Debug_Print_1D('[R0_RHS_entry] w',    w)
+    call TLab_Debug_Print_2D('[R0_RHS_entry] hq',   hq)
     ! ======================================================
 
     ! #######################################################################
