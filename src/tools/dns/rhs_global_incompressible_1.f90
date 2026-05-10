@@ -90,6 +90,13 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         end do
     end if
 
+    ! ============== PASS 3 DEBUG: RHS entry ==============
+    call TLab_Debug_Print_1D('[R0_RHS_entry] tmp1', tmp1)
+    call TLab_Debug_Print_1D('[R0_RHS_entry] u',    u)
+    call TLab_Debug_Print_1D('[R0_RHS_entry] v',    v)
+    call TLab_Debug_Print_1D('[R0_RHS_entry] w',    w)
+    ! ======================================================
+
     ! #######################################################################
     ! Diffusion and advection terms
     ! #######################################################################
@@ -99,9 +106,17 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     ! Diagonal terms and transposed velocity arrays
     call OPR_Burgers_X(OPR_B_SELF, 0, imax, jmax, kmax, bcs, u, u, tmp1, tmp4) ! store u transposed in tmp4
+    ! ============== PASS 3 DEBUG: after OPR_Burgers_X(u,u) ==============
+    call TLab_Debug_Print_1D('[R1_after_BurgX_uu] tmp1', tmp1)
+    ! ====================================================================
 
     call OPR_Burgers_Y(OPR_B_SELF, 0, imax, jmax, kmax, bcs, v, v, tmp2, tmp5) ! store v transposed in tmp5
     call OPR_Burgers_Z(OPR_B_SELF, 0, imax, jmax, kmax, bcs, w, w, tmp3, tmp6) ! store w transposed in tmp6
+    ! ============== PASS 3 DEBUG: after Burgers_Y/Z(vv,ww) ==============
+    call TLab_Debug_Print_1D('[R2_after_BurgYZ_vvww] tmp1', tmp1)
+    call TLab_Debug_Print_1D('[R2_after_BurgYZ_vvww] tmp2', tmp2)
+    call TLab_Debug_Print_1D('[R2_after_BurgYZ_vvww] tmp3', tmp3)
+    ! ===================================================================
 
     ! Ox momentum equation
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, v, tmp7, tmp9, tmp5) ! tmp5 contains v transposed
@@ -285,6 +300,12 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         end if
 
     end if
+    ! ============== PASS 3 DEBUG: before final divergence sum ==============
+    call TLab_Debug_Print_1D('[R4_before_div_sum] tmp1', tmp1)
+    call TLab_Debug_Print_1D('[R4_before_div_sum] tmp2', tmp2)
+    call TLab_Debug_Print_1D('[R4_before_div_sum] tmp3', tmp3)
+    ! =======================================================================
+
     ! -----------------------------------------------------------------------
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
@@ -293,12 +314,16 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp shared( srt,end,tmp1,tmp2,tmp3 ) &
     !$omp if(end > mas)
 #endif
-    do ij = srt, end 
+    do ij = srt, end
         tmp1(ij) = tmp1(ij) + tmp2(ij) + tmp3(ij) ! forcing term in tmp1
     end do
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
+
+    ! ============== PASS 3 DEBUG: after divergence sum (Poisson forcing) ==============
+    call TLab_Debug_Print_1D('[R5_after_div_sum] tmp1', tmp1)
+    ! ==================================================================================
 
     ! -----------------------------------------------------------------------
     ! Neumman BCs in d/dy(p) s.t. v=0 (no-penetration)
@@ -320,6 +345,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         BcsFlowJmin%ref(:, :, 2) = p_bcs(:, 1, :)
         BcsFlowJmax%ref(:, :, 2) = p_bcs(:, jmax, :)
     end if
+
+    ! ============== PASS 3 DEBUG: just before OPR_Poisson call ==============
+    call TLab_Debug_Print_1D('[R6_before_Poisson] tmp1', tmp1)
+    ! ========================================================================
 
     ! pressure in tmp1, Oy derivative in tmp3
     call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, p_tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
