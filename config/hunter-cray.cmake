@@ -130,19 +130,24 @@ set(USER_Fortran_FLAGS         "-eZ ${USER_OMP_FLAGS} ${USER_APU_FLAGS} ${USER_p
 # ============================================================================
 
 # ============================================================================
-# Test 16 (ACTIVE): Add `-h ipa0` to explicitly disable IPA (link-time and
-# compile-time). All 163 files still at -O0 from per-file overrides.
+# Test 16: 163 files at -O0 + `-O2 -h ipa0 -m4`. RESULT: SAME crash.
+# IPA at link time was not the cause. The bug is not in any optimization
+# applied to user code.
 #
-# Cray flag reference:
-#   -O0 implies -h ipa0  (no IPA)
-#   -O2 implies -h ipa3  (IPA level 3, default — cross-file optimization)
+# tlab.ini production config uses TransposeModeI/K=apudirect, which is the
+# experimental shared-memory MPI window code path. Hypothesis: this mode
+# has a memory-ordering/aliasing bug exposed only at -O2.
+# ============================================================================
+
+# ============================================================================
+# Test 17 (ACTIVE — same flags as Test 16): NO compile change required.
+# Test by switching tlab.ini from `apudirect` to `async` for both
+# TransposeModeI and TransposeModeK. Run with the current binary.
 #
-#   - If this WORKS  -> IPA was the culprit. Then we have a workable production
-#                       setup AND we know the bug is in IPA (not in any
-#                       individual source file).
-#   - If this CRASHES-> the bug is in Cray runtime libraries (libpe,
-#                       libcraympi, libamdhip64) or in the MPI implementation.
-#                       Need to file a Cray bug report.
+#   - If this WORKS  -> APU_DIRECT mode has the bug. Use `async` for production
+#                       at -O2 until APU_DIRECT is fixed.
+#   - If this CRASHES-> bug is even deeper (Cray runtime, HIP, MPI). At that
+#                       point switch to `-O0 -m4` for production stability.
 # ============================================================================
 set(USER_Fortran_FLAGS_RELEASE "-O2 -h ipa0 -m4")
 
