@@ -83,18 +83,30 @@ set(USER_Fortran_FLAGS         "-eZ ${USER_OMP_FLAGS} ${USER_APU_FLAGS} ${USER_p
 # ============================================================================
 
 # ============================================================================
-# Test 10 (ACTIVE): Extend -O0 to APU driver layer.
-# Forced to -O0 in addition to the four kernels above:
-#     src/operators/opr_elliptic.f90   (Poisson driver, computes lambda)
-#     src/operators/opr_fourier.f90    (FFT setup, transpose orchestration)
-#     src/base/tlab_mpi_transpose.f90  (MPI transpose with APU paths)
+# Test 10: 7 files at -O0 (kernels + Poisson driver + MPI transpose).
+# RESULT: Crashed. Bug is OUTSIDE the Poisson solver path.
+# ============================================================================
+
+# ============================================================================
+# Test 11 (ACTIVE): Cast a wide net — every file containing !$omp target now -O0.
+# This covers the per-timestep RHS computation and time integrator.
 #
-#   - If this WORKS  -> bug is in opr_elliptic, opr_fourier, or
-#                       tlab_mpi_transpose. We then re-enable each individually
-#                       to identify the bad one.
-#   - If this CRASHES-> the bug is in code OUTSIDE these eight files
-#                       (RHS computation, time integrator, etc.) and we
-#                       cast the net wider in Test 11.
+# Files at -O0 (16 total, all with !$omp target regions):
+#   src/utils/LinearDss.f90, tlab_transpose.f90
+#   src/fdm/fdm_matmul.f90, fdm_integral.f90
+#   src/operators/opr_elliptic.f90, opr_fourier.f90
+#   src/base/tlab_mpi_transpose.f90
+#   src/physics/opr_burgers.f90, rotation.f90, tlab_sources.f90
+#   src/ibm/ibm_bcs.f90
+#   src/tools/dns/time.f90, rhs_flow_global_incompressible_1.f90,
+#                  rhs_global_incompressible_1.f90, rhs_flow_global_2.f90,
+#                  rhs_scal_global_incompressible_1.f90, rhs_scal_global_2.f90
+#
+#   - If this WORKS  -> bug is in one of the 16. We then bisect.
+#   - If this CRASHES-> bug is in code WITHOUT !$omp target. That means
+#                       Cray's optimizer is breaking something in pure CPU
+#                       code (extremely unlikely but possible). Then we'd
+#                       need to investigate at a more fundamental level.
 # ============================================================================
 set(USER_Fortran_FLAGS_RELEASE "-O2 -m4")
 

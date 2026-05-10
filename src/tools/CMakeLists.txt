@@ -14,6 +14,18 @@ endif()
 
 add_executable(dns.x ${sourcefiles})
 target_link_libraries(dns.x statistics physics mappings operators particles filters fdm ibm thermodynamics ${LEVEL1_LIBS} ${LIBS})
+
+# APU target regions in tools/dns: force -O0 for the optimization-bug bisection.
+# These are the per-timestep RHS and time-integrator files.
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/dns/time.f90
+    ${CMAKE_CURRENT_SOURCE_DIR}/dns/rhs_flow_global_incompressible_1.f90
+    ${CMAKE_CURRENT_SOURCE_DIR}/dns/rhs_global_incompressible_1.f90
+    ${CMAKE_CURRENT_SOURCE_DIR}/dns/rhs_flow_global_2.f90
+    ${CMAKE_CURRENT_SOURCE_DIR}/dns/rhs_scal_global_incompressible_1.f90
+    ${CMAKE_CURRENT_SOURCE_DIR}/dns/rhs_scal_global_2.f90
+    PROPERTIES COMPILE_FLAGS "-O0"
+)
 if (PSFFT_LIB)
 set_source_files_properties(dns/rhs_global_incompressible_nbc.f90 PROPERTIES COMPILE_FLAGS "${PSFFT_COMPILE_FLAGS}")
 set_target_properties(dns.x PROPERTIES LINK_FLAGS "${PSFFT_LINK_FLAGS} ${LINK_FLAGS}")
