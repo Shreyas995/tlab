@@ -309,7 +309,7 @@ contains
     subroutine MatMul_3d_APU(nlines, klines, ilines, nx, fdmi, rhs, u, f, ibc, bcs_b, bcs_t)
         use TLab_Time, only: mat3d_time
         integer(wi) nlines, ilines, klines, nx
-        type(fdm_integral_dt2), intent(in) :: fdmi                          ! rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
+        type(fdm_integral_dt2), intent(in), target :: fdmi                          ! rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
         real(wp), intent(in) :: rhs(:, :)                                   ! diagonals of B
         real(wp), intent(in) :: u(:,:,:)                                     ! vector u
         real(wp), intent(out) :: f(:,:,:)                                 ! vector f = B u
@@ -325,7 +325,10 @@ contains
 
         lp0 = 2*nx    ; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3
         lp5 = 2*nx - 5; lp4 = 2*nx - 4; lp7 = 2*nx - 7; lp6 = 2*nx - 6
-        associate(loc_rhs_b => fdmi%rhs_b, loc_rhs_t => fdmi%rhs_t)
+        block
+            real(wp), pointer :: loc_rhs_b(:,:,:,:), loc_rhs_t(:,:,:,:)
+            loc_rhs_b => fdmi%rhs_b
+            loc_rhs_t => fdmi%rhs_t
         ! -------------------------------------------------------------------
         ! Boundary; the first 3/2+1+1=3 rows might be different
         if (any([BCS_MIN, BCS_BOTH] == ibc)) then
@@ -554,7 +557,7 @@ contains
 #endif
             end if
         end if
-        end associate
+        end block
         return
     end subroutine MatMul_3d_APU
 
@@ -1194,7 +1197,7 @@ contains
     ! Calculate f = B u, assuming B is pentadiagonal and 1. upper-diagonal in interior points is equal to 1
     subroutine MatMul_5d_APU(nlines, klines, ilines, nx, fdmi, rhs, u, f, ibc, bcs_b, bcs_t)
         integer(wi) nlines, ilines, klines, nx
-        type(fdm_integral_dt2), intent(in) :: fdmi   !rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
+        type(fdm_integral_dt2), intent(in), target :: fdmi   !rhs_b(1:3, 0:3), rhs_t(0:2, 1:4)  ! Special bcs at bottom and top
         real(wp), intent(in) :: rhs(:, :)
         real(wp), intent(in) :: u(1:2*nx, 1:klines, 1:ilines)           ! vector u
         real(wp), intent(out) :: f(1:2*nx, 1:klines, 1:ilines)       ! vector f = B u
@@ -1212,7 +1215,10 @@ contains
         ! size(u,1) and size(f,1) and size(bcs_b) and size(bcs_t) should be the same (number of equations to solve)
         lp0 = 2*nx; lp1 = 2*nx - 1; lp2 = 2*nx - 2; lp3 = 2*nx - 3; lp4 = 2*nx - 4; lp5 = 2*nx - 5; lp6 = 2*nx - 6;
         lp7 = 2*nx - 7; lp8 = 2*nx - 8; lp9 = 2*nx - 9; lp10 = 2*nx - 10; lp11 = 2*nx - 11; lp12 = 2*nx - 12
-        associate(loc_rhs_b => fdmi%rhs_b, loc_rhs_t => fdmi%rhs_t)
+        block
+            real(wp), pointer :: loc_rhs_b(:,:,:,:), loc_rhs_t(:,:,:,:)
+            loc_rhs_b => fdmi%rhs_b
+            loc_rhs_t => fdmi%rhs_t
         ! -------------------------------------------------------------------
         ! Boundary; the first 5/2+1+1=4 rows might be different
         if (any([BCS_MIN, BCS_BOTH] == ibc)) then
@@ -1351,7 +1357,7 @@ contains
             !$omp end target teams distribute parallel do
 #endif
         end if
-        end associate
+        end block
 
         return
     end subroutine MatMul_5d_APU

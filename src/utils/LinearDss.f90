@@ -50,7 +50,7 @@ contains
         integer(wi), intent(IN) :: len   ! number of systems to be solved
         integer(wi), intent(IN) :: klen  ! number of equations in each system
         integer(wi), intent(IN) :: ilen  ! number of equations in each system
-        type(fdm_integral_dt2), intent(in) :: fdmi
+        type(fdm_integral_dt2), intent(in), target :: fdmi
         real(wp), dimension(1:len*nmax, 1:klen, 1:ilen), intent(INOUT) :: f    ! RHS and solution
 
     ! -------------------------------------------------------------------
@@ -64,7 +64,9 @@ contains
         end if
         ! APU TARGET REGION: not executed on CPU (USE_APU not defined locally).
         ! Test this entire subroutine on Hunter APU with EllipticOrder=CompactDirect4.
-        associate(lhs => fdmi%lhs)
+        block
+            real(wp), pointer :: lhs(:,:,:,:)
+            lhs => fdmi%lhs
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i, k, n) &
@@ -96,7 +98,7 @@ contains
 #ifdef USE_APU
         !$omp end target teams distribute parallel do
 #endif
-        end associate
+        end block
         999 continue
         return
     end subroutine TRIDSS_APU
@@ -107,14 +109,16 @@ contains
         implicit none
 
         integer(wi) nmax, len, klen, ilen
-        type(fdm_integral_dt2), intent(in) :: fdmi !real(wp), dimension(nmax), intent(IN) :: a, b, c, d, e
+        type(fdm_integral_dt2), intent(in), target :: fdmi !real(wp), dimension(nmax), intent(IN) :: a, b, c, d, e
         real(wp), dimension(1:len*nmax, 1:klen, 1:ilen), intent(INOUT) :: f
         ! -----------------------------------------------------------------------
         integer(wi) n, i, k, l
         ! -----------------------------------------------------------------------
         ! Solve Ly=f, forward
         ! -----------------------------------------------------------------------
-        associate(lhs => fdmi%lhs)
+        block
+            real(wp), pointer :: lhs(:,:,:,:)
+            lhs => fdmi%lhs
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i, k, n) &
@@ -146,7 +150,7 @@ contains
 #ifdef USE_APU
         !$omp end target teams distribute parallel do
 #endif
-        end associate
+        end block
         return
     end subroutine PENTADSS_APU
 !########################################################################
@@ -158,7 +162,7 @@ contains
         implicit none
 
         integer(wi) len, nmax, klen, ilen
-        type(fdm_integral_dt2), intent(in) :: fdmi   !real(wp), dimension(nmax), intent(IN) :: a, b, c, d, e
+        type(fdm_integral_dt2), intent(in), target :: fdmi   !real(wp), dimension(nmax), intent(IN) :: a, b, c, d, e
         real(wp), dimension(1:len*nmax, 1:klen, 1:ilen), intent(INOUT) :: frc
 
     ! -----------------------------------------------------------------------
@@ -169,7 +173,9 @@ contains
     ! -----------------------------------------------------------------------
         ! APU TARGET REGION: not executed on CPU (USE_APU not defined locally).
         ! Test this entire subroutine on Hunter APU with a 7-diagonal elliptic scheme.
-        associate(lhs => fdmi%lhs)
+        block
+            real(wp), pointer :: lhs(:,:,:,:)
+            lhs => fdmi%lhs
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) private(i, k, n) &
         !$omp if (ilen*klen*len > mas)
@@ -210,7 +216,7 @@ contains
 #ifdef USE_APU
         !$omp end target teams distribute parallel do
 #endif
-        end associate
+        end block
         return
     end subroutine HEPTADSS_APU
 end module LinearDss

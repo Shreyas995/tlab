@@ -1244,7 +1244,7 @@ contains
         use TLab_Time, only: fdm_solve2_time
         use TLab_Debug
         integer(wi) nlines, ilines, klines
-        type(fdm_integral_dt2), intent(in) :: fdmi_int2
+        type(fdm_integral_dt2), intent(in), target :: fdmi_int2
         real(wp), intent(in) :: rhsi(:, :)
         real(wp), intent(in) :: f(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines)
         real(wp), intent(inout) :: result(1:2*size(fdmi_int2%lhs, 3), 1:klines, 1:ilines)   ! contains bcs
@@ -1278,29 +1278,33 @@ contains
             call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines*nx, 1:klines, 1:ilines))
         end select
         
-        associate(bc => fdmi_int2%bc, lhs => fdmi_int2%lhs)
+        block
+            real(wp), pointer :: lhs_p(:,:,:,:)
+            integer, pointer :: bc_p(:,:)
+            lhs_p => fdmi_int2%lhs
+            bc_p  => fdmi_int2%bc
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) &
         !$omp private(i,j,k,bcs) &
-        !$omp shared(ilines,klines,nlines,bc,lhs,result,p2_wrk2d,nx,ndl) &
+        !$omp shared(ilines,klines,nlines,bc_p,lhs_p,result,p2_wrk2d,nx,ndl) &
         !$omp if (ilines * klines * nlines > mas)
 #endif
         do i = 1, ilines
             do k = 1, klines
-                bcs = bc(k,i)
+                bcs = bc_p(k,i)
                 !   Corrections to the BCS_DD to account for Neumann
                 if ((BCS_ND == bcs) .or. (BCS_NN == bcs) ) then
                     do j = 1, nlines
                         result(j, k, i) = p2_wrk2d(j, k, i, 1) &
-                                + lhs(k, i, 1, 1)*result(j+nlines, k, i) + lhs(k, i, 1, 2)*result(2*nlines+j, k, i) + lhs(k, i, 1, 3)*result(3*nlines+j, k, i)
+                                + lhs_p(k, i, 1, 1)*result(j+nlines, k, i) + lhs_p(k, i, 1, 2)*result(2*nlines+j, k, i) + lhs_p(k, i, 1, 3)*result(3*nlines+j, k, i)
                     end do
                 end if
 
                 if ((BCS_DN == bcs) .or. (BCS_NN == bcs)) then
                     do j = 1, nlines
                         result(2*(nx-1)+j, k, i) = p2_wrk2d(j, k, i, 2) &
-                                    + lhs(k, i, nx, ndl)*result(2*(nx-2)+j, k, i) + lhs(k, i, nx, ndl - 1)*result(2*(nx-3)+j, k, i) &
-                                    + lhs(k, i, nx, ndl - 2)*result(2*(nx-4)+j, k, i)
+                                    + lhs_p(k, i, nx, ndl)*result(2*(nx-2)+j, k, i) + lhs_p(k, i, nx, ndl - 1)*result(2*(nx-3)+j, k, i) &
+                                    + lhs_p(k, i, nx, ndl - 2)*result(2*(nx-4)+j, k, i)
                     end do
                 end if
             end do
@@ -1309,7 +1313,7 @@ contains
 #ifdef USE_APU
         !$omp end target teams distribute parallel do
 #endif
-        end associate
+        end block
         return
     end subroutine FDM_Int2_Solve_APU
     
