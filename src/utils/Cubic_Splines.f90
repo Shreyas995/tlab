@@ -42,6 +42,8 @@ module Cubic_Splines
   PUBLIC :: CUBIC_SPLINE_COEFF
   PUBLIC :: CUBIC_SPLINE_FUNC
   PUBLIC :: CUBIC_SPLINE_BISECT
+  PUBLIC :: CUBIC_SPLINE_PRECOMPUTED
+  PUBLIC :: CUBIC_SPLINE_FUNC_PRECOMPUTED
 
 contains
 
@@ -348,17 +350,17 @@ contains
   subroutine CUBIC_SPLINE_BISECT(n, a, x, idx)
 
     use TLab_Constants, only : wi, wp
-    
+
     implicit none
 
     integer(wi),               intent(in) :: n   ! size of array a
     real(wp),    dimension(n), intent(in) :: a   ! ordered array
     real(wp),                  intent(in) :: x   ! element to insert
     integer(wi),               intent(out):: idx ! index for insertion
-    
+
     ! -------------------------------------------------------------------
     integer(wi)                           :: mid, lo, hi
-    
+
     ! ###################################################################
 
     lo = 1; hi = n
@@ -366,15 +368,86 @@ contains
     do while ( lo < hi )
       mid = (lo + hi) / 2
       if (x < a(mid)) then
-        hi = mid 
+        hi = mid
       else
         lo = mid + 1
       end if
-    end do      
+    end do
 
     idx = lo - 1
 
     return
   end subroutine CUBIC_SPLINE_BISECT
 
-end module 
+  !########################################################################
+  !# Pre-factored variant: skip LHS build + TRIDFS + bisection at runtime.
+  !# Inputs `dx`, `aa_lu`, `bb_lu`, `cc_lu` (after TRIDFS) and `bisect_idx`
+  !# are all geometry-only and computed once at cache build.
+  !########################################################################
+  subroutine CUBIC_SPLINE_PRECOMPUTED(bc, bcval, norg, nint, yorg, dx, &
+                                      aa_lu, bb_lu, cc_lu, bisect_idx, &
+                                      xorg, xint, yint, wrk)
+
+    implicit none
+
+    integer(wi), dimension(2),       intent(in)   :: bc
+    real(wp),    dimension(2),       intent(in)   :: bcval
+    integer(wi),                     intent(in)   :: norg, nint
+    real(wp),    dimension(norg),    intent(in)   :: yorg
+    real(wp),    dimension(norg-1),  intent(in)   :: dx
+    real(wp),    dimension(norg),    intent(in)   :: aa_lu, bb_lu, cc_lu
+    integer(wi), dimension(nint),    intent(in)   :: bisect_idx
+    real(wp),    dimension(norg),    intent(in)   :: xorg
+    real(wp),    dimension(nint),    intent(in)   :: xint
+    real(wp),    dimension(nint),    intent(out)  :: yint
+    real(wp),    dimension(norg,11), intent(inout):: wrk
+
+    target                                        :: wrk
+    real(wp),    dimension(:),       pointer      :: rhs, a, b, c, d
+    real(wp),    dimension(norg)                  :: aa_local, bb_local, cc_local
+
+    ! wrk slots match CUBIC_SPLINE for compatibility
+    rhs => wrk(1:norg  , 2)
+    a   => wrk(1:norg-1, 3); b => wrk(1:norg-1, 4); c => wrk(1:norg-1, 5); d => wrk(1:norg-1, 6)
+
+    call CUBIC_SPLINE_RHS(bc, bcval, norg, dx, yorg, rhs)
+
+    ! Back-substitute using pre-factored LU. TRIDSS overwrites a/b/c in place,
+    ! so copy the cached factors into local scratch to keep the cache immutable.
+    aa_local(1:norg) = aa_lu(1:norg)
+    bb_local(1:norg) = bb_lu(1:norg)
+    cc_local(1:norg) = cc_lu(1:norg)
+    call TRIDSS(norg, 1, aa_local, bb_local, cc_local, rhs)
+
+    call CUBIC_SPLINE_COEFF(norg, dx, yorg, rhs, a, b, c, d)
+    call CUBIC_SPLINE_FUNC_PRECOMPUTED(norg, nint, a, b, c, d, xorg, xint, bisect_idx, yint)
+
+    nullify(rhs, a, b, c, d)
+    return
+  end subroutine CUBIC_SPLINE_PRECOMPUTED
+
+  !########################################################################
+  subroutine CUBIC_SPLINE_FUNC_PRECOMPUTED(norg, nint, a, b, c, d, xorg, xint, bisect_idx, yint)
+
+    implicit none
+
+    integer(wi),                   intent(in)  :: norg, nint
+    real(wp),    dimension(norg-1),intent(in)  :: a, b, c, d
+    real(wp),    dimension(norg),  intent(in)  :: xorg
+    real(wp),    dimension(nint),  intent(in)  :: xint
+    integer(wi), dimension(nint),  intent(in)  :: bisect_idx
+    real(wp),    dimension(nint),  intent(out) :: yint
+
+    integer(wi) :: i, idx
+    real(wp)    :: z
+
+    do i = 1, nint
+      idx = bisect_idx(i)
+      z = xint(i) - xorg(idx)
+      yint(i) = a(idx)*z**3 + b(idx)*z**2 + c(idx)*z + d(idx)
+    end do
+
+    return
+  end subroutine CUBIC_SPLINE_FUNC_PRECOMPUTED
+
+end module

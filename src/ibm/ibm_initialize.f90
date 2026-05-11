@@ -34,6 +34,7 @@
 subroutine IBM_INITIALIZE_GEOMETRY(txc, wrk3d)
     use TLab_Constants, only: efile, wp
     use IBM_VARS
+    use IBM_Spline_Cache, only: IBM_Spline_Cache_Build_All
     use TLab_Memory, only: isize_field, inb_txc
     use TLab_WorkFlow, only: stagger_on
     use FDM, only: g
@@ -107,6 +108,11 @@ subroutine IBM_INITIALIZE_GEOMETRY(txc, wrk3d)
     call IBM_INITIALIZE_CASES(g(1), isize_nobi, isize_nobi_be, nobi, nobi_b, nobi_e, ibm_case_x)
     call IBM_INITIALIZE_CASES(g(2), isize_nobj, isize_nobj_be, nobj, nobj_b, nobj_e, ibm_case_y)
     call IBM_INITIALIZE_CASES(g(3), isize_nobk, isize_nobk_be, nobk, nobk_b, nobk_e, ibm_case_z)
+
+    ! Steps C + D: precompute per-spline geometry, LU factorization, bisect indices, and writeback maps.
+    ! Geometry is stationary so this is one-shot at init; runtime IBM_SPLINE_XYZ becomes
+    ! a tight loop of ya-fill, RHS, TRIDSS, COEFF, evaluate, writeback.
+    call IBM_Spline_Cache_Build_All()
 
     ! compute gamma_0/1 based on eps-field (volume approach for conditional averages!)
     call IBM_AVG_GAMMA(gamma_0, gamma_1, eps, tmp1)
