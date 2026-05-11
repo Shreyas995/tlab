@@ -79,9 +79,9 @@ subroutine IBM_SPLINE_XYZ(is, fld, fld_mod, g, isize_nob, isize_nob_be, nob, nob
         return
     end select
 
-    call TLab_Debug_Print_int('[I0_IBM_in] is=', is)
-    call TLab_Debug_Print_1D('[I0_IBM_in] sum(fld)=', fld)
-    call TLab_Debug_Print_int('[A0_skiplist] nactive=', cache%nactive)
+    !call TLab_Debug_Print_int('[I0_IBM_in] is=', is)
+    !call TLab_Debug_Print_1D('[I0_IBM_in] sum(fld)=', fld)
+    !call TLab_Debug_Print_int('[A0_skiplist] nactive=', cache%nactive)
 
     fld_mod = fld     ! never modify u,v,w,s directly !
 
@@ -167,15 +167,15 @@ subroutine IBM_SPLINE_XYZ(is, fld, fld_mod, g, isize_nob, isize_nob_be, nob, nob
     deallocate (ya_loc, yb_loc, wrk_loc)
     !$omp end parallel
 
-    call TLab_Debug_Print_int('[I1_IBM_agg] nactive=', cache%nactive)
-    call TLab_Debug_Print_int('[I1_IBM_agg] total_iob=', dbg_total_iob)
-    call TLab_Debug_Print_int('[I1_IBM_agg] total_ia=', dbg_total_ia)
-    call TLab_Debug_Print_int('[I1_IBM_agg] total_ib=', dbg_total_ib)
-    call TLab_Debug_Print_real('[I1_IBM_agg] sum_xa=', dbg_sum_xa)
-    call TLab_Debug_Print_real('[I1_IBM_agg] sum_ya=', dbg_sum_ya)
-    call TLab_Debug_Print_real('[I1_IBM_agg] sum_xb=', dbg_sum_xb)
-    call TLab_Debug_Print_real('[I1_IBM_agg] sum_yb=', dbg_sum_yb)
-    call TLab_Debug_Print_1D('[I2_IBM_out] sum(fld_mod)=', fld_mod)
+    !call TLab_Debug_Print_int('[I1_IBM_agg] nactive=', cache%nactive)
+    !call TLab_Debug_Print_int('[I1_IBM_agg] total_iob=', dbg_total_iob)
+    !call TLab_Debug_Print_int('[I1_IBM_agg] total_ia=', dbg_total_ia)
+    !call TLab_Debug_Print_int('[I1_IBM_agg] total_ib=', dbg_total_ib)
+    !call TLab_Debug_Print_real('[I1_IBM_agg] sum_xa=', dbg_sum_xa)
+    !call TLab_Debug_Print_real('[I1_IBM_agg] sum_ya=', dbg_sum_ya)
+    !call TLab_Debug_Print_real('[I1_IBM_agg] sum_xb=', dbg_sum_xb)
+    !call TLab_Debug_Print_real('[I1_IBM_agg] sum_yb=', dbg_sum_yb)
+    !call TLab_Debug_Print_1D('[I2_IBM_out] sum(fld_mod)=', fld_mod)
 
     return
 end subroutine IBM_SPLINE_XYZ
