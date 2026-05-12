@@ -66,9 +66,13 @@ module TLabMPI_Transpose
     real(dp), pointer, contiguous :: apu_async_recv_k(:) => null(), apu_async_recv_i(:) => null()
     type(c_ptr), allocatable :: apu_async_peer_k(:), apu_async_peer_i(:)
     logical, allocatable :: apu_async_is_local_k(:), apu_async_is_local_i(:)
-    ! FABRIC_DIRECT state: an RMA window over the (unified-memory) recv buffer, exposed to the
-    ! whole transpose communicator so inter-node peers can MPI_Put into it directly over the fabric.
+    ! FABRIC_DIRECT state: an RMA window over the FULL transpose communicator so inter-node peers
+    ! can MPI_Put directly over the fabric. The window memory is allocated by MPI_Win_allocate (so
+    ! it is RDMA-registerable) rather than reusing the MPI_Win_allocate_shared recv buffer — on Cray
+    ! MPICH that shared/USM segment is NOT usable as a remote RMA target (puts land nowhere). Inter-node
+    ! data arrives in apu_rma_recv_*; it is merged into apu_async_recv_* before the flat copy.
     type(MPI_Win) :: rma_win_k, rma_win_i
+    real(dp), pointer, contiguous :: apu_rma_recv_k(:) => null(), apu_rma_recv_i(:) => null()
     ! Complex-typed aliases for the same shared windows; used by complex APU_DIRECT paths.
     complex(dp), pointer :: apu_cx_recv_fptr_k(:) => null(), apu_cx_recv_fptr_i(:) => null()
     ! Contiguous span over all peers' recv segments for fused single-kernel writes.
@@ -137,6 +141,7 @@ contains
         type(MPI_Group) :: apu_async_group_dir, apu_async_group_shmem
         integer, allocatable :: apu_async_src_ranks(:), apu_async_trans_ranks(:)
         integer(MPI_ADDRESS_KIND) :: dbg_addr   ! FABRIC_DIRECT debug: holds a transferred c_ptr address
+        type(c_ptr) :: rma_baseptr              ! FABRIC_DIRECT: base of the MPI_Win_allocate RMA buffer
 #endif
         ! -----------------------------------------------------------------------
         integer(wi) ip, npage, dummy
@@ -419,24 +424,27 @@ contains
             end do
             deallocate (apu_async_src_ranks, apu_async_trans_ranks)
             call MPI_Comm_free(apu_async_shmem_comm, ims_err)
-            ! FABRIC_DIRECT: expose the (unified-memory) recv buffer as an RMA window over the
-            ! whole transpose comm so inter-node peers can MPI_Put straight into it via RDMA.
+            ! FABRIC_DIRECT: allocate a separate, MPI-managed (RDMA-registerable) RMA window over the
+            ! whole transpose comm for inter-node MPI_Put. (Reusing the MPI_Win_allocate_shared recv
+            ! buffer here does NOT work on Cray MPICH — remote puts into that shm/USM segment land nowhere.)
             if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-                call MPI_Win_create(apu_async_recv_k, &
-                                    int(apu_async_size_k, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
-                                    int(c_sizeof(1.0_dp)), MPI_INFO_NULL, ims_comm_z, rma_win_k, ims_err)
+                call MPI_Win_allocate(int(apu_async_size_k, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
+                                      int(c_sizeof(1.0_dp)), MPI_INFO_NULL, ims_comm_z, rma_baseptr, rma_win_k, ims_err)
                 if (ims_err /= MPI_SUCCESS) then
-                    call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_create failed for FABRIC_DIRECT K RMA window.')
+                    call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate failed for FABRIC_DIRECT K RMA window.')
                     call TLab_Stop(DNS_ERROR_ALLOC)
                 end if
-                ! debug: dump base addresses (c_ptr from MPI_Win_allocate_shared vs c_loc of the
-                ! Fortran pointer over it — these MUST match) and the intra-node peer list.
+                call c_f_pointer(rma_baseptr, apu_rma_recv_k, [apu_async_size_k])
+                ! debug: shm recv-buffer addresses (c_ptr from MPI_Win_allocate_shared vs c_loc of the
+                ! Fortran pointer over it — MUST match), the RMA-window buffer address, and the peer list.
                 dbg_addr = transfer(win_baseptr, dbg_addr)
-                write(500 + ims_pro, *) '[INIT_FBD_K] PE', ims_pro, ' win_baseptr_cptr=', dbg_addr, &
+                write(500 + ims_pro, *) '[INIT_FBD_K] PE', ims_pro, ' shm_baseptr=', dbg_addr, &
                     ' size=', apu_async_size_k, ' npro_k=', ims_npro_k, ' pro_k=', ims_pro_k
                 dbg_addr = transfer(c_loc(apu_async_recv_k(1)), dbg_addr)
                 write(500 + ims_pro, *) '[INIT_FBD_K] PE', ims_pro, ' c_loc(apu_async_recv_k(1))=', dbg_addr, &
-                    '  (must equal win_baseptr_cptr above)'
+                    '  (must equal shm_baseptr above)'
+                dbg_addr = transfer(rma_baseptr, dbg_addr)
+                write(500 + ims_pro, *) '[INIT_FBD_K] PE', ims_pro, ' rma_win_baseptr=', dbg_addr
                 do ip = 0, ims_npro_k - 1
                     if (apu_async_is_local_k(ip)) then
                         dbg_addr = transfer(apu_async_peer_k(ip), dbg_addr)
@@ -484,19 +492,21 @@ contains
             deallocate (apu_async_src_ranks, apu_async_trans_ranks)
             call MPI_Comm_free(apu_async_shmem_comm, ims_err)
             if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
-                call MPI_Win_create(apu_async_recv_i, &
-                                    int(apu_async_size_i, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
-                                    int(c_sizeof(1.0_dp)), MPI_INFO_NULL, ims_comm_x, rma_win_i, ims_err)
+                call MPI_Win_allocate(int(apu_async_size_i, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
+                                      int(c_sizeof(1.0_dp)), MPI_INFO_NULL, ims_comm_x, rma_baseptr, rma_win_i, ims_err)
                 if (ims_err /= MPI_SUCCESS) then
-                    call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_create failed for FABRIC_DIRECT I RMA window.')
+                    call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate failed for FABRIC_DIRECT I RMA window.')
                     call TLab_Stop(DNS_ERROR_ALLOC)
                 end if
+                call c_f_pointer(rma_baseptr, apu_rma_recv_i, [apu_async_size_i])
                 dbg_addr = transfer(win_baseptr, dbg_addr)
-                write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' win_baseptr_cptr=', dbg_addr, &
+                write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' shm_baseptr=', dbg_addr, &
                     ' size=', apu_async_size_i, ' npro_i=', ims_npro_i, ' pro_i=', ims_pro_i
                 dbg_addr = transfer(c_loc(apu_async_recv_i(1)), dbg_addr)
                 write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' c_loc(apu_async_recv_i(1))=', dbg_addr, &
-                    '  (must equal win_baseptr_cptr above)'
+                    '  (must equal shm_baseptr above)'
+                dbg_addr = transfer(rma_baseptr, dbg_addr)
+                write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' rma_win_baseptr=', dbg_addr
                 do ip = 0, ims_npro_i - 1
                     if (apu_async_is_local_i(ip)) then
                         dbg_addr = transfer(apu_async_peer_i(ip), dbg_addr)
@@ -845,9 +855,16 @@ contains
             ! Step 4: close both epochs — blocks until intra-node writes and inter-node puts have landed
             call MPI_Win_fence(0, rma_win_k, ims_err)
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
-            ! debug: split checksum of the assembled recv buffer — intra-node slots (filled by
-            ! peers' shared-window GPU writes) vs inter-node slots (filled by peers' MPI_Put).
-            ! sum(apu_async_recv_k) here must equal [KFR_post]'s sum(b) (the flat copy is 1:1).
+            ! Step 4b: merge inter-node RMA data (landed in the MPI-managed window apu_rma_recv_k)
+            ! into apu_async_recv_k alongside the intra-node shared-window data → one buffer for the flat copy.
+            do m = 0, ims_npro_k - 1
+                if (.not. apu_async_is_local_k(m)) &
+                    apu_async_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p) = &
+                        apu_rma_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p)
+            end do
+            ! debug: split checksum — intra-node slots (peers' shared-window GPU writes) vs inter-node
+            ! slots (peers' MPI_Put, merged in just above). inter= must now be NON-zero if there are
+            ! inter-node peers. total here must equal [KFR_post]'s sum(b) (the flat copy is 1:1).
             dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
             do m = 0, ims_npro_k - 1
                 if (apu_async_is_local_k(m)) then
@@ -1253,6 +1270,12 @@ contains
             end do
             call MPI_Win_fence(0, rma_win_k, ims_err)
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
+            ! merge inter-node RMA data into apu_async_recv_k alongside the intra-node shared-window data.
+            do m = 0, ims_npro_k - 1
+                if (.not. apu_async_is_local_k(m)) &
+                    apu_async_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p) = &
+                        apu_rma_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p)
+            end do
             ! debug: split checksum of the recv buffer before scattering to strided a.
             dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
             do m = 0, ims_npro_k - 1
@@ -1662,6 +1685,12 @@ contains
             end do
             call MPI_Win_fence(0, rma_win_i, ims_err)
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
+            ! merge inter-node RMA data into apu_async_recv_i alongside the intra-node shared-window data.
+            do m = 0, ims_npro_i - 1
+                if (.not. apu_async_is_local_i(m)) &
+                    apu_async_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p) = &
+                        apu_rma_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p)
+            end do
             ! debug: split checksum of the recv buffer before scattering to strided b.
             dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
             do m = 0, ims_npro_i - 1
@@ -2094,6 +2123,12 @@ contains
             end do
             call MPI_Win_fence(0, rma_win_i, ims_err)
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
+            ! merge inter-node RMA data into apu_async_recv_i alongside the intra-node shared-window data.
+            do m = 0, ims_npro_i - 1
+                if (.not. apu_async_is_local_i(m)) &
+                    apu_async_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p) = &
+                        apu_rma_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p)
+            end do
             ! debug: split checksum of the assembled recv buffer; total must equal [IBR_post]'s sum(a).
             dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
             do m = 0, ims_npro_i - 1
