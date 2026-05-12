@@ -10,8 +10,15 @@ module TLabMPI_Transpose
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use TLab_Memory, only: TLab_Allocate_Real
     use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc, c_null_ptr, c_associated, c_size_t, c_sizeof
-    ! c_ptr is accessible via mpi_f08 (which re-exports iso_c_binding); declaring it here again causes ambiguity
+    ! c_ptr / c_intptr_t are accessible via mpi_f08 (which re-exports iso_c_binding); re-declaring causes ambiguity.
+    ! For debug address dumps below we reuse MPI_ADDRESS_KIND (8-byte) instead of c_intptr_t.
     use TLabMPI_VARS
+#ifdef USE_APU
+    ! FABRIC_DIRECT debug taps (per-rank checksum logs in fort.500+rank or debug_thread_testing<rank>.log).
+    ! Diff the per-rank files between an asynchronous run (working reference) and a fabricdirect run on
+    ! Hunter; the first checkpoint where sums differ identifies where the data is going wrong.
+    use Tlab_Debug, only: TLab_Debug_Print_1D
+#endif
     implicit none
     private
 
@@ -54,7 +61,9 @@ module TLabMPI_Transpose
     ! APU_ASYNC state: node-local shared windows + intra-node rank detection
     integer(wi) :: apu_async_size_k = 0_wi, apu_async_size_i = 0_wi
     type(MPI_Win) :: apu_async_win_k, apu_async_win_i
-    real(dp), pointer :: apu_async_recv_k(:) => null(), apu_async_recv_i(:) => null()
+    ! contiguous: required so MPI_Win_create / MPI_Put / MPI_ISEND get the real data address,
+    ! not a copy-in/copy-out temporary (c_ptr address ≠ Fortran-pointer descriptor address).
+    real(dp), pointer, contiguous :: apu_async_recv_k(:) => null(), apu_async_recv_i(:) => null()
     type(c_ptr), allocatable :: apu_async_peer_k(:), apu_async_peer_i(:)
     logical, allocatable :: apu_async_is_local_k(:), apu_async_is_local_i(:)
     ! FABRIC_DIRECT state: an RMA window over the (unified-memory) recv buffer, exposed to the
@@ -91,8 +100,8 @@ module TLabMPI_Transpose
     ! Size = imax*jmax*kmax: covers real(dp) and complex(dp) paths.
     ! Allocated with standard Fortran allocate; on APU unified memory this is device-accessible.
     real(dp), allocatable, target :: wrk_mpi_dp(:)
-    real(dp), pointer    :: c_wrk_dp(:) => null()
-    complex(dp), pointer :: c_wrk_cx(:) => null()
+    real(dp), pointer, contiguous    :: c_wrk_dp(:) => null()   ! contiguous: MPI must see the real buffer, not a temporary
+    complex(dp), pointer, contiguous :: c_wrk_cx(:) => null()
     type(MPI_Status) status(128)
     type(MPI_Request) request(128)
 
@@ -127,6 +136,7 @@ contains
         type(MPI_Comm)  :: apu_async_shmem_comm
         type(MPI_Group) :: apu_async_group_dir, apu_async_group_shmem
         integer, allocatable :: apu_async_src_ranks(:), apu_async_trans_ranks(:)
+        integer(MPI_ADDRESS_KIND) :: dbg_addr   ! FABRIC_DIRECT debug: holds a transferred c_ptr address
 #endif
         ! -----------------------------------------------------------------------
         integer(wi) ip, npage, dummy
@@ -419,6 +429,24 @@ contains
                     call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_create failed for FABRIC_DIRECT K RMA window.')
                     call TLab_Stop(DNS_ERROR_ALLOC)
                 end if
+                ! debug: dump base addresses (c_ptr from MPI_Win_allocate_shared vs c_loc of the
+                ! Fortran pointer over it — these MUST match) and the intra-node peer list.
+                dbg_addr = transfer(win_baseptr, dbg_addr)
+                write(500 + ims_pro, *) '[INIT_FBD_K] PE', ims_pro, ' win_baseptr_cptr=', dbg_addr, &
+                    ' size=', apu_async_size_k, ' npro_k=', ims_npro_k, ' pro_k=', ims_pro_k
+                dbg_addr = transfer(c_loc(apu_async_recv_k(1)), dbg_addr)
+                write(500 + ims_pro, *) '[INIT_FBD_K] PE', ims_pro, ' c_loc(apu_async_recv_k(1))=', dbg_addr, &
+                    '  (must equal win_baseptr_cptr above)'
+                do ip = 0, ims_npro_k - 1
+                    if (apu_async_is_local_k(ip)) then
+                        dbg_addr = transfer(apu_async_peer_k(ip), dbg_addr)
+                        write(500 + ims_pro, *) '[INIT_FBD_K] PE', ims_pro, ' INTRA-node peer k-rank', ip, &
+                            ' shared_query_cptr=', dbg_addr
+                    else
+                        write(500 + ims_pro, *) '[INIT_FBD_K] PE', ims_pro, ' INTER-node peer k-rank', ip
+                    end if
+                end do
+                flush(500 + ims_pro)
             end if
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated K APU_ASYNC/FABRIC_DIRECT recv buffer.')
         end if
@@ -463,6 +491,22 @@ contains
                     call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_create failed for FABRIC_DIRECT I RMA window.')
                     call TLab_Stop(DNS_ERROR_ALLOC)
                 end if
+                dbg_addr = transfer(win_baseptr, dbg_addr)
+                write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' win_baseptr_cptr=', dbg_addr, &
+                    ' size=', apu_async_size_i, ' npro_i=', ims_npro_i, ' pro_i=', ims_pro_i
+                dbg_addr = transfer(c_loc(apu_async_recv_i(1)), dbg_addr)
+                write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' c_loc(apu_async_recv_i(1))=', dbg_addr, &
+                    '  (must equal win_baseptr_cptr above)'
+                do ip = 0, ims_npro_i - 1
+                    if (apu_async_is_local_i(ip)) then
+                        dbg_addr = transfer(apu_async_peer_i(ip), dbg_addr)
+                        write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' INTRA-node peer i-rank', ip, &
+                            ' shared_query_cptr=', dbg_addr
+                    else
+                        write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' INTER-node peer i-rank', ip
+                    end if
+                end do
+                flush(500 + ims_pro)
             end if
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated I APU_ASYNC/FABRIC_DIRECT recv buffer.')
         end if
@@ -642,6 +686,8 @@ contains
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_ns, mas
 #ifdef USE_APU
         real(dp), pointer :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
+        real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
+        integer(MPI_ADDRESS_KIND) :: dbg_addr
 #endif
 #ifdef PROFILE_ON
         real(wp) :: time_loc_1, time_loc_2
@@ -654,6 +700,11 @@ contains
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k   ! total Z-lines across all K ranks
         mas      = nmax_p * nlines_p       ! elements per peer chunk
+
+        ! Common-path debug tap: input checksum (runs for ALL modes, diff async vs fabricdirect).
+#ifdef USE_APU
+        call TLab_Debug_Print_1D('[KFR_pre] sum(a)=', a)
+#endif
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
@@ -794,6 +845,21 @@ contains
             ! Step 4: close both epochs — blocks until intra-node writes and inter-node puts have landed
             call MPI_Win_fence(0, rma_win_k, ims_err)
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
+            ! debug: split checksum of the assembled recv buffer — intra-node slots (filled by
+            ! peers' shared-window GPU writes) vs inter-node slots (filled by peers' MPI_Put).
+            ! sum(apu_async_recv_k) here must equal [KFR_post]'s sum(b) (the flat copy is 1:1).
+            dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
+            do m = 0, ims_npro_k - 1
+                if (apu_async_is_local_k(m)) then
+                    dbg_intra = dbg_intra + sum(apu_async_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
+                else
+                    dbg_inter = dbg_inter + sum(apu_async_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
+                end if
+            end do
+            dbg_addr = transfer(c_loc(c_wrk_dp(1)), dbg_addr)
+            write(500 + ims_pro, *) '[KFR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
+                ' total=', sum(apu_async_recv_k(1:size)), ' c_wrk_dp@', dbg_addr
+            flush(500 + ims_pro)
             ! Step 5: recv buffer is fully populated; flat copy to b
             !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
             do i = 1, size
@@ -932,6 +998,11 @@ contains
         ims_time_trans = ims_time_trans + (time_loc_2 - time_loc_1)
 #endif
 
+        ! Common-path debug tap: output checksum (runs for ALL modes; first divergence vs the
+        ! asynchronous-reference log identifies which K-forward call goes wrong in fabricdirect).
+#ifdef USE_APU
+        call TLab_Debug_Print_1D('[KFR_post] sum(b)=', b)
+#endif
         return
     end subroutine TLabMPI_Trp_ExecK_Forward_Real
 
@@ -1050,6 +1121,8 @@ contains
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_nr, mas
 #ifdef USE_APU
         real(dp), pointer :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
+        real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
+        integer(MPI_ADDRESS_KIND) :: dbg_addr
 #endif
 #ifdef PROFILE_ON
         real(wp) :: time_loc_1, time_loc_2
@@ -1062,6 +1135,11 @@ contains
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k
         mas      = nmax_p * nlines_p
+
+        ! Common-path debug tap: input checksum for K-backward.
+#ifdef USE_APU
+        call TLab_Debug_Print_1D('[KBR_pre] sum(b)=', b)
+#endif
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes; inverse of K-Forward.                  !
@@ -1175,6 +1253,18 @@ contains
             end do
             call MPI_Win_fence(0, rma_win_k, ims_err)
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
+            ! debug: split checksum of the recv buffer before scattering to strided a.
+            dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
+            do m = 0, ims_npro_k - 1
+                if (apu_async_is_local_k(m)) then
+                    dbg_intra = dbg_intra + sum(apu_async_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
+                else
+                    dbg_inter = dbg_inter + sum(apu_async_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
+                end if
+            end do
+            write(500 + ims_pro, *) '[KBR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
+                ' total=', sum(apu_async_recv_k(1:size))
+            flush(500 + ims_pro)
             do m = 0, ims_npro_k - 1
                 flat_off = m * nmax_p * nlines_p
                 disp_nr  = m * nlines_p
@@ -1327,6 +1417,10 @@ contains
         ims_time_trans = ims_time_trans + (time_loc_2 - time_loc_1)
 #endif
 
+        ! Common-path debug tap: K-backward output checksum.
+#ifdef USE_APU
+        call TLab_Debug_Print_1D('[KBR_post] sum(a)=', a)
+#endif
         return
     end subroutine TLabMPI_Trp_ExecK_Backward_Real
 
@@ -1441,12 +1535,19 @@ contains
         integer(wi) :: nmax_p, nlines_p, nmax_full, flat_off, disp_nr, mas
 #ifdef USE_APU
         real(dp), pointer :: apu_pfptr_i(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
+        real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
+        integer(MPI_ADDRESS_KIND) :: dbg_addr
 #endif
 
         nmax_p    = trp_plan%nmax
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i   ! total X-elements per line (stride in b)
         mas       = nmax_p * nlines_p
+
+        ! Common-path debug tap: input checksum for I-forward.
+#ifdef USE_APU
+        call TLab_Debug_Print_1D('[IFR_pre] sum(a)=', a)
+#endif
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
@@ -1561,6 +1662,18 @@ contains
             end do
             call MPI_Win_fence(0, rma_win_i, ims_err)
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
+            ! debug: split checksum of the recv buffer before scattering to strided b.
+            dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
+            do m = 0, ims_npro_i - 1
+                if (apu_async_is_local_i(m)) then
+                    dbg_intra = dbg_intra + sum(apu_async_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
+                else
+                    dbg_inter = dbg_inter + sum(apu_async_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
+                end if
+            end do
+            write(500 + ims_pro, *) '[IFR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
+                ' total=', sum(apu_async_recv_i(1:size))
+            flush(500 + ims_pro)
             do m = 0, ims_npro_i - 1
                 flat_off = m * nmax_p * nlines_p
                 disp_nr  = m * nmax_p
@@ -1707,6 +1820,10 @@ contains
         end if   ! end APU/CPU dispatch
 #endif
 
+        ! Common-path debug tap: I-forward output checksum.
+#ifdef USE_APU
+        call TLab_Debug_Print_1D('[IFR_post] sum(b)=', b)
+#endif
         return
     end subroutine TLabMPI_Trp_ExecI_Forward_Real
 
@@ -1829,6 +1946,8 @@ contains
 #ifdef USE_APU
         ! apu_pfptr_i: per-peer pointer into apu_async_win_i for APU_ASYNC intra-node writes.
         real(dp), pointer :: apu_pfptr_i(:) => null()
+        real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
+        integer(MPI_ADDRESS_KIND) :: dbg_addr
 #endif
 
         ! #######################################################################
@@ -1836,6 +1955,11 @@ contains
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i
         mas       = nmax_p * nlines_p
+
+        ! Common-path debug tap: input checksum for I-backward.
+#ifdef USE_APU
+        call TLab_Debug_Print_1D('[IBR_pre] sum(b)=', b)
+#endif
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
@@ -1970,6 +2094,19 @@ contains
             end do
             call MPI_Win_fence(0, rma_win_i, ims_err)
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
+            ! debug: split checksum of the assembled recv buffer; total must equal [IBR_post]'s sum(a).
+            dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
+            do m = 0, ims_npro_i - 1
+                if (apu_async_is_local_i(m)) then
+                    dbg_intra = dbg_intra + sum(apu_async_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
+                else
+                    dbg_inter = dbg_inter + sum(apu_async_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
+                end if
+            end do
+            dbg_addr = transfer(c_loc(c_wrk_dp(1)), dbg_addr)
+            write(500 + ims_pro, *) '[IBR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
+                ' total=', sum(apu_async_recv_i(1:size)), ' c_wrk_dp@', dbg_addr
+            flush(500 + ims_pro)
             !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
             do i = 1, size
                 a(i) = apu_async_recv_i(i)
@@ -2111,6 +2248,10 @@ contains
             end if
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
+#endif
+        ! Common-path debug tap: I-backward output checksum.
+#ifdef USE_APU
+        call TLab_Debug_Print_1D('[IBR_post] sum(a)=', a)
 #endif
         return
     end subroutine TLabMPI_Trp_ExecI_Backward_Real
