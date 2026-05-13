@@ -1673,6 +1673,12 @@ contains
                     end do
                 end if
             end do
+            ! Sender-side probe: print ims_pro_i and the runtime value of the fingerprint expression.
+            ! Goes to fort.500+rank, so PE 6's log (fort.506) will show what rank-prefix it used.
+            write(500 + ims_pro, *) '[IFR_FP_SEND_RANK] PE', ims_pro, &
+                ' ims_pro_i=', ims_pro_i, &
+                ' real(ims_pro_i,dp)*1e9=', real(ims_pro_i, dp) * 1.0e9_dp
+            flush(500 + ims_pro)
             ! FINGERPRINT TEST step 4: inter-node — fill staging with fingerprint, then ISEND
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
@@ -1680,6 +1686,15 @@ contains
                     do i = 1, nmax_p * nlines_p
                         c_wrk_dp(flat_off + i) = real(ims_pro_i, dp) * 1.0e9_dp + real(i, dp)
                     end do
+                    ! Probe the values we just wrote, BEFORE the ISEND reads them.
+                    ! If c_wrk_dp(flat_off+1..5) holds ims_pro_i*1e9+1..5, the fill is fine and
+                    ! the bug is in transit. If it holds 1..5, the fill itself is wrong on this rank.
+                    write(500 + ims_pro, *) '[IFR_FP_SEND] PE', ims_pro, &
+                        ' to m=', m, ' c_wrk_dp(flat_off+1..5)=', &
+                        c_wrk_dp(flat_off + 1), c_wrk_dp(flat_off + 2), &
+                        c_wrk_dp(flat_off + 3), c_wrk_dp(flat_off + 4), &
+                        c_wrk_dp(flat_off + 5)
+                    flush(500 + ims_pro)
                     l = l + 1
                     call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
                                    trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
