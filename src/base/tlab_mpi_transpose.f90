@@ -1540,6 +1540,7 @@ contains
         integer(wi) :: nmax_p, nlines_p, nmax_full, flat_off, disp_nr, mas
 #ifdef USE_APU
         real(dp), pointer :: apu_pfptr_i(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
+        real(dp), pointer, contiguous :: c_recv_dp(:) => null()   ! FABRIC_DIRECT: non-shm IRECV staging
         real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
         integer(MPI_ADDRESS_KIND) :: dbg_addr
         integer(wi) :: fp_nerr               ! FINGERPRINT TEST: mismatch counter
@@ -1644,14 +1645,20 @@ contains
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
             ! Two-level I-forward: fingerprint test.
             ! Sends fingerprint (our_rank * 1e9 + pos) instead of a(); verifies what arrives then STOPs.
+            ! IRECV target is c_recv_dp (a non-shm Fortran-allocated buffer, upper half of wrk_mpi_dp),
+            ! not apu_async_recv_i directly: previous attempt with IRECV into the MPI_Win_allocate_shared
+            ! buffer delivered nothing inter-node on Cray MPICH (slot 6..11 came out as PE 0's own
+            ! fingerprint pattern, not the sender's). Staging then copying matches what the working
+            ! ASYNCHRONOUS path does and isolates the inter-node delivery from the shm window.
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi_dp(1)),        c_wrk_dp,  shape=[size])   ! ISEND staging
+            call c_f_pointer(c_loc(wrk_mpi_dp(size + 1)), c_recv_dp, shape=[size])   ! IRECV staging
             l = 0
-            ! Step 1: post IRECVs for inter-node peers
+            ! Step 1: post IRECVs for inter-node peers INTO STAGING (not into apu_async_recv_i)
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
                     l = l + 1
-                    call MPI_IRECV(apu_async_recv_i(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                    call MPI_IRECV(c_recv_dp(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                    trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
                 end if
             end do
@@ -1680,6 +1687,16 @@ contains
             end do
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+            ! Copy inter-node slots from non-shm staging into apu_async_recv_i for verification.
+            ! Intra-node slots are already in apu_async_recv_i via the shared-window writes in step 3.
+            do m = 0, ims_npro_i - 1
+                if (.not. apu_async_is_local_i(m)) then
+                    flat_off = m * nmax_p * nlines_p
+                    do i = 1, nmax_p * nlines_p
+                        apu_async_recv_i(flat_off + i) = c_recv_dp(flat_off + i)
+                    end do
+                end if
+            end do
             ! FINGERPRINT VERIFICATION: slot m in apu_async_recv_i must hold fingerprints from rank m.
             ! expected(m, i) = m * 1e9 + i  for i = 1..nmax_p*nlines_p
             fp_nerr = 0
@@ -1702,7 +1719,7 @@ contains
             write(500 + ims_pro, *) '[IFR_FP] PE', ims_pro, &
                 ' chunk=', nmax_p*nlines_p, ' total_errors=', fp_nerr
             flush(500 + ims_pro)
-            nullify (c_wrk_dp, apu_pfptr_i)
+            nullify (c_wrk_dp, c_recv_dp, apu_pfptr_i)
             STOP 'IFR fingerprint test done -- check fort.500+ logs'
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
