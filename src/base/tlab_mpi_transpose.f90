@@ -1687,6 +1687,27 @@ contains
             end do
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+            ! Address-aliasing probe: c_wrk_dp and c_recv_dp must point to different memory.
+            ! If c_loc(wrk_mpi_dp(size+1)) is broken on this compiler, c_recv_addr == c_wrk_addr
+            ! and the staging buffer is just the send buffer (which explains got=pos for inter-node).
+            dbg_addr = transfer(c_loc(c_wrk_dp(1)),  dbg_addr)
+            write(500 + ims_pro, *) '[IFR_FP_ADDR] PE', ims_pro, ' c_loc(c_wrk_dp(1))= ', dbg_addr
+            dbg_addr = transfer(c_loc(c_recv_dp(1)), dbg_addr)
+            write(500 + ims_pro, *) '[IFR_FP_ADDR] PE', ims_pro, ' c_loc(c_recv_dp(1))=', dbg_addr
+            ! Probe: what IRECV actually delivered into c_recv_dp at slot 6 (the first inter-node peer).
+            ! If staging works, c_recv_dp(6*chunk + 1..20) should hold 6e9+1..6e9+20 (from rank 6).
+            do m = 0, ims_npro_i - 1
+                if (.not. apu_async_is_local_i(m)) then
+                    flat_off = m * nmax_p * nlines_p
+                    write(500 + ims_pro, *) '[IFR_FP_PRECOPY] PE', ims_pro, &
+                        ' m=', m, ' c_recv_dp(flat_off+1..5)=', &
+                        c_recv_dp(flat_off + 1), c_recv_dp(flat_off + 2), &
+                        c_recv_dp(flat_off + 3), c_recv_dp(flat_off + 4), &
+                        c_recv_dp(flat_off + 5)
+                    exit
+                end if
+            end do
+            flush(500 + ims_pro)
             ! Copy inter-node slots from non-shm staging into apu_async_recv_i for verification.
             ! Intra-node slots are already in apu_async_recv_i via the shared-window writes in step 3.
             do m = 0, ims_npro_i - 1
