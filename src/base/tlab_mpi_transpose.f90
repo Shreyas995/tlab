@@ -673,6 +673,8 @@ contains
         real(dp), pointer :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
         real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
         integer(MPI_ADDRESS_KIND) :: dbg_addr
+        integer(wi) :: fp_nerr               ! FINGERPRINT TEST: mismatch counter
+        real(dp) :: fp_expected, fp_actual   ! FINGERPRINT TEST: expected and actual values
 #endif
 #ifdef PROFILE_ON
         real(wp) :: time_loc_1, time_loc_2
@@ -804,68 +806,56 @@ contains
             end do
             ! Step 2: open shared-window epoch (collective over the node-local communicator)
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
-            ! Step 3: intra-node — GPU pushes our strided chunk directly into each peer's recv-buffer slot
+            ! FINGERPRINT TEST step 3: intra-node — CPU writes fingerprint to peer's recv buffer at our slot.
+            ! fingerprint(pos) = our_rank * 1e9 + pos  (pos is 1-based within the send chunk)
             do m = 0, ims_npro_k - 1
                 if (apu_async_is_local_k(m)) then
                     call c_f_pointer(apu_async_peer_k(m), apu_pfptr_k, [apu_async_size_k])
-                    flat_off = ims_pro_k * nmax_p * nlines_p   ! our write slot in peer's buffer
-                    disp_ns  = m * nlines_p
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
-                    do i = 0, nmax_p - 1
-                        do j = 0, nlines_p - 1
-                            apu_pfptr_k(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
-                        end do
+                    flat_off = ims_pro_k * nmax_p * nlines_p
+                    do i = 1, nmax_p * nlines_p
+                        apu_pfptr_k(flat_off + i) = real(ims_pro_k, dp) * 1.0e9_dp + real(i, dp)
                     end do
-                    !$omp end target teams distribute parallel do
                 end if
             end do
-            ! Step 4: inter-node — CPU-pack strided chunk → flat staging slot, then ISEND
+            ! FINGERPRINT TEST step 4: inter-node — fill staging with fingerprint, then ISEND
             do m = 0, ims_npro_k - 1
                 if (.not. apu_async_is_local_k(m)) then
                     flat_off = m * nmax_p * nlines_p
-                    disp_ns  = m * nlines_p
-                    do i = 0, nmax_p - 1
-                        do j = 0, nlines_p - 1
-                            c_wrk_dp(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
-                        end do
+                    do i = 1, nmax_p * nlines_p
+                        c_wrk_dp(flat_off + i) = real(ims_pro_k, dp) * 1.0e9_dp + real(i, dp)
                     end do
                     l = l + 1
                     call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
                                    trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
                 end if
             end do
-            ! Step 5: close shared-window epoch (intra-node writes done); wait for inter-node MPI
+            ! Step 5: close shared-window epoch; wait for inter-node MPI
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            ! debug: split checksum — intra-node slots (peers' GPU writes) vs inter-node slots (MPI).
-            ! inter= must be NON-zero if there are inter-node peers; total must equal [KFR_post]'s sum(b).
-            dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
-            do m = 0, ims_npro_k - 1
-                if (apu_async_is_local_k(m)) then
-                    dbg_intra = dbg_intra + sum(apu_async_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
-                else
-                    dbg_inter = dbg_inter + sum(apu_async_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
-                end if
-            end do
-            write(500 + ims_pro, *) '[KFR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
-                ' total=', sum(apu_async_recv_k(1:size))
-            flush(500 + ims_pro)
-            ! Step 6: flat copy to b — intra-node slots on the GPU, inter-node slots on the CPU
+            ! FINGERPRINT VERIFICATION: slot m in apu_async_recv_k must hold data from rank m.
+            ! expected(m, i) = m * 1e9 + i  for i = 1..nmax_p*nlines_p
+            fp_nerr = 0
             do m = 0, ims_npro_k - 1
                 flat_off = m * nmax_p * nlines_p
-                if (apu_async_is_local_k(m)) then
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
-                    do i = 1, nmax_p*nlines_p
-                        b(flat_off + i) = apu_async_recv_k(flat_off + i)
-                    end do
-                    !$omp end target teams distribute parallel do
-                else
-                    do i = 1, nmax_p*nlines_p
-                        b(flat_off + i) = apu_async_recv_k(flat_off + i)
-                    end do
-                end if
+                do i = 1, nmax_p * nlines_p
+                    fp_expected = real(m, dp) * 1.0e9_dp + real(i, dp)
+                    fp_actual   = apu_async_recv_k(flat_off + i)
+                    if (abs(fp_actual - fp_expected) > 0.5_dp) then
+                        fp_nerr = fp_nerr + 1
+                        if (fp_nerr <= 20) then
+                            write(500 + ims_pro, *) '[KFR_FP_ERR] PE', ims_pro, &
+                                ' from_rank=', m, ' pos=', i, &
+                                ' expected=', fp_expected, ' got=', fp_actual, &
+                                ' local=', apu_async_is_local_k(m)
+                        end if
+                    end if
+                end do
             end do
+            write(500 + ims_pro, *) '[KFR_FP] PE', ims_pro, &
+                ' chunk=', nmax_p*nlines_p, ' total_errors=', fp_nerr
+            flush(500 + ims_pro)
             nullify (c_wrk_dp, apu_pfptr_k)
+            STOP 'KFR fingerprint test done -- check fort.500+ logs'
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
 #endif
@@ -1552,6 +1542,8 @@ contains
         real(dp), pointer :: apu_pfptr_i(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
         real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
         integer(MPI_ADDRESS_KIND) :: dbg_addr
+        integer(wi) :: fp_nerr               ! FINGERPRINT TEST: mismatch counter
+        real(dp) :: fp_expected, fp_actual   ! FINGERPRINT TEST: expected and actual values
 #endif
 
         nmax_p    = trp_plan%nmax
@@ -1650,13 +1642,12 @@ contains
             nullify (apu_pfptr_i)
 
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
-            ! Two-level I-forward: a is flat (a[m*chunk] destined for peer m).
-            ! Intra-node peers: GPU writes a[m*chunk] into peer m's recv buffer at our slot.
-            ! Inter-node peers: plain two-sided MPI (ISEND a[m*chunk]; IRECV into our slot m).
-            ! After sync, apu_async_recv_i[m*chunk] = data from rank m → scatter to strided b
-            ! (GPU for intra-node source slots, CPU for inter-node ones).
+            ! Two-level I-forward: fingerprint test.
+            ! Sends fingerprint (our_rank * 1e9 + pos) instead of a(); verifies what arrives then STOPs.
             size = trp_plan%size3d
+            call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
             l = 0
+            ! Step 1: post IRECVs for inter-node peers
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
                     l = l + 1
@@ -1665,58 +1656,54 @@ contains
                 end if
             end do
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
+            ! FINGERPRINT TEST step 3: intra-node — CPU writes fingerprint to peer's recv buffer at our slot
             do m = 0, ims_npro_i - 1
                 if (apu_async_is_local_i(m)) then
                     call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
                     flat_off = ims_pro_i * nmax_p * nlines_p
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
                     do i = 1, nmax_p * nlines_p
-                        apu_pfptr_i(flat_off + i) = a(m * nmax_p * nlines_p + i)
+                        apu_pfptr_i(flat_off + i) = real(ims_pro_i, dp) * 1.0e9_dp + real(i, dp)
                     end do
-                    !$omp end target teams distribute parallel do
                 end if
             end do
+            ! FINGERPRINT TEST step 4: inter-node — fill staging with fingerprint, then ISEND
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
+                    flat_off = m * nmax_p * nlines_p
+                    do i = 1, nmax_p * nlines_p
+                        c_wrk_dp(flat_off + i) = real(ims_pro_i, dp) * 1.0e9_dp + real(i, dp)
+                    end do
                     l = l + 1
-                    call MPI_ISEND(a(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                    call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
                                    trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
                 end if
             end do
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            ! debug: split checksum of the recv buffer before scattering to strided b.
-            dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
-            do m = 0, ims_npro_i - 1
-                if (apu_async_is_local_i(m)) then
-                    dbg_intra = dbg_intra + sum(apu_async_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
-                else
-                    dbg_inter = dbg_inter + sum(apu_async_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
-                end if
-            end do
-            write(500 + ims_pro, *) '[IFR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
-                ' total=', sum(apu_async_recv_i(1:size))
-            flush(500 + ims_pro)
+            ! FINGERPRINT VERIFICATION: slot m in apu_async_recv_i must hold fingerprints from rank m.
+            ! expected(m, i) = m * 1e9 + i  for i = 1..nmax_p*nlines_p
+            fp_nerr = 0
             do m = 0, ims_npro_i - 1
                 flat_off = m * nmax_p * nlines_p
-                disp_nr  = m * nmax_p
-                if (apu_async_is_local_i(m)) then
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
-                    do i = 0, nlines_p - 1
-                        do j = 0, nmax_p - 1
-                            b(disp_nr + i*nmax_full + j + 1) = apu_async_recv_i(flat_off + i*nmax_p + j + 1)
-                        end do
-                    end do
-                    !$omp end target teams distribute parallel do
-                else
-                    do i = 0, nlines_p - 1
-                        do j = 0, nmax_p - 1
-                            b(disp_nr + i*nmax_full + j + 1) = apu_async_recv_i(flat_off + i*nmax_p + j + 1)
-                        end do
-                    end do
-                end if
+                do i = 1, nmax_p * nlines_p
+                    fp_expected = real(m, dp) * 1.0e9_dp + real(i, dp)
+                    fp_actual   = apu_async_recv_i(flat_off + i)
+                    if (abs(fp_actual - fp_expected) > 0.5_dp) then
+                        fp_nerr = fp_nerr + 1
+                        if (fp_nerr <= 20) then
+                            write(500 + ims_pro, *) '[IFR_FP_ERR] PE', ims_pro, &
+                                ' from_rank=', m, ' pos=', i, &
+                                ' expected=', fp_expected, ' got=', fp_actual, &
+                                ' local=', apu_async_is_local_i(m)
+                        end if
+                    end if
+                end do
             end do
-            nullify (apu_pfptr_i)
+            write(500 + ims_pro, *) '[IFR_FP] PE', ims_pro, &
+                ' chunk=', nmax_p*nlines_p, ' total_errors=', fp_nerr
+            flush(500 + ims_pro)
+            nullify (c_wrk_dp, apu_pfptr_i)
+            STOP 'IFR fingerprint test done -- check fort.500+ logs'
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
 #endif
