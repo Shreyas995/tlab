@@ -135,8 +135,9 @@ contains
         type(c_ptr) :: win_baseptr
 #ifdef USE_APU
         type(MPI_Comm)  :: apu_async_shmem_comm
-        type(MPI_Group) :: apu_async_group_dir, apu_async_group_shmem
-        integer, allocatable :: apu_async_src_ranks(:), apu_async_trans_ranks(:)
+        integer, allocatable :: apu_async_trans_ranks(:)   ! dir-rank → shmem-rank (or MPI_UNDEFINED)
+        integer, allocatable :: apu_async_shmem_to_dir(:)  ! shmem-rank → dir-rank (Allgather result)
+        integer :: apu_async_shmem_size
         integer(MPI_ADDRESS_KIND) :: dbg_addr   ! FABRIC_DIRECT debug: holds a transferred c_ptr address
 #endif
         ! -----------------------------------------------------------------------
@@ -390,19 +391,30 @@ contains
             allocate (apu_async_is_local_k(0:ims_npro_k - 1))
             allocate (apu_async_peer_k(0:ims_npro_k - 1))
             apu_async_peer_k = c_null_ptr
-            ! Build node-local communicator and detect intra-node K peers
+            ! Build node-local communicator and detect intra-node K peers.
+            ! NOTE: previously this used MPI_Group_translate_ranks(group_dir → group_shmem), but on
+            ! Cray MPICH (Hunter) that call returns trans_ranks(i) = i for i < size(group_shmem) and
+            ! MPI_UNDEFINED for i >= size(group_shmem), regardless of which processes are actually in
+            ! group_shmem. That made every rank flag "directional ranks 0..size_shmem-1 are intra-node",
+            ! which is only correct on the node that contains those directional ranks. On all other
+            ! nodes the inter/intra split was inverted, so intra-node writes went into the wrong shm
+            ! segments and inter-node ISENDs to the "first" peers were never posted — leaving the
+            ! receiver's IRECVs unmatched and its recv buffer holding leftover bytes.
+            ! Fix: gather each rank's ims_pro_k inside apu_async_shmem_comm. The collected values
+            ! directly enumerate the ims_comm_z ranks that physically share this node.
             call MPI_Comm_split_type(ims_comm_z, MPI_COMM_TYPE_SHARED, ims_pro_k, MPI_INFO_NULL, apu_async_shmem_comm, ims_err)
-            call MPI_Comm_group(ims_comm_z, apu_async_group_dir, ims_err)
-            call MPI_Comm_group(apu_async_shmem_comm, apu_async_group_shmem, ims_err)
-            allocate (apu_async_src_ranks(0:ims_npro_k - 1), apu_async_trans_ranks(0:ims_npro_k - 1))
-            do ip = 0, ims_npro_k - 1; apu_async_src_ranks(ip) = ip; end do
-            call MPI_Group_translate_ranks(apu_async_group_dir, ims_npro_k, apu_async_src_ranks, &
-                                           apu_async_group_shmem, apu_async_trans_ranks, ims_err)
-            do ip = 0, ims_npro_k - 1
-                apu_async_is_local_k(ip) = (apu_async_trans_ranks(ip) /= MPI_UNDEFINED)
+            call MPI_Comm_size(apu_async_shmem_comm, apu_async_shmem_size, ims_err)
+            allocate (apu_async_trans_ranks(0:ims_npro_k - 1))
+            allocate (apu_async_shmem_to_dir(0:apu_async_shmem_size - 1))
+            call MPI_Allgather(ims_pro_k, 1, MPI_INTEGER, apu_async_shmem_to_dir, 1, MPI_INTEGER, &
+                               apu_async_shmem_comm, ims_err)
+            apu_async_is_local_k = .false.
+            apu_async_trans_ranks = MPI_UNDEFINED
+            do ip = 0, apu_async_shmem_size - 1
+                apu_async_is_local_k(apu_async_shmem_to_dir(ip)) = .true.
+                apu_async_trans_ranks(apu_async_shmem_to_dir(ip)) = ip   ! shmem rank for shared_query
             end do
-            call MPI_Group_free(apu_async_group_dir, ims_err)
-            call MPI_Group_free(apu_async_group_shmem, ims_err)
+            deallocate (apu_async_shmem_to_dir)
             ! Allocate shared window on the node-local sub-communicator
             call MPI_Win_allocate_shared(int(apu_async_size_k, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
                                          int(c_sizeof(1.0_dp)), MPI_INFO_NULL, apu_async_shmem_comm, win_baseptr, apu_async_win_k, ims_err)
@@ -418,7 +430,7 @@ contains
                     call MPI_Win_shared_query(apu_async_win_k, apu_async_trans_ranks(ip), &
                                               win_query_size, win_disp_unit, apu_async_peer_k(ip), ims_err)
             end do
-            deallocate (apu_async_src_ranks, apu_async_trans_ranks)
+            deallocate (apu_async_trans_ranks)
             call MPI_Comm_free(apu_async_shmem_comm, ims_err)
             if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
                 ! debug: shm recv-buffer addresses (c_ptr from MPI_Win_allocate_shared vs c_loc of the
@@ -447,18 +459,21 @@ contains
             allocate (apu_async_is_local_i(0:ims_npro_i - 1))
             allocate (apu_async_peer_i(0:ims_npro_i - 1))
             apu_async_peer_i = c_null_ptr
+            ! See the K-direction block above for the rationale: MPI_Group_translate_ranks is
+            ! unreliable here on Cray MPICH; use MPI_Allgather over the shmem comm instead.
             call MPI_Comm_split_type(ims_comm_x, MPI_COMM_TYPE_SHARED, ims_pro_i, MPI_INFO_NULL, apu_async_shmem_comm, ims_err)
-            call MPI_Comm_group(ims_comm_x, apu_async_group_dir, ims_err)
-            call MPI_Comm_group(apu_async_shmem_comm, apu_async_group_shmem, ims_err)
-            allocate (apu_async_src_ranks(0:ims_npro_i - 1), apu_async_trans_ranks(0:ims_npro_i - 1))
-            do ip = 0, ims_npro_i - 1; apu_async_src_ranks(ip) = ip; end do
-            call MPI_Group_translate_ranks(apu_async_group_dir, ims_npro_i, apu_async_src_ranks, &
-                                           apu_async_group_shmem, apu_async_trans_ranks, ims_err)
-            do ip = 0, ims_npro_i - 1
-                apu_async_is_local_i(ip) = (apu_async_trans_ranks(ip) /= MPI_UNDEFINED)
+            call MPI_Comm_size(apu_async_shmem_comm, apu_async_shmem_size, ims_err)
+            allocate (apu_async_trans_ranks(0:ims_npro_i - 1))
+            allocate (apu_async_shmem_to_dir(0:apu_async_shmem_size - 1))
+            call MPI_Allgather(ims_pro_i, 1, MPI_INTEGER, apu_async_shmem_to_dir, 1, MPI_INTEGER, &
+                               apu_async_shmem_comm, ims_err)
+            apu_async_is_local_i = .false.
+            apu_async_trans_ranks = MPI_UNDEFINED
+            do ip = 0, apu_async_shmem_size - 1
+                apu_async_is_local_i(apu_async_shmem_to_dir(ip)) = .true.
+                apu_async_trans_ranks(apu_async_shmem_to_dir(ip)) = ip   ! shmem rank for shared_query
             end do
-            call MPI_Group_free(apu_async_group_dir, ims_err)
-            call MPI_Group_free(apu_async_group_shmem, ims_err)
+            deallocate (apu_async_shmem_to_dir)
             call MPI_Win_allocate_shared(int(apu_async_size_i, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
                                          int(c_sizeof(1.0_dp)), MPI_INFO_NULL, apu_async_shmem_comm, win_baseptr, apu_async_win_i, ims_err)
             if (ims_err /= MPI_SUCCESS) then
@@ -473,7 +488,7 @@ contains
                     call MPI_Win_shared_query(apu_async_win_i, apu_async_trans_ranks(ip), &
                                               win_query_size, win_disp_unit, apu_async_peer_i(ip), ims_err)
             end do
-            deallocate (apu_async_src_ranks, apu_async_trans_ranks)
+            deallocate (apu_async_trans_ranks)
             call MPI_Comm_free(apu_async_shmem_comm, ims_err)
             if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
                 dbg_addr = transfer(win_baseptr, dbg_addr)
