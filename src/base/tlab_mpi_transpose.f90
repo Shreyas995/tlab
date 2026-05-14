@@ -1669,12 +1669,18 @@ contains
             call c_f_pointer(c_loc(wrk_mpi_dp(1)),        c_wrk_dp,  shape=[size])   ! ISEND staging
             call c_f_pointer(c_loc(wrk_mpi_dp(size + 1)), c_recv_dp, shape=[size])   ! IRECV staging
             l = 0
-            ! Step 1: post IRECVs for inter-node peers INTO STAGING (not into apu_async_recv_i)
+            ! Step 1: post IRECVs for inter-node peers INTO STAGING (not into apu_async_recv_i).
+            ! Tag = sender's ims_pro_i (=m). This makes ISEND(dst=m, tag=ims_pro_i) and
+            ! IRECV(src=m, tag=m) carry DIFFERENT tags on the same process whenever
+            ! ims_pro_i /= m, which prevents a buggy Cray MPICH progress engine from
+            ! self-matching our own ISEND to our own IRECV inside an MPI_Win_fence window.
+            ! (Previous run with shared ims_tag: PE 6's IRECV(src=0) was satisfied locally
+            !  by PE 6's own ISEND(dst=0), so receivers on node A hung on the unposted match.)
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
                     l = l + 1
                     call MPI_IRECV(c_recv_dp(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
+                                   trp_plan%base_type, m, m, ims_comm_x, request(l), ims_err)
                 end if
             end do
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
@@ -1711,8 +1717,9 @@ contains
                         c_wrk_dp(flat_off + 5)
                     flush(500 + ims_pro)
                     l = l + 1
+                    ! ISEND tag = our ims_pro_i. Pairs with receiver's IRECV(src=our-rank, tag=our-rank).
                     call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
+                                   trp_plan%base_type, m, ims_pro_i, ims_comm_x, request(l), ims_err)
                 end if
             end do
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
