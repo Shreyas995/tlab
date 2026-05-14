@@ -61,6 +61,7 @@ module TLabMPI_Transpose
     ! APU_ASYNC state: node-local shared windows + intra-node rank detection
     integer(wi) :: apu_async_size_k = 0_wi, apu_async_size_i = 0_wi
     type(MPI_Win) :: apu_async_win_k, apu_async_win_i
+    type(MPI_Comm) :: apu_async_node_comm_k, apu_async_node_comm_i   ! node-local shmem comm, kept alive for runtime barriers
     ! contiguous: required so the buffer passed to MPI gets the real data address, not a
     ! copy-in/copy-out temporary (c_ptr address ≠ Fortran-pointer descriptor address).
     real(dp), pointer, contiguous :: apu_async_recv_k(:) => null(), apu_async_recv_i(:) => null()
@@ -431,7 +432,7 @@ contains
                                               win_query_size, win_disp_unit, apu_async_peer_k(ip), ims_err)
             end do
             deallocate (apu_async_trans_ranks)
-            call MPI_Comm_free(apu_async_shmem_comm, ims_err)
+            apu_async_node_comm_k = apu_async_shmem_comm   ! keep alive for runtime MPI_Barrier
             if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
                 ! debug: shm recv-buffer addresses (c_ptr from MPI_Win_allocate_shared vs c_loc of the
                 ! Fortran pointer over it — MUST match) and the intra/inter peer list.
@@ -489,7 +490,7 @@ contains
                                               win_query_size, win_disp_unit, apu_async_peer_i(ip), ims_err)
             end do
             deallocate (apu_async_trans_ranks)
-            call MPI_Comm_free(apu_async_shmem_comm, ims_err)
+            apu_async_node_comm_i = apu_async_shmem_comm   ! keep alive for runtime MPI_Barrier
             if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
                 dbg_addr = transfer(win_baseptr, dbg_addr)
                 write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' shm_baseptr=', dbg_addr, &
@@ -1683,7 +1684,10 @@ contains
                                    trp_plan%base_type, m, m, ims_comm_x, request(l), ims_err)
                 end if
             end do
-            call MPI_Win_fence(0, apu_async_win_i, ims_err)
+            ! No Win_fence here. On Cray MPICH the Win_fence appears to capture the MPI progress
+            ! engine and stalls inter-node delivery of the IRECVs/ISENDs we are about to use.
+            ! We replace it with a plain MPI_Barrier on the node-local shmem comm before reading
+            ! the intra-node-written slots back (after WAITALL).
             ! FINGERPRINT TEST step 3: intra-node — CPU writes fingerprint to peer's recv buffer at our slot
             do m = 0, ims_npro_i - 1
                 if (apu_async_is_local_i(m)) then
@@ -1722,8 +1726,10 @@ contains
                                    trp_plan%base_type, m, ims_pro_i, ims_comm_x, request(l), ims_err)
                 end if
             end do
-            call MPI_Win_fence(0, apu_async_win_i, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+            ! After the inter-node MPI traffic has progressed, sync the node-local shmem comm so
+            ! peers' Step-3 shared-window writes become visible before we read them.
+            call MPI_Barrier(apu_async_node_comm_i, ims_err)
             ! Address-aliasing probe: c_wrk_dp and c_recv_dp must point to different memory.
             ! If c_loc(wrk_mpi_dp(size+1)) is broken on this compiler, c_recv_addr == c_wrk_addr
             ! and the staging buffer is just the send buffer (which explains got=pos for inter-node).
