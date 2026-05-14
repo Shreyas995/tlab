@@ -1677,89 +1677,56 @@ contains
             ! self-matching our own ISEND to our own IRECV inside an MPI_Win_fence window.
             ! (Previous run with shared ims_tag: PE 6's IRECV(src=0) was satisfied locally
             !  by PE 6's own ISEND(dst=0), so receivers on node A hung on the unposted match.)
+            ! Symmetric-MPI test: post IRECV/ISEND to ALL 12 peers (not just inter-node ones).
+            ! Asynchronous mode posts to all peers and works on Hunter; fabricdirect's previous
+            ! filter (".not. apu_async_is_local_i(m)") posts a subset, and that subset never
+            ! made it across nodes on Cray MPICH. If WAITALL completes with this all-peers
+            ! variant, the bug is "asymmetric MPI pattern + shm window on a sub-comm of the
+            ! parent comm" — and the production fix is to fall back to asynchronous-style
+            ! all-peers MPI for the inter-node leg, letting MPI's own shm shortcut handle
+            ! the intra-node legs internally.
             do m = 0, ims_npro_i - 1
-                if (.not. apu_async_is_local_i(m)) then
-                    l = l + 1
-                    call MPI_IRECV(c_recv_dp(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m, m, ims_comm_x, request(l), ims_err)
-                end if
+                l = l + 1
+                call MPI_IRECV(c_recv_dp(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                               trp_plan%base_type, m, m, ims_comm_x, request(l), ims_err)
             end do
-            ! No Win_fence here. On Cray MPICH the Win_fence appears to capture the MPI progress
-            ! engine and stalls inter-node delivery of the IRECVs/ISENDs we are about to use.
-            ! We replace it with a plain MPI_Barrier on the node-local shmem comm before reading
-            ! the intra-node-written slots back (after WAITALL).
-            ! FINGERPRINT TEST step 3: intra-node — CPU writes fingerprint to peer's recv buffer at our slot
-            do m = 0, ims_npro_i - 1
-                if (apu_async_is_local_i(m)) then
-                    call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
-                    flat_off = ims_pro_i * nmax_p * nlines_p
-                    do i = 1, nmax_p * nlines_p
-                        apu_pfptr_i(flat_off + i) = real(ims_pro_i, dp) * 1.0e9_dp + real(i, dp)
-                    end do
-                end if
-            end do
-            ! Sender-side probe: print ims_pro_i and the runtime value of the fingerprint expression.
-            ! Goes to fort.500+rank, so PE 6's log (fort.506) will show what rank-prefix it used.
+            ! Sender-side probe: print ims_pro_i and the runtime fingerprint coefficient.
             write(500 + ims_pro, *) '[IFR_FP_SEND_RANK] PE', ims_pro, &
                 ' ims_pro_i=', ims_pro_i, &
                 ' real(ims_pro_i,dp)*1e9=', real(ims_pro_i, dp) * 1.0e9_dp
             flush(500 + ims_pro)
-            ! FINGERPRINT TEST step 4: inter-node — fill staging with fingerprint, then ISEND
             do m = 0, ims_npro_i - 1
-                if (.not. apu_async_is_local_i(m)) then
-                    flat_off = m * nmax_p * nlines_p
-                    do i = 1, nmax_p * nlines_p
-                        c_wrk_dp(flat_off + i) = real(ims_pro_i, dp) * 1.0e9_dp + real(i, dp)
-                    end do
-                    ! Probe the values we just wrote, BEFORE the ISEND reads them.
-                    ! If c_wrk_dp(flat_off+1..5) holds ims_pro_i*1e9+1..5, the fill is fine and
-                    ! the bug is in transit. If it holds 1..5, the fill itself is wrong on this rank.
-                    write(500 + ims_pro, *) '[IFR_FP_SEND] PE', ims_pro, &
-                        ' to m=', m, ' c_wrk_dp(flat_off+1..5)=', &
-                        c_wrk_dp(flat_off + 1), c_wrk_dp(flat_off + 2), &
-                        c_wrk_dp(flat_off + 3), c_wrk_dp(flat_off + 4), &
-                        c_wrk_dp(flat_off + 5)
-                    flush(500 + ims_pro)
-                    l = l + 1
-                    ! ISEND tag = our ims_pro_i. Pairs with receiver's IRECV(src=our-rank, tag=our-rank).
-                    call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m, ims_pro_i, ims_comm_x, request(l), ims_err)
-                end if
+                flat_off = m * nmax_p * nlines_p
+                do i = 1, nmax_p * nlines_p
+                    c_wrk_dp(flat_off + i) = real(ims_pro_i, dp) * 1.0e9_dp + real(i, dp)
+                end do
+                write(500 + ims_pro, *) '[IFR_FP_SEND] PE', ims_pro, &
+                    ' to m=', m, ' c_wrk_dp(flat_off+1..5)=', &
+                    c_wrk_dp(flat_off + 1), c_wrk_dp(flat_off + 2), &
+                    c_wrk_dp(flat_off + 3), c_wrk_dp(flat_off + 4), &
+                    c_wrk_dp(flat_off + 5)
+                flush(500 + ims_pro)
+                l = l + 1
+                call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
+                               trp_plan%base_type, m, ims_pro_i, ims_comm_x, request(l), ims_err)
             end do
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            ! After the inter-node MPI traffic has progressed, sync the node-local shmem comm so
-            ! peers' Step-3 shared-window writes become visible before we read them.
-            call MPI_Barrier(apu_async_node_comm_i, ims_err)
-            ! Address-aliasing probe: c_wrk_dp and c_recv_dp must point to different memory.
-            ! If c_loc(wrk_mpi_dp(size+1)) is broken on this compiler, c_recv_addr == c_wrk_addr
-            ! and the staging buffer is just the send buffer (which explains got=pos for inter-node).
-            dbg_addr = transfer(c_loc(c_wrk_dp(1)),  dbg_addr)
-            write(500 + ims_pro, *) '[IFR_FP_ADDR] PE', ims_pro, ' c_loc(c_wrk_dp(1))= ', dbg_addr
-            dbg_addr = transfer(c_loc(c_recv_dp(1)), dbg_addr)
-            write(500 + ims_pro, *) '[IFR_FP_ADDR] PE', ims_pro, ' c_loc(c_recv_dp(1))=', dbg_addr
-            ! Probe: what IRECV actually delivered into c_recv_dp at slot 6 (the first inter-node peer).
-            ! If staging works, c_recv_dp(6*chunk + 1..20) should hold 6e9+1..6e9+20 (from rank 6).
+            ! Probe what arrived from each peer.
             do m = 0, ims_npro_i - 1
-                if (.not. apu_async_is_local_i(m)) then
-                    flat_off = m * nmax_p * nlines_p
-                    write(500 + ims_pro, *) '[IFR_FP_PRECOPY] PE', ims_pro, &
-                        ' m=', m, ' c_recv_dp(flat_off+1..5)=', &
-                        c_recv_dp(flat_off + 1), c_recv_dp(flat_off + 2), &
-                        c_recv_dp(flat_off + 3), c_recv_dp(flat_off + 4), &
-                        c_recv_dp(flat_off + 5)
-                    exit
-                end if
+                flat_off = m * nmax_p * nlines_p
+                write(500 + ims_pro, *) '[IFR_FP_PRECOPY] PE', ims_pro, &
+                    ' m=', m, ' c_recv_dp(flat_off+1..5)=', &
+                    c_recv_dp(flat_off + 1), c_recv_dp(flat_off + 2), &
+                    c_recv_dp(flat_off + 3), c_recv_dp(flat_off + 4), &
+                    c_recv_dp(flat_off + 5)
             end do
             flush(500 + ims_pro)
-            ! Copy inter-node slots from non-shm staging into apu_async_recv_i for verification.
-            ! Intra-node slots are already in apu_async_recv_i via the shared-window writes in step 3.
+            ! Symmetric variant: copy ALL slots (intra + inter) from staging to apu_async_recv_i.
             do m = 0, ims_npro_i - 1
-                if (.not. apu_async_is_local_i(m)) then
-                    flat_off = m * nmax_p * nlines_p
-                    do i = 1, nmax_p * nlines_p
-                        apu_async_recv_i(flat_off + i) = c_recv_dp(flat_off + i)
-                    end do
-                end if
+                flat_off = m * nmax_p * nlines_p
+                do i = 1, nmax_p * nlines_p
+                    apu_async_recv_i(flat_off + i) = c_recv_dp(flat_off + i)
+                end do
             end do
             ! FINGERPRINT VERIFICATION: slot m in apu_async_recv_i must hold fingerprints from rank m.
             ! expected(m, i) = m * 1e9 + i  for i = 1..nmax_p*nlines_p
