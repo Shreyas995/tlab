@@ -62,6 +62,15 @@ module TLabMPI_Transpose
     integer(wi) :: apu_async_size_k = 0_wi, apu_async_size_i = 0_wi
     type(MPI_Win) :: apu_async_win_k, apu_async_win_i
     type(MPI_Comm) :: apu_async_node_comm_k, apu_async_node_comm_i   ! node-local shmem comm, kept alive for runtime barriers
+    ! FABRIC_DIRECT MPI comm: fresh duplicate of ims_comm_z / ims_comm_x, created BEFORE
+    ! MPI_Comm_split_type / MPI_Win_allocate_shared touches the original. On Cray MPICH the
+    ! act of allocating a shared window on a split_type of a comm taints the parent — all
+    ! subsequent two-sided traffic on the parent (or anything indirectly derived from it,
+    ! including the post-split sibling sub-comm) wedges in MPI_WAITALL. The 2026-05-14
+    ! crashlogs (every rank stuck after [IFR_FP_SEND], none reaching [IFR_FP_PRECOPY])
+    ! match this exactly. We dup the directional comm before the split, then route ALL
+    ! fabricdirect ISEND/IRECV/WAITALL through the dup, which sits outside that lineage.
+    type(MPI_Comm) :: apu_async_mpi_comm_k, apu_async_mpi_comm_i
     ! contiguous: required so the buffer passed to MPI gets the real data address, not a
     ! copy-in/copy-out temporary (c_ptr address ≠ Fortran-pointer descriptor address).
     real(dp), pointer, contiguous :: apu_async_recv_k(:) => null(), apu_async_recv_i(:) => null()
@@ -389,6 +398,8 @@ contains
         ! which additionally exposes the recv buffer as an RMA window over the full transpose comm).
         if ((trp_mode_k == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) .and. ims_npro_k > 1) then
             apu_async_size_k = int(imax, wi)*int(jmax, wi)*int(kmax, wi)
+            ! Dup BEFORE the shm-window setup. See apu_async_mpi_comm_k declaration for why.
+            call MPI_Comm_dup(ims_comm_z, apu_async_mpi_comm_k, ims_err)
             allocate (apu_async_is_local_k(0:ims_npro_k - 1))
             allocate (apu_async_peer_k(0:ims_npro_k - 1))
             apu_async_peer_k = c_null_ptr
@@ -457,6 +468,8 @@ contains
         end if
         if ((trp_mode_i == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) .and. ims_npro_i > 1) then
             apu_async_size_i = int(imax, wi)*int(jmax, wi)*int(kmax, wi)
+            ! Dup BEFORE the shm-window setup. See apu_async_mpi_comm_i declaration for why.
+            call MPI_Comm_dup(ims_comm_x, apu_async_mpi_comm_i, ims_err)
             allocate (apu_async_is_local_i(0:ims_npro_i - 1))
             allocate (apu_async_peer_i(0:ims_npro_i - 1))
             apu_async_peer_i = c_null_ptr
@@ -817,7 +830,7 @@ contains
                 if (.not. apu_async_is_local_k(m)) then
                     l = l + 1
                     call MPI_IRECV(apu_async_recv_k(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
+                                   trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
                 end if
             end do
             ! Step 2: open shared-window epoch (collective over the node-local communicator)
@@ -842,7 +855,7 @@ contains
                     end do
                     l = l + 1
                     call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
+                                   trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
                 end if
             end do
             ! Step 5: close shared-window epoch; wait for inter-node MPI
@@ -1242,7 +1255,7 @@ contains
                 if (.not. apu_async_is_local_k(m)) then
                     l = l + 1
                     call MPI_IRECV(apu_async_recv_k(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
+                                   trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
                 end if
             end do
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
@@ -1261,7 +1274,7 @@ contains
                 if (.not. apu_async_is_local_k(m)) then
                     l = l + 1
                     call MPI_ISEND(b(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m, ims_tag, ims_comm_z, request(l), ims_err)
+                                   trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
                 end if
             end do
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
@@ -1688,7 +1701,7 @@ contains
             do m = 0, ims_npro_i - 1
                 l = l + 1
                 call MPI_IRECV(c_recv_dp(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                               trp_plan%base_type, m, m, ims_comm_x, request(l), ims_err)
+                               trp_plan%base_type, m, m, apu_async_mpi_comm_i, request(l), ims_err)
             end do
             ! Sender-side probe: print ims_pro_i and the runtime fingerprint coefficient.
             write(500 + ims_pro, *) '[IFR_FP_SEND_RANK] PE', ims_pro, &
@@ -1708,7 +1721,7 @@ contains
                 flush(500 + ims_pro)
                 l = l + 1
                 call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
-                               trp_plan%base_type, m, ims_pro_i, ims_comm_x, request(l), ims_err)
+                               trp_plan%base_type, m, ims_pro_i, apu_async_mpi_comm_i, request(l), ims_err)
             end do
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
             ! Probe what arrived from each peer.
@@ -2129,7 +2142,7 @@ contains
                 if (.not. apu_async_is_local_i(m)) then
                     l = l + 1
                     call MPI_IRECV(apu_async_recv_i(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
+                                   trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
                 end if
             end do
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
@@ -2158,7 +2171,7 @@ contains
                     end do
                     l = l + 1
                     call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m, ims_tag, ims_comm_x, request(l), ims_err)
+                                   trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
                 end if
             end do
             call MPI_Win_fence(0, apu_async_win_i, ims_err)
