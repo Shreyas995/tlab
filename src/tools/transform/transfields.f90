@@ -33,6 +33,7 @@ program TRANSFIELDS
     use OPR_INTERPOLATORS
     use OPR_Fourier
     use TLab_Grid
+    use IBM_VARS, only: imode_ibm
 
     implicit none
 
@@ -85,6 +86,8 @@ program TRANSFIELDS
     call TLabMPI_Initialize(ifile)
     call TLabMPI_Trp_Initialize(ifile)
 #endif
+    call IBM_READ_INI(ifile)
+    if (imode_ibm == 1) call IBM_READ_CONSISTENCY_CHECK()
 
     call TLab_Grid_Read(gfile, x, y, z)
     call FDM_Initialize(ifile)
@@ -293,6 +296,7 @@ program TRANSFIELDS
     if (fourier_on) inb_txc = max(inb_txc, 1)
 
     call TLab_Initialize_Memory(C_FILE_LOC)
+    if (imode_ibm == 1) call IBM_ALLOCATE(C_FILE_LOC)
 
     call TLab_Initialize_Background(ifile)
 
@@ -451,6 +455,8 @@ program TRANSFIELDS
         ! g(2)%scale = g_dst(2)%scale     ! watch out, overwriting grid information
         ! g(2)%size = jmax_aux
 
+        if (imode_ibm == 1) call IBM_INITIALIZE_GEOMETRY(txc, wrk3d)
+
     end if
 
     ! ###################################################################
@@ -515,6 +521,13 @@ program TRANSFIELDS
             ! Change grid
             ! ###################################################################
         case (3)
+            ! Zero IBM solid-region ghost values before interpolation; the ghost values
+            ! are designed for the IBM stencil, not natural-BC cubic splines, and cause
+            ! large oscillations (and IEEE exceptions) when passed to OPR_INTERPOLATE.
+            if (imode_ibm == 1) then
+                if (flow_on) call IBM_BCS_FIELD_COMBINED(0, q)
+                if (scal_on) call IBM_BCS_FIELD_COMBINED(1, s)
+            end if
 
             if (flow_on) then
                 do iq = 1, inb_flow
