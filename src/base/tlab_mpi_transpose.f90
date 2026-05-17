@@ -141,8 +141,15 @@ contains
         integer, allocatable :: apu_async_shmem_to_dir(:)  ! shmem-rank → dir-rank (Allgather result)
         integer :: apu_async_shmem_size
         integer(MPI_ADDRESS_KIND) :: dbg_addr   ! FABRIC_DIRECT debug: holds a transferred c_ptr address
-        integer(MPI_ADDRESS_KIND) :: apu_my_addr              ! this rank's recv buffer address
-        integer(MPI_ADDRESS_KIND), allocatable :: apu_all_addrs(:)  ! allgather of recv buffer addresses
+        ! Cross-rank exchange of recv-buffer addresses for intra-node direct writes.
+        ! These are c_ptr values *reinterpreted* (bit-copied) as real(dp) so we can use
+        ! MPI_Allgather with MPI_REAL8 — real(8)+MPI_REAL8 is the one buffer/datatype
+        ! pairing every mpi_f08 implementation (including Cray's) is guaranteed to overload.
+        ! integer(MPI_ADDRESS_KIND)+MPI_AINT compiles with OpenMPI but fails Cray's strict
+        ! generic resolution ("No specific match can be found for MPI_ALLGATHER"). c_ptr,
+        ! integer(8) and real(8) are all 8 bytes on x86_64, so transfer() is byte-identical.
+        real(dp) :: apu_my_addr_r                              ! this rank's recv buffer address (as real(8))
+        real(dp), allocatable :: apu_all_addrs_r(:)            ! allgather of recv buffer addresses
 #endif
         ! -----------------------------------------------------------------------
         integer(wi) ip, npage, dummy
@@ -410,18 +417,18 @@ contains
             ! mapping. MPI_Win_allocate_shared corrupts Cray MPICH's process-group state and
             ! causes all two-sided traffic on the parent comm (and any dup) to hang.
             allocate (apu_async_recv_k(apu_async_size_k))
-            apu_my_addr = transfer(c_loc(apu_async_recv_k(1)), apu_my_addr)
-            allocate (apu_all_addrs(0:apu_async_shmem_size - 1))
-            call MPI_Allgather(apu_my_addr, 1, MPI_ADDRESS_KIND, apu_all_addrs, 1, MPI_ADDRESS_KIND, &
+            apu_my_addr_r = transfer(c_loc(apu_async_recv_k(1)), apu_my_addr_r)
+            allocate (apu_all_addrs_r(0:apu_async_shmem_size - 1))
+            call MPI_Allgather(apu_my_addr_r, 1, MPI_REAL8, apu_all_addrs_r, 1, MPI_REAL8, &
                                apu_async_shmem_comm, ims_err)
             do ip = 0, apu_async_shmem_size - 1
                 apu_async_is_local_k(apu_async_shmem_to_dir(ip)) = .true.
-                apu_async_peer_k(apu_async_shmem_to_dir(ip)) = transfer(apu_all_addrs(ip), c_null_ptr)
+                apu_async_peer_k(apu_async_shmem_to_dir(ip)) = transfer(apu_all_addrs_r(ip), c_null_ptr)
             end do
-            deallocate (apu_async_shmem_to_dir, apu_all_addrs)
+            deallocate (apu_async_shmem_to_dir, apu_all_addrs_r)
             apu_async_node_comm_k = apu_async_shmem_comm   ! keep alive for runtime MPI_Barrier
             if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-                dbg_addr = apu_my_addr
+                dbg_addr = transfer(apu_my_addr_r, dbg_addr)
                 write(500 + ims_pro, *) '[INIT_FBD_K] PE', ims_pro, ' alloc_baseptr=', dbg_addr, &
                     ' size=', apu_async_size_k, ' npro_k=', ims_npro_k, ' pro_k=', ims_pro_k
                 dbg_addr = transfer(c_loc(apu_async_recv_k(1)), dbg_addr)
@@ -452,18 +459,18 @@ contains
             call MPI_Allgather(ims_pro_i, 1, MPI_INTEGER, apu_async_shmem_to_dir, 1, MPI_INTEGER, &
                                apu_async_shmem_comm, ims_err)
             allocate (apu_async_recv_i(apu_async_size_i))
-            apu_my_addr = transfer(c_loc(apu_async_recv_i(1)), apu_my_addr)
-            allocate (apu_all_addrs(0:apu_async_shmem_size - 1))
-            call MPI_Allgather(apu_my_addr, 1, MPI_ADDRESS_KIND, apu_all_addrs, 1, MPI_ADDRESS_KIND, &
+            apu_my_addr_r = transfer(c_loc(apu_async_recv_i(1)), apu_my_addr_r)
+            allocate (apu_all_addrs_r(0:apu_async_shmem_size - 1))
+            call MPI_Allgather(apu_my_addr_r, 1, MPI_REAL8, apu_all_addrs_r, 1, MPI_REAL8, &
                                apu_async_shmem_comm, ims_err)
             do ip = 0, apu_async_shmem_size - 1
                 apu_async_is_local_i(apu_async_shmem_to_dir(ip)) = .true.
-                apu_async_peer_i(apu_async_shmem_to_dir(ip)) = transfer(apu_all_addrs(ip), c_null_ptr)
+                apu_async_peer_i(apu_async_shmem_to_dir(ip)) = transfer(apu_all_addrs_r(ip), c_null_ptr)
             end do
-            deallocate (apu_async_shmem_to_dir, apu_all_addrs)
+            deallocate (apu_async_shmem_to_dir, apu_all_addrs_r)
             apu_async_node_comm_i = apu_async_shmem_comm   ! keep alive for runtime MPI_Barrier
             if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
-                dbg_addr = apu_my_addr
+                dbg_addr = transfer(apu_my_addr_r, dbg_addr)
                 write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' alloc_baseptr=', dbg_addr, &
                     ' size=', apu_async_size_i, ' npro_i=', ims_npro_i, ' pro_i=', ims_pro_i
                 dbg_addr = transfer(c_loc(apu_async_recv_i(1)), dbg_addr)
