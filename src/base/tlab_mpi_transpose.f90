@@ -74,7 +74,7 @@ module TLabMPI_Transpose
     ! gets tainted) and route fabricdirect's inter-node MPI_ISEND/IRECV through the dup.
     type(MPI_Win) :: apu_async_win_k, apu_async_win_i              ! shared window backing recv buffers
     type(MPI_Comm) :: apu_async_mpi_comm_k, apu_async_mpi_comm_i   ! dup of ims_comm_z/x, used for two-sided traffic
-    real(dp), pointer :: apu_async_recv_k(:) => null(), apu_async_recv_i(:) => null()
+    real(dp), pointer, contiguous :: apu_async_recv_k(:) => null(), apu_async_recv_i(:) => null()
     type(c_ptr), allocatable :: apu_async_peer_k(:), apu_async_peer_i(:)
     logical, allocatable :: apu_async_is_local_k(:), apu_async_is_local_i(:)
     ! FABRIC_DIRECT inter-node leg: plain two-sided MPI (ISEND/IRECV/WAITALL) into apu_async_recv_*,
@@ -686,7 +686,8 @@ contains
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_ns, mas
 #ifdef USE_APU
-        real(dp), pointer :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC/FABRIC_DIRECT per-peer writes
+        real(dp), pointer, contiguous :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC/FABRIC_DIRECT per-peer writes
+        real(dp), pointer, contiguous :: c_wrk_dp_recv(:) => null() ! clean recv buffer (NOT shared-window-aliased) for MPI IRECVs
         real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
 #endif
 #ifdef PROFILE_ON
@@ -804,17 +805,20 @@ contains
             nullify (c_wrk_dp, apu_pfptr_k)
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-            ! Two-level K-forward: intra-node peers via direct GPU writes (same as APU_ASYNC);
-            ! inter-node peers via plain MPI ISEND/IRECV on apu_async_mpi_comm_k (the dup
-            ! of ims_comm_z taken before MPI_Comm_split_type — kept clean of the shared-window taint).
+            ! Two-level K-forward: intra-node peers via direct GPU writes into the shared-window
+            ! mapping (apu_async_recv_k); inter-node peers via plain MPI on apu_async_mpi_comm_k.
+            ! Buffer layout in wrk_mpi_dp: first size3d = send pack staging (c_wrk_dp), second
+            ! size3d = clean recv staging (c_wrk_dp_recv). MPI never touches the shared window
+            ! — see I-Forward FABRIC_DIRECT comment for the Cray MPICH rationale.
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi_dp(1)),         c_wrk_dp,      shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi_dp(size + 1)),  c_wrk_dp_recv, shape=[size])
             l = 0
-            ! Step 1: post IRECVs for inter-node peers into their slots in the recv buffer
+            ! Step 1: post IRECVs for inter-node peers into the clean recv buffer
             do m = 0, ims_npro_k - 1
                 if (.not. apu_async_is_local_k(m)) then
                     l = l + 1
-                    call MPI_IRECV(apu_async_recv_k(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                    call MPI_IRECV(c_wrk_dp_recv(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
                 end if
             end do
@@ -854,13 +858,23 @@ contains
             ! Step 5: barrier (intra-node writes done) then WAITALL (inter-node likely complete)
             call MPI_Barrier(apu_async_node_comm_k, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            ! Step 6: recv buffer fully populated; flat copy to b
-            !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
-            do i = 1, size
-                b(i) = apu_async_recv_k(i)
+            ! Step 6: flat copy → b. Intra slots from shared window (GPU); inter slots from
+            !   c_wrk_dp_recv (CPU, matches "inter on CPU" rule to avoid stale GPU cache reads).
+            do m = 0, ims_npro_k - 1
+                flat_off = m * nmax_p * nlines_p
+                if (apu_async_is_local_k(m)) then
+                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    do i = 1, nmax_p*nlines_p
+                        b(flat_off + i) = apu_async_recv_k(flat_off + i)
+                    end do
+                    !$omp end target teams distribute parallel do
+                else
+                    do i = 1, nmax_p*nlines_p
+                        b(flat_off + i) = c_wrk_dp_recv(flat_off + i)
+                    end do
+                end if
             end do
-            !$omp end target teams distribute parallel do
-            nullify (c_wrk_dp, apu_pfptr_k)
+            nullify (c_wrk_dp, c_wrk_dp_recv, apu_pfptr_k)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
 #endif
@@ -1124,7 +1138,8 @@ contains
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_nr, mas
 #ifdef USE_APU
-        real(dp), pointer :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
+        real(dp), pointer, contiguous :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
+        real(dp), pointer, contiguous :: c_wrk_dp_recv(:) => null() ! clean recv buffer (NOT shared-window-aliased) for MPI IRECVs
         real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
         integer(MPI_ADDRESS_KIND) :: dbg_addr
 #endif
@@ -1231,14 +1246,18 @@ contains
             nullify (apu_pfptr_k)
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-            ! Two-level K-backward: intra-node via direct GPU writes; inter-node via plain MPI
-            ! on apu_async_mpi_comm_k (dup of ims_comm_z, kept clean of the window taint).
+            ! Two-level K-backward: intra-node via direct GPU writes into the shared-window
+            ! mapping (apu_async_recv_k); inter-node via plain MPI on apu_async_mpi_comm_k.
+            ! IRECVs land in a SEPARATE clean Fortran allocatable (c_wrk_dp_recv ← wrk_mpi_dp)
+            ! — see I-Forward FABRIC_DIRECT comment for the Cray MPICH rationale.
+            ! (No send packing needed: b is already in flat per-peer layout.)
             size = trp_plan%size3d
+            call c_f_pointer(c_loc(wrk_mpi_dp(size + 1)), c_wrk_dp_recv, shape=[size])
             l = 0
             do m = 0, ims_npro_k - 1
                 if (.not. apu_async_is_local_k(m)) then
                     l = l + 1
-                    call MPI_IRECV(apu_async_recv_k(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                    call MPI_IRECV(c_wrk_dp_recv(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
                 end if
             end do
@@ -1263,18 +1282,20 @@ contains
             end do
             call MPI_Barrier(apu_async_node_comm_k, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            ! debug: split checksum of the recv buffer before scattering to strided a.
+            ! debug: split checksum — intra from shared window, inter from clean MPI recv buffer.
             dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
             do m = 0, ims_npro_k - 1
                 if (apu_async_is_local_k(m)) then
                     dbg_intra = dbg_intra + sum(apu_async_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
                 else
-                    dbg_inter = dbg_inter + sum(apu_async_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
+                    dbg_inter = dbg_inter + sum(c_wrk_dp_recv(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
                 end if
             end do
             write(500 + ims_pro, *) '[KBR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
-                ' total=', sum(apu_async_recv_k(1:size))
+                ' total=', dbg_intra + dbg_inter
             flush(500 + ims_pro)
+            ! Step 6: scatter → strided a. Intra slots from shared window (GPU);
+            !   inter slots from c_wrk_dp_recv (CPU).
             do m = 0, ims_npro_k - 1
                 flat_off = m * nmax_p * nlines_p
                 disp_nr  = m * nlines_p
@@ -1289,12 +1310,12 @@ contains
                 else
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
-                            a(disp_nr + i*npage + j + 1) = apu_async_recv_k(flat_off + i*nlines_p + j + 1)
+                            a(disp_nr + i*npage + j + 1) = c_wrk_dp_recv(flat_off + i*nlines_p + j + 1)
                         end do
                     end do
                 end if
             end do
-            nullify (apu_pfptr_k)
+            nullify (c_wrk_dp_recv, apu_pfptr_k)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
 #endif
@@ -1562,7 +1583,8 @@ contains
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
         integer(wi) :: nmax_p, nlines_p, nmax_full, flat_off, disp_nr, mas
 #ifdef USE_APU
-        real(dp), pointer :: apu_pfptr_i(:) => null()   ! scratch pointer for APU_ASYNC/FABRIC_DIRECT per-peer writes
+        real(dp), pointer, contiguous :: apu_pfptr_i(:) => null()   ! scratch pointer for APU_ASYNC/FABRIC_DIRECT per-peer writes
+        real(dp), pointer, contiguous :: c_wrk_dp_recv(:) => null() ! clean recv buffer (NOT shared-window-aliased) for MPI IRECVs
 #endif
 
         nmax_p    = trp_plan%nmax
@@ -1663,17 +1685,23 @@ contains
             nullify (apu_pfptr_i)
 
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
-            ! Two-level I-forward: intra-node peers via direct GPU writes (same as APU_ASYNC);
-            ! inter-node peers via plain MPI ISEND/IRECV on apu_async_mpi_comm_i (dup of
-            ! ims_comm_x taken before MPI_Comm_split_type — clean of the window taint).
+            ! Two-level I-forward: intra-node peers via direct GPU writes into the shared-window
+            ! mapping (apu_async_recv_i); inter-node peers via plain MPI ISEND/IRECV on the dup'd
+            ! comm (apu_async_mpi_comm_i). IRECVs land in a SEPARATE clean Fortran allocatable
+            ! (c_wrk_dp_recv ← second half of wrk_mpi_dp), NOT in the shared-window-aliased
+            ! Fortran pointer apu_async_recv_i: writing MPI traffic into MPI_Win_allocate_shared
+            ! memory via a Fortran pointer wedges Cray MPICH (the 2026-05-18 WAITALL hang on
+            ! half of every I-shmem subcomm). Per the rule "memory allocated on the device must
+            ! be done using c_pointers in all the code", we keep MPI's buffer as a plain
+            ! allocatable and only the intra-node GPU writes touch the shared window.
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi_dp(size + 1)), c_wrk_dp_recv, shape=[size])
             l = 0
-            ! Step 1: post IRECVs for inter-node peers into their slots in the recv buffer
+            ! Step 1: post IRECVs for inter-node peers into the clean recv buffer
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
                     l = l + 1
-                    call MPI_IRECV(apu_async_recv_i(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                    call MPI_IRECV(c_wrk_dp_recv(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
                 end if
             end do
@@ -1691,8 +1719,10 @@ contains
                 end if
             end do
             write(500 + ims_pro, *) '[IFR_FBD_S3] PE', ims_pro, ' ISENDs posted, l=', l ; flush(500 + ims_pro)
-            ! Step 4: intra-node — push a[m*chunk] directly to peer m's recv buffer at our slot.
-            !   Happens while inter-node MPI is in-flight.
+            ! Step 4: intra-node — push a[m*chunk] directly to peer m's shared-window segment at
+            !   our slot. The peer pointer comes from MPI_Win_shared_query (a c_ptr, bound to a
+            !   Fortran pointer only locally inside this loop). Happens while inter-node MPI is
+            !   in-flight.
             do m = 0, ims_npro_i - 1
                 if (apu_async_is_local_i(m)) then
                     call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
@@ -1705,25 +1735,35 @@ contains
                 end if
             end do
             write(500 + ims_pro, *) '[IFR_FBD_S4] PE', ims_pro, ' GPU intra writes done' ; flush(500 + ims_pro)
-            ! Step 5: barrier (intra-node writes done) then wait for inter-node MPI
+            ! Step 5: barrier (intra-node writes visible to shmem peers) then wait for inter-node MPI
             call MPI_Barrier(apu_async_node_comm_i, ims_err)
             write(500 + ims_pro, *) '[IFR_FBD_S5a] PE', ims_pro, ' past Barrier-2' ; flush(500 + ims_pro)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
             write(500 + ims_pro, *) '[IFR_FBD_S5b] PE', ims_pro, ' past WAITALL' ; flush(500 + ims_pro)
-            ! Step 6: unpack recv buffer → strided b
+            ! Step 6: unpack → strided b. Intra slots come from the shared-window mapping
+            !   (peers' GPU writes); inter slots come from the clean MPI recv buffer (CPU copy,
+            !   matching the "inter-node on CPU" rule from CLAUDE.md to avoid stale GPU cache).
             do m = 0, ims_npro_i - 1
                 flat_off = m * nmax_p * nlines_p
                 disp_nr  = m * nmax_p
-                !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
-                do i = 0, nlines_p - 1
-                    do j = 0, nmax_p - 1
-                        b(disp_nr + i*nmax_full + j + 1) = apu_async_recv_i(flat_off + i*nmax_p + j + 1)
+                if (apu_async_is_local_i(m)) then
+                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    do i = 0, nlines_p - 1
+                        do j = 0, nmax_p - 1
+                            b(disp_nr + i*nmax_full + j + 1) = apu_async_recv_i(flat_off + i*nmax_p + j + 1)
+                        end do
                     end do
-                end do
-                !$omp end target teams distribute parallel do
+                    !$omp end target teams distribute parallel do
+                else
+                    do i = 0, nlines_p - 1
+                        do j = 0, nmax_p - 1
+                            b(disp_nr + i*nmax_full + j + 1) = c_wrk_dp_recv(flat_off + i*nmax_p + j + 1)
+                        end do
+                    end do
+                end if
             end do
             write(500 + ims_pro, *) '[IFR_FBD_S6] PE', ims_pro, ' unpack done' ; flush(500 + ims_pro)
-            nullify (c_wrk_dp, apu_pfptr_i)
+            nullify (c_wrk_dp_recv, apu_pfptr_i)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
 #endif
@@ -1992,7 +2032,8 @@ contains
         type(tmpi_transpose_dt), intent(in) :: trp_plan
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_ns, mas
 #ifdef USE_APU
-        real(dp), pointer :: apu_pfptr_i(:) => null()   ! scratch pointer for APU_ASYNC/FABRIC_DIRECT per-peer writes
+        real(dp), pointer, contiguous :: apu_pfptr_i(:) => null()   ! scratch pointer for APU_ASYNC/FABRIC_DIRECT per-peer writes
+        real(dp), pointer, contiguous :: c_wrk_dp_recv(:) => null() ! clean recv buffer (NOT shared-window-aliased) for MPI IRECVs
         real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
         integer(MPI_ADDRESS_KIND) :: dbg_addr
 #endif
@@ -2102,16 +2143,20 @@ contains
             !$omp end target teams distribute parallel do
             nullify (c_wrk_dp, apu_pfptr_i)
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
-            ! Two-level I-backward: intra-node via direct GPU writes; inter-node via plain MPI
-            ! on apu_async_mpi_comm_i (dup of ims_comm_x — untainted).
+            ! Two-level I-backward: intra-node via direct GPU writes into the shared-window
+            ! mapping (apu_async_recv_i); inter-node via plain MPI on apu_async_mpi_comm_i.
+            ! Buffer layout in wrk_mpi_dp: first size3d = send pack staging (c_wrk_dp), second
+            ! size3d = clean recv staging (c_wrk_dp_recv). MPI never touches the shared window
+            ! — see I-Forward FABRIC_DIRECT comment for the Cray MPICH rationale.
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi_dp(1)),         c_wrk_dp,      shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi_dp(size + 1)),  c_wrk_dp_recv, shape=[size])
             l = 0
-            ! Step 1: post IRECVs for inter-node peers into their slots in the recv buffer
+            ! Step 1: post IRECVs for inter-node peers into the clean recv buffer
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
                     l = l + 1
-                    call MPI_IRECV(apu_async_recv_i(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                    call MPI_IRECV(c_wrk_dp_recv(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
                 end if
             end do
@@ -2152,20 +2197,21 @@ contains
             ! Step 5: barrier (intra-node writes done) then wait for inter-node MPI
             call MPI_Barrier(apu_async_node_comm_i, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            ! debug: split checksum of the assembled recv buffer; total must equal [IBR_post]'s sum(a).
+            ! debug: split checksum after WAITALL. intra comes from shared window, inter from
+            ! the clean MPI recv buffer; their sum must equal [IBR_post]'s sum(a).
             dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
             do m = 0, ims_npro_i - 1
                 if (apu_async_is_local_i(m)) then
                     dbg_intra = dbg_intra + sum(apu_async_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
                 else
-                    dbg_inter = dbg_inter + sum(apu_async_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
+                    dbg_inter = dbg_inter + sum(c_wrk_dp_recv(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
                 end if
             end do
             write(500 + ims_pro, *) '[IBR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
-                ' total=', sum(apu_async_recv_i(1:size))
+                ' total=', dbg_intra + dbg_inter
             flush(500 + ims_pro)
-            ! Step 6: flat copy from unified recv buffer → a (GPU for intra-node, CPU for inter-node
-            !   to avoid stale GPU cache reading MPI-written data in APU unified memory).
+            ! Step 6: flat copy → a. Intra slots from shared window (GPU); inter slots from
+            !   c_wrk_dp_recv (CPU, matches "inter on CPU" rule to avoid stale GPU cache reads).
             do m = 0, ims_npro_i - 1
                 flat_off = m * nmax_p * nlines_p
                 if (apu_async_is_local_i(m)) then
@@ -2176,11 +2222,11 @@ contains
                     !$omp end target teams distribute parallel do
                 else
                     do i = 1, nmax_p*nlines_p
-                        a(flat_off + i) = apu_async_recv_i(flat_off + i)
+                        a(flat_off + i) = c_wrk_dp_recv(flat_off + i)
                     end do
                 end if
             end do
-            nullify (c_wrk_dp, apu_pfptr_i)
+            nullify (c_wrk_dp, c_wrk_dp_recv, apu_pfptr_i)
         else   ! CPU paths
 #endif
         ! ==================================================================== !
