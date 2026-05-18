@@ -117,6 +117,16 @@ module TLabMPI_Transpose
     type(MPI_Status) status(128)
     type(MPI_Request) request(128)
 
+    ! Debug stop counter (for apudirect vs fabricdirect per-slot diff comparison).
+    ! Each of the 4 real-typed transpose routines increments dbg_trp_call_count after its
+    ! per-slot debug print. When the count reaches DBG_TRP_STOP_AT, TLab_Stop(0) is called
+    ! so the run halts cleanly with minimal output. Set DBG_TRP_STOP_AT to a value large
+    ! enough to capture the bug's first divergence, but small enough to keep fort.500+rank
+    ! files diffable. Setting to a very large value (e.g. huge(0_wi)) effectively disables
+    ! the early stop; the per-slot debug prints continue regardless.
+    integer(wi) :: dbg_trp_call_count = 0_wi
+    integer(wi), parameter :: DBG_TRP_STOP_AT = 4_wi   ! stop after this many transpose calls
+
     interface TLabMPI_Trp_ExecK_Forward
         module procedure TLabMPI_Trp_ExecK_Forward_Real, TLabMPI_Trp_ExecK_Forward_Complex
     end interface TLabMPI_Trp_ExecK_Forward
@@ -1023,6 +1033,24 @@ contains
         ! asynchronous-reference log identifies which K-forward call goes wrong in fabricdirect).
 #ifdef USE_APU
         call TLab_Debug_Print_1D('[KFR_post] sum(b)=', b)
+        ! Per-slot sum/min/max — fires for ALL modes (apudirect, apuasync, fabricdirect, async).
+        ! Diff this between an apudirect run and a fabricdirect run with the same input/topology
+        ! to find which sender's chunk lands wrong on which receiver. K-Forward b is flat:
+        ! slot m = b(m*chunk + 1 : (m+1)*chunk), chunk = nmax_p*nlines_p.
+        do m = 0, ims_npro_k - 1
+            write(500 + ims_pro, '(A,I0,A,I0,A,3(ES23.15,A))') &
+                ' [KFR_SLOT] PE ', ims_pro, ' m=', m, &
+                ' sum=', sum(b(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p)), &
+                ' min=', minval(b(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p)), &
+                ' max=', maxval(b(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p))
+        end do
+        flush(500 + ims_pro)
+        dbg_trp_call_count = dbg_trp_call_count + 1
+        if (dbg_trp_call_count >= DBG_TRP_STOP_AT) then
+            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling TLab_Stop(0)'
+            flush(500 + ims_pro)
+            call TLab_Stop(0)
+        end if
 #endif
         return
     end subroutine TLabMPI_Trp_ExecK_Forward_Real
@@ -1154,6 +1182,7 @@ contains
         real(dp), pointer, contiguous :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
         real(dp), pointer, contiguous :: c_wrk_dp_recv(:) => null() ! clean recv buffer (NOT shared-window-aliased) for MPI IRECVs
         real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
+        real(wp) :: slot_max               ! per-slot debug max (for apudirect-vs-fabricdirect diff)
         integer(MPI_ADDRESS_KIND) :: dbg_addr
 #endif
 #ifdef PROFILE_ON
@@ -1477,6 +1506,30 @@ contains
         ! Common-path debug tap: K-backward output checksum.
 #ifdef USE_APU
         call TLab_Debug_Print_1D('[KBR_post] sum(a)=', a)
+        ! Per-slot sum/min/max — fires for ALL modes. K-Backward a is strided in Z-space:
+        ! slot m's data is a(m*nlines_p + i*npage + j + 1) for i in [0,nmax_p), j in [0,nlines_p).
+        do m = 0, ims_npro_k - 1
+            dbg_intra = 0.0_wp  ! reuse dbg_intra as a scratch slot-sum accumulator
+            dbg_inter = huge(1.0_wp)   ! min
+            slot_max  = -huge(1.0_wp)
+            do i = 0, nmax_p - 1
+                do j = 0, nlines_p - 1
+                    dbg_intra = dbg_intra + a(m*nlines_p + i*npage + j + 1)
+                    if (a(m*nlines_p + i*npage + j + 1) < dbg_inter) dbg_inter = a(m*nlines_p + i*npage + j + 1)
+                    if (a(m*nlines_p + i*npage + j + 1) > slot_max)  slot_max  = a(m*nlines_p + i*npage + j + 1)
+                end do
+            end do
+            write(500 + ims_pro, '(A,I0,A,I0,A,3(ES23.15,A))') &
+                ' [KBR_SLOT] PE ', ims_pro, ' m=', m, &
+                ' sum=', dbg_intra, ' min=', dbg_inter, ' max=', slot_max
+        end do
+        flush(500 + ims_pro)
+        dbg_trp_call_count = dbg_trp_call_count + 1
+        if (dbg_trp_call_count >= DBG_TRP_STOP_AT) then
+            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling TLab_Stop(0)'
+            flush(500 + ims_pro)
+            call TLab_Stop(0)
+        end if
 #endif
         return
     end subroutine TLabMPI_Trp_ExecK_Backward_Real
@@ -1603,6 +1656,7 @@ contains
 #ifdef USE_APU
         real(dp), pointer, contiguous :: apu_pfptr_i(:) => null()   ! scratch pointer for APU_ASYNC/FABRIC_DIRECT per-peer writes
         real(dp), pointer, contiguous :: c_wrk_dp_recv(:) => null() ! clean recv buffer (NOT shared-window-aliased) for MPI IRECVs
+        real(wp) :: slot_sum, slot_min, slot_max  ! per-slot debug (for apudirect-vs-fabricdirect diff)
 #endif
 
         nmax_p    = trp_plan%nmax
@@ -1930,6 +1984,30 @@ contains
         ! Common-path debug tap: I-forward output checksum.
 #ifdef USE_APU
         call TLab_Debug_Print_1D('[IFR_post] sum(b)=', b)
+        ! Per-slot sum/min/max — fires for ALL modes. I-Forward b is strided in X-space:
+        ! slot m's data is b(m*nmax_p + i*nmax_full + j + 1) for i in [0,nlines_p), j in [0,nmax_p).
+        do m = 0, ims_npro_i - 1
+            slot_sum = 0.0_wp
+            slot_min = huge(1.0_wp)
+            slot_max = -huge(1.0_wp)
+            do i = 0, nlines_p - 1
+                do j = 0, nmax_p - 1
+                    slot_sum = slot_sum + b(m*nmax_p + i*nmax_full + j + 1)
+                    if (b(m*nmax_p + i*nmax_full + j + 1) < slot_min) slot_min = b(m*nmax_p + i*nmax_full + j + 1)
+                    if (b(m*nmax_p + i*nmax_full + j + 1) > slot_max) slot_max = b(m*nmax_p + i*nmax_full + j + 1)
+                end do
+            end do
+            write(500 + ims_pro, '(A,I0,A,I0,A,3(ES23.15,A))') &
+                ' [IFR_SLOT] PE ', ims_pro, ' m=', m, &
+                ' sum=', slot_sum, ' min=', slot_min, ' max=', slot_max
+        end do
+        flush(500 + ims_pro)
+        dbg_trp_call_count = dbg_trp_call_count + 1
+        if (dbg_trp_call_count >= DBG_TRP_STOP_AT) then
+            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling TLab_Stop(0)'
+            flush(500 + ims_pro)
+            call TLab_Stop(0)
+        end if
 #endif
         return
     end subroutine TLabMPI_Trp_ExecI_Forward_Real
@@ -2397,6 +2475,22 @@ contains
         ! Common-path debug tap: I-backward output checksum.
 #ifdef USE_APU
         call TLab_Debug_Print_1D('[IBR_post] sum(a)=', a)
+        ! Per-slot sum/min/max — fires for ALL modes. I-Backward a is flat in I-space:
+        ! slot m = a(m*chunk + 1 : (m+1)*chunk), chunk = nmax_p*nlines_p.
+        do m = 0, ims_npro_i - 1
+            write(500 + ims_pro, '(A,I0,A,I0,A,3(ES23.15,A))') &
+                ' [IBR_SLOT] PE ', ims_pro, ' m=', m, &
+                ' sum=', sum(a(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p)), &
+                ' min=', minval(a(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p)), &
+                ' max=', maxval(a(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p))
+        end do
+        flush(500 + ims_pro)
+        dbg_trp_call_count = dbg_trp_call_count + 1
+        if (dbg_trp_call_count >= DBG_TRP_STOP_AT) then
+            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling TLab_Stop(0)'
+            flush(500 + ims_pro)
+            call TLab_Stop(0)
+        end if
 #endif
         return
     end subroutine TLabMPI_Trp_ExecI_Backward_Real
