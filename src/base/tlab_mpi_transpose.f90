@@ -1677,8 +1677,10 @@ contains
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
                 end if
             end do
+            write(500 + ims_pro, *) '[IFR_FBD_S1] PE', ims_pro, ' IRECVs posted, l=', l ; flush(500 + ims_pro)
             ! Step 2: barrier — all ranks have posted IRECVs; safe to begin intra-node writes
             call MPI_Barrier(apu_async_node_comm_i, ims_err)
+            write(500 + ims_pro, *) '[IFR_FBD_S2] PE', ims_pro, ' past Barrier-1' ; flush(500 + ims_pro)
             ! Step 3: inter-node — ISEND a[m*chunk] (already flat, no packing needed).
             !   Done BEFORE GPU intra writes so network transfer overlaps with GPU work.
             do m = 0, ims_npro_i - 1
@@ -1688,6 +1690,7 @@ contains
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
                 end if
             end do
+            write(500 + ims_pro, *) '[IFR_FBD_S3] PE', ims_pro, ' ISENDs posted, l=', l ; flush(500 + ims_pro)
             ! Step 4: intra-node — push a[m*chunk] directly to peer m's recv buffer at our slot.
             !   Happens while inter-node MPI is in-flight.
             do m = 0, ims_npro_i - 1
@@ -1701,9 +1704,12 @@ contains
                     !$omp end target teams distribute parallel do
                 end if
             end do
+            write(500 + ims_pro, *) '[IFR_FBD_S4] PE', ims_pro, ' GPU intra writes done' ; flush(500 + ims_pro)
             ! Step 5: barrier (intra-node writes done) then wait for inter-node MPI
             call MPI_Barrier(apu_async_node_comm_i, ims_err)
+            write(500 + ims_pro, *) '[IFR_FBD_S5a] PE', ims_pro, ' past Barrier-2' ; flush(500 + ims_pro)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+            write(500 + ims_pro, *) '[IFR_FBD_S5b] PE', ims_pro, ' past WAITALL' ; flush(500 + ims_pro)
             ! Step 6: unpack recv buffer → strided b
             do m = 0, ims_npro_i - 1
                 flat_off = m * nmax_p * nlines_p
@@ -1716,6 +1722,7 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
             end do
+            write(500 + ims_pro, *) '[IFR_FBD_S6] PE', ims_pro, ' unpack done' ; flush(500 + ims_pro)
             nullify (c_wrk_dp, apu_pfptr_i)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
