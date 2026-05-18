@@ -1047,9 +1047,12 @@ contains
         flush(500 + ims_pro)
         dbg_trp_call_count = dbg_trp_call_count + 1
         if (dbg_trp_call_count >= DBG_TRP_STOP_AT) then
-            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling TLab_Stop(0)'
+            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling MPI_Abort(0)'
             flush(500 + ims_pro)
-            call TLab_Stop(0)
+            ! TLab_Stop(0) only calls MPI_FINALIZE then returns — the program continues running with
+            ! finalized MPI, producing garbage and many extra fort.500+rank lines. MPI_Abort with
+            ! error_code=0 actually terminates all ranks synchronously, leaving a small, diffable log.
+            call MPI_Abort(MPI_COMM_WORLD, 0, ims_err)
         end if
 #endif
         return
@@ -1067,18 +1070,32 @@ contains
 
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_ns, mas
+        integer :: send_to, recv_from, fbd_tag   ! FABRIC_DIRECT: global rank + distinct tag
 #ifdef USE_APU
         complex(dp), pointer :: apu_cx_all(:) => null()   ! complex view of apu_all_k across all peers
 #endif
-        type(MPI_Comm) :: trp_comm_k   ! ims_comm_z normally; the dup'd untainted comm for APU_ASYNC/FABRIC_DIRECT
+        type(MPI_Comm) :: trp_comm_k   ! ims_comm_z normally; MPI_COMM_WORLD for FABRIC_DIRECT (the
+                                       ! dup'd apu_async_mpi_comm_k is still in the tainted lineage
+                                       ! of MPI_Win_allocate_shared on the shmem sub-comm — the same
+                                       ! reason the REAL FABRIC_DIRECT path was switched to
+                                       ! MPI_COMM_WORLD. The COMPLEX path falling back to ASYNC
+                                       ! while still using the dup'd comm produced ~1.5e-7 relative
+                                       ! divergence at the first complex transpose call, amplified
+                                       ! by the Poisson solver to explosion at step 200001.)
 #ifdef USE_APU
-        if (trp_mode_k == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
+        if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
+            trp_comm_k = MPI_COMM_WORLD
+            fbd_tag = 3005   ! K-Forward Complex
+        else if (trp_mode_k == TLAB_MPI_TRP_APU_ASYNC) then
             trp_comm_k = apu_async_mpi_comm_k
+            fbd_tag = ims_tag
         else
             trp_comm_k = ims_comm_z
+            fbd_tag = ims_tag
         end if
 #else
         trp_comm_k = ims_comm_z
+        fbd_tag = ims_tag
 #endif
 
         nmax_p   = trp_plan%nmax
@@ -1139,18 +1156,26 @@ contains
                         end do
                     end do
                 end do
-                ! ISEND/IRECV in batches of trp_sizBlock_k peers per WAITALL
+                ! ISEND/IRECV in batches of trp_sizBlock_k peers per WAITALL.
+                ! For FABRIC_DIRECT: ips/ipr are K-ranks (= peer pro_k); peer global rank = pro_k*npro_i + ims_pro_i.
                 do j = 1, ims_npro_k, trp_sizBlock_k
                     l = 0
                     do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
                         ns = maps_send_k(m) + 1; ips = ns - 1
                         nr = maps_recv_k(m) + 1; ipr = nr - 1
+                        if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
+                            send_to   = ips*ims_npro_i + ims_pro_i
+                            recv_from = ipr*ims_npro_i + ims_pro_i
+                        else
+                            send_to   = ips
+                            recv_from = ipr
+                        end if
                         l = l + 1
                         call MPI_ISEND(c_wrk_cx((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ips, ims_tag, trp_comm_k, request(l), ims_err)
+                                       trp_plan%base_type, send_to, fbd_tag, trp_comm_k, request(l), ims_err)
                         l = l + 1
                         call MPI_IRECV(b(trp_plan%disp_r(nr) + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ipr, ims_tag, trp_comm_k, request(l), ims_err)
+                                       trp_plan%base_type, recv_from, fbd_tag, trp_comm_k, request(l), ims_err)
                     end do
                     call MPI_WAITALL(l, request, status, ims_err)
                 end do
@@ -1526,9 +1551,12 @@ contains
         flush(500 + ims_pro)
         dbg_trp_call_count = dbg_trp_call_count + 1
         if (dbg_trp_call_count >= DBG_TRP_STOP_AT) then
-            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling TLab_Stop(0)'
+            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling MPI_Abort(0)'
             flush(500 + ims_pro)
-            call TLab_Stop(0)
+            ! TLab_Stop(0) only calls MPI_FINALIZE then returns — the program continues running with
+            ! finalized MPI, producing garbage and many extra fort.500+rank lines. MPI_Abort with
+            ! error_code=0 actually terminates all ranks synchronously, leaving a small, diffable log.
+            call MPI_Abort(MPI_COMM_WORLD, 0, ims_err)
         end if
 #endif
         return
@@ -1544,18 +1572,25 @@ contains
 
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_nr, mas
+        integer :: send_to, recv_from, fbd_tag   ! FABRIC_DIRECT: global rank + distinct tag
 #ifdef USE_APU
         complex(dp), pointer :: apu_cx_all(:) => null()
 #endif
-        type(MPI_Comm) :: trp_comm_k
+        type(MPI_Comm) :: trp_comm_k   ! MPI_COMM_WORLD for FABRIC_DIRECT (see K-Forward_Complex comment).
 #ifdef USE_APU
-        if (trp_mode_k == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
+        if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
+            trp_comm_k = MPI_COMM_WORLD
+            fbd_tag = 3006   ! K-Backward Complex
+        else if (trp_mode_k == TLAB_MPI_TRP_APU_ASYNC) then
             trp_comm_k = apu_async_mpi_comm_k
+            fbd_tag = ims_tag
         else
             trp_comm_k = ims_comm_z
+            fbd_tag = ims_tag
         end if
 #else
         trp_comm_k = ims_comm_z
+        fbd_tag = ims_tag
 #endif
 
         nmax_p   = trp_plan%nmax
@@ -1603,18 +1638,26 @@ contains
                 trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
                 size = trp_plan%size3d
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
-                ! ISEND/IRECV in batches; recv into flat c_wrk_cx
+                ! ISEND/IRECV in batches; recv into flat c_wrk_cx.
+                ! For FABRIC_DIRECT: ips/ipr are K-ranks (= peer pro_k); global = pro_k*npro_i + ims_pro_i.
                 do j = 1, ims_npro_k, trp_sizBlock_k
                     l = 0
                     do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
                         ns = maps_recv_k(m) + 1; ips = ns - 1   ! backward: send/recv maps swapped
                         nr = maps_send_k(m) + 1; ipr = nr - 1
+                        if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
+                            send_to   = ips*ims_npro_i + ims_pro_i
+                            recv_from = ipr*ims_npro_i + ims_pro_i
+                        else
+                            send_to   = ips
+                            recv_from = ipr
+                        end if
                         l = l + 1
                         call MPI_ISEND(b(trp_plan%disp_r(ns) + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ips, ims_tag, trp_comm_k, request(l), ims_err)
+                                       trp_plan%base_type, send_to, fbd_tag, trp_comm_k, request(l), ims_err)
                         l = l + 1
                         call MPI_IRECV(c_wrk_cx((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ipr, ims_tag, trp_comm_k, request(l), ims_err)
+                                       trp_plan%base_type, recv_from, fbd_tag, trp_comm_k, request(l), ims_err)
                     end do
                     call MPI_WAITALL(l, request, status, ims_err)
                 end do
@@ -2004,9 +2047,12 @@ contains
         flush(500 + ims_pro)
         dbg_trp_call_count = dbg_trp_call_count + 1
         if (dbg_trp_call_count >= DBG_TRP_STOP_AT) then
-            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling TLab_Stop(0)'
+            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling MPI_Abort(0)'
             flush(500 + ims_pro)
-            call TLab_Stop(0)
+            ! TLab_Stop(0) only calls MPI_FINALIZE then returns — the program continues running with
+            ! finalized MPI, producing garbage and many extra fort.500+rank lines. MPI_Abort with
+            ! error_code=0 actually terminates all ranks synchronously, leaving a small, diffable log.
+            call MPI_Abort(MPI_COMM_WORLD, 0, ims_err)
         end if
 #endif
         return
@@ -2022,20 +2068,27 @@ contains
         complex(wp), intent(out) :: b(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_nr
+        integer :: send_to, recv_from, fbd_tag   ! FABRIC_DIRECT: global rank + distinct tag
 #ifdef USE_APU
         ! apu_cx_all: complex view spanning all peers' shared windows (stride = apu_stride_i/2 complex units).
         complex(dp), pointer :: apu_cx_all(:) => null()
         integer(wi) :: mas
 #endif
-        type(MPI_Comm) :: trp_comm_i
+        type(MPI_Comm) :: trp_comm_i   ! MPI_COMM_WORLD for FABRIC_DIRECT (see K-Forward_Complex comment).
 #ifdef USE_APU
-        if (trp_mode_i == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
+        if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
+            trp_comm_i = MPI_COMM_WORLD
+            fbd_tag = 3007   ! I-Forward Complex
+        else if (trp_mode_i == TLAB_MPI_TRP_APU_ASYNC) then
             trp_comm_i = apu_async_mpi_comm_i
+            fbd_tag = ims_tag
         else
             trp_comm_i = ims_comm_x
+            fbd_tag = ims_tag
         end if
 #else
         trp_comm_i = ims_comm_x
+        fbd_tag = ims_tag
 #endif
 
         ! #######################################################################
@@ -2091,17 +2144,25 @@ contains
                 size = trp_plan%size3d
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
                 ! Pipeline: batched ISEND+IRECV → WAITALL per trp_sizBlock_i batch.
+                ! For FABRIC_DIRECT: ips/ipr are I-ranks (= peer pro_i); global = ims_pro_k*npro_i + pro_i.
                 do j = 1, ims_npro_i, trp_sizBlock_i
                     l = 0
                     do m = j, min(j + trp_sizBlock_i - 1, ims_npro_i)
                         ns = maps_send_i(m) + 1; ips = ns - 1
                         nr = maps_recv_i(m) + 1; ipr = nr - 1
+                        if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
+                            send_to   = ims_pro_k*ims_npro_i + ips
+                            recv_from = ims_pro_k*ims_npro_i + ipr
+                        else
+                            send_to   = ips
+                            recv_from = ipr
+                        end if
                         l = l + 1
                         call MPI_ISEND(a(trp_plan%disp_s(ns) + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ips, ims_tag, trp_comm_i, request(l), ims_err)
+                                       trp_plan%base_type, send_to, fbd_tag, trp_comm_i, request(l), ims_err)
                         l = l + 1
                         call MPI_IRECV(c_wrk_cx((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ipr, ims_tag, trp_comm_i, request(l), ims_err)
+                                       trp_plan%base_type, recv_from, fbd_tag, trp_comm_i, request(l), ims_err)
                     end do
                     call MPI_WAITALL(l, request, status, ims_err)
                 end do
@@ -2487,9 +2548,12 @@ contains
         flush(500 + ims_pro)
         dbg_trp_call_count = dbg_trp_call_count + 1
         if (dbg_trp_call_count >= DBG_TRP_STOP_AT) then
-            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling TLab_Stop(0)'
+            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling MPI_Abort(0)'
             flush(500 + ims_pro)
-            call TLab_Stop(0)
+            ! TLab_Stop(0) only calls MPI_FINALIZE then returns — the program continues running with
+            ! finalized MPI, producing garbage and many extra fort.500+rank lines. MPI_Abort with
+            ! error_code=0 actually terminates all ranks synchronously, leaving a small, diffable log.
+            call MPI_Abort(MPI_COMM_WORLD, 0, ims_err)
         end if
 #endif
         return
@@ -2505,20 +2569,27 @@ contains
         complex(wp), intent(out) :: a(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_ns
+        integer :: send_to, recv_from, fbd_tag   ! FABRIC_DIRECT: global rank + distinct tag
 #ifdef USE_APU
         ! apu_cx_all: complex view spanning all peers' shared windows (stride = apu_stride_i/2 complex units).
         complex(dp), pointer :: apu_cx_all(:) => null()
         integer(wi) :: mas
 #endif
-        type(MPI_Comm) :: trp_comm_i
+        type(MPI_Comm) :: trp_comm_i   ! MPI_COMM_WORLD for FABRIC_DIRECT (see K-Forward_Complex comment).
 #ifdef USE_APU
-        if (trp_mode_i == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
+        if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
+            trp_comm_i = MPI_COMM_WORLD
+            fbd_tag = 3008   ! I-Backward Complex
+        else if (trp_mode_i == TLAB_MPI_TRP_APU_ASYNC) then
             trp_comm_i = apu_async_mpi_comm_i
+            fbd_tag = ims_tag
         else
             trp_comm_i = ims_comm_x
+            fbd_tag = ims_tag
         end if
 #else
         trp_comm_i = ims_comm_x
+        fbd_tag = ims_tag
 #endif
 
         ! #######################################################################
@@ -2581,17 +2652,25 @@ contains
                     end do
                 end do
                 ! Batched ISEND from flat c_wrk_cx + IRECV directly into a → WAITALL.
+                ! For FABRIC_DIRECT: ips/ipr are I-ranks (= peer pro_i); global = ims_pro_k*npro_i + pro_i.
                 do j = 1, ims_npro_i, trp_sizBlock_i
                     l = 0
                     do m = j, min(j + trp_sizBlock_i - 1, ims_npro_i)
                         ns = maps_recv_i(m) + 1; ips = ns - 1
                         nr = maps_send_i(m) + 1; ipr = nr - 1
+                        if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
+                            send_to   = ims_pro_k*ims_npro_i + ips
+                            recv_from = ims_pro_k*ims_npro_i + ipr
+                        else
+                            send_to   = ips
+                            recv_from = ipr
+                        end if
                         l = l + 1
                         call MPI_ISEND(c_wrk_cx((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ips, ims_tag, trp_comm_i, request(l), ims_err)
+                                       trp_plan%base_type, send_to, fbd_tag, trp_comm_i, request(l), ims_err)
                         l = l + 1
                         call MPI_IRECV(a(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, &
-                                       trp_plan%base_type, ipr, ims_tag, trp_comm_i, request(l), ims_err)
+                                       trp_plan%base_type, recv_from, fbd_tag, trp_comm_i, request(l), ims_err)
                     end do
                     call MPI_WAITALL(l, request, status, ims_err)
                 end do
