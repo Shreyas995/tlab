@@ -396,19 +396,27 @@ contains
         ! is allocated only over that sub-communicator. Ranks absent from it are inter-node
         ! peers, handled via standard ISEND/IRECV (APU_ASYNC) or one-sided MPI_Put (FABRIC_DIRECT,
         ! which additionally exposes the recv buffer as an RMA window over the full transpose comm).
+        ! Step (a) — take BOTH MPI_Comm_dup's FIRST, before ANY MPI_Win_allocate_shared.
+        ! On Cray MPICH, allocating an MPI_Win_allocate_shared window on a sub-comm of
+        ! ims_comm_z (or ims_comm_x) taints not just that parent but also other comms
+        ! derived from a shared MPI_COMM_WORLD ancestor. A dup taken BEFORE any such
+        ! allocation lies outside the tainted lineage and stays clean. The 2026-05-18
+        ! crashlog showed I-Forward hanging on exactly the ranks whose K-shmem had the
+        ! win_baseptr misalignment (Bug A below); routing both K- and I-dups before any
+        ! shared-window allocation removes that cross-direction taint propagation.
+        if ((trp_mode_k == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) .and. ims_npro_k > 1) then
+            call MPI_Comm_dup(ims_comm_z, apu_async_mpi_comm_k, ims_err)
+        end if
+        if ((trp_mode_i == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) .and. ims_npro_i > 1) then
+            call MPI_Comm_dup(ims_comm_x, apu_async_mpi_comm_i, ims_err)
+        end if
+
         if ((trp_mode_k == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) .and. ims_npro_k > 1) then
             apu_async_size_k = int(imax, wi)*int(jmax, wi)*int(kmax, wi)
             allocate (apu_async_is_local_k(0:ims_npro_k - 1))
             allocate (apu_async_peer_k(0:ims_npro_k - 1))
             apu_async_peer_k = c_null_ptr
             apu_async_is_local_k = .false.
-            ! Step (a): MPI_Comm_dup of ims_comm_z BEFORE the split-type/window allocation.
-            ! On Cray MPICH, allocating a shared window on a MPI_Comm_split_type sub-comm
-            ! of ims_comm_z taints ims_comm_z's process-group state — any subsequent two-sided
-            ! MPI traffic on ims_comm_z (or any sibling derived from it AFTER the split) wedges
-            ! in MPI_WAITALL. The dup taken BEFORE the split lies outside the tainted lineage
-            ! and remains usable. fabricdirect's inter-node MPI_ISEND/IRECV go through this dup.
-            call MPI_Comm_dup(ims_comm_z, apu_async_mpi_comm_k, ims_err)
             ! Step (b): identify node-local peers via MPI_Comm_split_type.
             call MPI_Comm_split_type(ims_comm_z, MPI_COMM_TYPE_SHARED, ims_pro_k, MPI_INFO_NULL, apu_async_shmem_comm, ims_err)
             call MPI_Comm_size(apu_async_shmem_comm, apu_async_shmem_size, ims_err)
@@ -428,14 +436,19 @@ contains
                 call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU_ASYNC/FABRIC_DIRECT K recv buffer.')
                 call TLab_Stop(DNS_ERROR_OPTION)
             end if
-            ! My own segment: bind the Fortran pointer for local reads/writes (unpack step).
-            call c_f_pointer(win_baseptr, apu_async_recv_k, [apu_async_size_k])
             ! Peer segments: MPI_Win_shared_query with each shmem-rank, then route by K-rank.
             do ip = 0, apu_async_shmem_size - 1
                 apu_async_is_local_k(apu_async_shmem_to_dir(ip)) = .true.
                 call MPI_Win_shared_query(apu_async_win_k, ip, win_query_size, win_disp_unit, &
                                           apu_async_peer_k(apu_async_shmem_to_dir(ip)), ims_err)
             end do
+            ! Bug A fix (2026-05-18): bind apu_async_recv_k to OUR query result, not win_baseptr.
+            ! On Cray MPICH some shmem subcomms return win_baseptr that is 1 segsize BEFORE the
+            ! caller's actual segment (segments turn out to be 2x segsize apart with a guard
+            ! region between them). MPI_Win_shared_query(my_shmem_rank,...) returns the real
+            ! own-segment baseptr — that's what was stored in apu_async_peer_k(ims_pro_k) by
+            ! the loop above (since shmem_to_dir maps OUR shmem-rank → ims_pro_k).
+            call c_f_pointer(apu_async_peer_k(ims_pro_k), apu_async_recv_k, [apu_async_size_k])
             deallocate (apu_async_shmem_to_dir)
             apu_async_node_comm_k = apu_async_shmem_comm   ! keep alive for runtime MPI_Barrier
             if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
@@ -461,7 +474,6 @@ contains
             allocate (apu_async_peer_i(0:ims_npro_i - 1))
             apu_async_peer_i = c_null_ptr
             apu_async_is_local_i = .false.
-            call MPI_Comm_dup(ims_comm_x, apu_async_mpi_comm_i, ims_err)
             call MPI_Comm_split_type(ims_comm_x, MPI_COMM_TYPE_SHARED, ims_pro_i, MPI_INFO_NULL, apu_async_shmem_comm, ims_err)
             call MPI_Comm_size(apu_async_shmem_comm, apu_async_shmem_size, ims_err)
             allocate (apu_async_shmem_to_dir(0:apu_async_shmem_size - 1))
@@ -473,12 +485,13 @@ contains
                 call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU_ASYNC/FABRIC_DIRECT I recv buffer.')
                 call TLab_Stop(DNS_ERROR_OPTION)
             end if
-            call c_f_pointer(win_baseptr, apu_async_recv_i, [apu_async_size_i])
             do ip = 0, apu_async_shmem_size - 1
                 apu_async_is_local_i(apu_async_shmem_to_dir(ip)) = .true.
                 call MPI_Win_shared_query(apu_async_win_i, ip, win_query_size, win_disp_unit, &
                                           apu_async_peer_i(apu_async_shmem_to_dir(ip)), ims_err)
             end do
+            ! Bug A fix (2026-05-18): bind via query result for OUR shmem-rank — see K-direction note.
+            call c_f_pointer(apu_async_peer_i(ims_pro_i), apu_async_recv_i, [apu_async_size_i])
             deallocate (apu_async_shmem_to_dir)
             apu_async_node_comm_i = apu_async_shmem_comm   ! keep alive for runtime MPI_Barrier
             if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
