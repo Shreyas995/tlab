@@ -829,8 +829,12 @@ contains
                                    3001, MPI_COMM_WORLD, request(l), ims_err)
                 end if
             end do
-            ! Step 2: barrier — all ranks have posted IRECVs; safe to proceed
-            call MPI_Barrier(apu_async_node_comm_k, ims_err)
+            ! Step 2: MPI_Win_fence (open epoch) — synchronizes the shmem subcomm AND flushes
+            ! GPU/CPU caches for the shared-window backing memory. Replaces MPI_Barrier on the
+            ! shmem comm: the barrier alone doesn't guarantee that GPU writes from one process
+            ! become visible to another process's GPU reads (the 2026-05-19 garbage-data issue).
+            ! tlab_old's APU_ASYNC uses Win_fence for exactly this reason.
+            call MPI_Win_fence(0, apu_async_win_k, ims_err)
             ! Step 3: inter-node — pack strided chunk into flat staging then ISEND.
             !   Done BEFORE intra-node GPU writes so network transfer overlaps with GPU work.
             do m = 0, ims_npro_k - 1
@@ -863,8 +867,9 @@ contains
                     !$omp end target teams distribute parallel do
                 end if
             end do
-            ! Step 5: barrier (intra-node writes done) then WAITALL (inter-node likely complete)
-            call MPI_Barrier(apu_async_node_comm_k, ims_err)
+            ! Step 5: Win_fence (close epoch) — all GPU writes to peer shared windows are
+            ! flushed and visible. Then WAITALL for the inter-node MPI.
+            call MPI_Win_fence(0, apu_async_win_k, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
             ! Step 6: flat copy → b. Intra slots from shared window (GPU); inter slots from
             !   c_wrk_dp_recv (CPU, matches "inter on CPU" rule to avoid stale GPU cache reads).
@@ -1271,7 +1276,8 @@ contains
                                    3002, MPI_COMM_WORLD, request(l), ims_err)
                 end if
             end do
-            call MPI_Barrier(apu_async_node_comm_k, ims_err)
+            ! Win_fence (open) — see K-Forward FABRIC_DIRECT comment for the Win_fence rationale.
+            call MPI_Win_fence(0, apu_async_win_k, ims_err)
             do m = 0, ims_npro_k - 1
                 if (apu_async_is_local_k(m)) then
                     call c_f_pointer(apu_async_peer_k(m), apu_pfptr_k, [apu_async_size_k])
@@ -1291,7 +1297,8 @@ contains
                                    3002, MPI_COMM_WORLD, request(l), ims_err)
                 end if
             end do
-            call MPI_Barrier(apu_async_node_comm_k, ims_err)
+            ! Win_fence (close) — GPU writes flushed, peers see them.
+            call MPI_Win_fence(0, apu_async_win_k, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
             ! debug: split checksum — intra from shared window, inter from clean MPI recv buffer.
             dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
@@ -1721,9 +1728,14 @@ contains
                 end if
             end do
             write(500 + ims_pro, *) '[IFR_FBD_S1] PE', ims_pro, ' IRECVs posted, l=', l ; flush(500 + ims_pro)
-            ! Step 2: barrier — all ranks have posted IRECVs; safe to begin intra-node writes
-            call MPI_Barrier(apu_async_node_comm_i, ims_err)
-            write(500 + ims_pro, *) '[IFR_FBD_S2] PE', ims_pro, ' past Barrier-1' ; flush(500 + ims_pro)
+            ! Step 2: Win_fence (open) — synchronizes shmem peers AND flushes GPU/CPU caches for
+            ! the shared-window memory. Replaces MPI_Barrier on shmem subcomm: the 2026-05-19
+            ! run with MPI_Barrier produced garbage data (u_y(1) consistent-wrong, entstrophy
+            ! varying between runs — classic race signature on the cross-process GPU writes).
+            ! MPI_Win_fence is the standard for MPI_Win_allocate_shared coherence; tlab_old's
+            ! APU_ASYNC uses it for exactly this reason.
+            call MPI_Win_fence(0, apu_async_win_i, ims_err)
+            write(500 + ims_pro, *) '[IFR_FBD_S2] PE', ims_pro, ' past Win_fence-open' ; flush(500 + ims_pro)
             ! Step 3: inter-node — ISEND a[m*chunk] (already flat, no packing needed).
             !   Done BEFORE GPU intra writes so network transfer overlaps with GPU work.
             do m = 0, ims_npro_i - 1
@@ -1751,9 +1763,10 @@ contains
                 end if
             end do
             write(500 + ims_pro, *) '[IFR_FBD_S4] PE', ims_pro, ' GPU intra writes done' ; flush(500 + ims_pro)
-            ! Step 5: barrier (intra-node writes visible to shmem peers) then wait for inter-node MPI
-            call MPI_Barrier(apu_async_node_comm_i, ims_err)
-            write(500 + ims_pro, *) '[IFR_FBD_S5a] PE', ims_pro, ' past Barrier-2' ; flush(500 + ims_pro)
+            ! Step 5: Win_fence (close) — all GPU writes to peer shared windows are flushed and
+            ! visible to peers. Then WAITALL for the inter-node MPI.
+            call MPI_Win_fence(0, apu_async_win_i, ims_err)
+            write(500 + ims_pro, *) '[IFR_FBD_S5a] PE', ims_pro, ' past Win_fence-close' ; flush(500 + ims_pro)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
             write(500 + ims_pro, *) '[IFR_FBD_S5b] PE', ims_pro, ' past WAITALL' ; flush(500 + ims_pro)
             ! Step 6: unpack → strided b. Intra slots come from the shared-window mapping
@@ -2177,8 +2190,8 @@ contains
                                    3004, MPI_COMM_WORLD, request(l), ims_err)
                 end if
             end do
-            ! Step 2: barrier — all ranks have posted IRECVs; safe to begin writes
-            call MPI_Barrier(apu_async_node_comm_i, ims_err)
+            ! Step 2: Win_fence (open) — see I-Forward FABRIC_DIRECT comment for rationale.
+            call MPI_Win_fence(0, apu_async_win_i, ims_err)
             ! Step 3: inter-node — CPU pack strided b[m] → flat c_wrk_dp + ISEND.
             !   Done BEFORE GPU intra writes so network transfer overlaps with GPU work.
             do m = 0, ims_npro_i - 1
@@ -2212,8 +2225,8 @@ contains
                     !$omp end target teams distribute parallel do
                 end if
             end do
-            ! Step 5: barrier (intra-node writes done) then wait for inter-node MPI
-            call MPI_Barrier(apu_async_node_comm_i, ims_err)
+            ! Step 5: Win_fence (close) — GPU writes flushed, peers see them. Then WAITALL.
+            call MPI_Win_fence(0, apu_async_win_i, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
             ! debug: split checksum after WAITALL. intra comes from shared window, inter from
             ! the clean MPI recv buffer; their sum must equal [IBR_post]'s sum(a).
