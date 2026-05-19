@@ -119,13 +119,12 @@ module TLabMPI_Transpose
 
     ! Debug stop counter (for apudirect vs fabricdirect per-slot diff comparison).
     ! Each of the 4 real-typed transpose routines increments dbg_trp_call_count after its
-    ! per-slot debug print. When the count reaches DBG_TRP_STOP_AT, TLab_Stop(0) is called
-    ! so the run halts cleanly with minimal output. Set DBG_TRP_STOP_AT to a value large
-    ! enough to capture the bug's first divergence, but small enough to keep fort.500+rank
-    ! files diffable. Setting to a very large value (e.g. huge(0_wi)) effectively disables
-    ! the early stop; the per-slot debug prints continue regardless.
+    ! per-slot debug print. When the count reaches DBG_TRP_STOP_AT, MPI_Abort(0) is called
+    ! so the run halts cleanly with minimal output. Set DBG_TRP_STOP_AT to a small value
+    ! (e.g. 4 or 8) to capture the first divergence, or huge(0_wi) to disable the early
+    ! stop entirely so the simulation can run to completion.
     integer(wi) :: dbg_trp_call_count = 0_wi
-    integer(wi), parameter :: DBG_TRP_STOP_AT = 4_wi   ! stop after this many transpose calls
+    integer(wi), parameter :: DBG_TRP_STOP_AT = huge(0_wi)   ! disabled: run to completion
 
     interface TLabMPI_Trp_ExecK_Forward
         module procedure TLabMPI_Trp_ExecK_Forward_Real, TLabMPI_Trp_ExecK_Forward_Complex
