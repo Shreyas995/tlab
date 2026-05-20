@@ -855,23 +855,27 @@ contains
                 end if
             end do
             write(500 + ims_pro, *) '[KFR_FBD_S3] PE', ims_pro, ' ISENDs posted, l=', l ; flush(500 + ims_pro)
-            ! Step 4: intra-node — GPU write our strided chunk into each peer's recv buffer
-            !   at slot ims_pro_k (so peer m accumulates data from all K-ranks in their buffer).
+            ! Step 4: intra-node — CPU write our strided chunk into each peer's recv buffer
+            !   at slot ims_pro_k. NOTE: must be CPU (not !$omp target) because K-shmem peers
+            !   span different XCDs on MI300A (global ranks 0,6,12,18 → XCDs 0,1,2,3); cross-XCD
+            !   GPU writes land in per-XCD L2 caches and are NOT visible to peers after Win_fence
+            !   (Win_fence only synchronizes MPI RMA ops, not OpenMP target writes). CPU writes
+            !   go through the unified-memory CPU coherence protocol that Win_fence is designed
+            !   to synchronize. I-direction intra peers (0,1,2 → same XCD) are fine with GPU.
             do m = 0, ims_npro_k - 1
                 if (apu_async_is_local_k(m)) then
                     call c_f_pointer(apu_async_peer_k(m), apu_pfptr_k, [apu_async_size_k])
                     flat_off = ims_pro_k * nmax_p * nlines_p
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    disp_ns  = m * nlines_p
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
-                            apu_pfptr_k(flat_off + i*nlines_p + j + 1) = a(m*nlines_p + i*npage + j + 1)
+                            apu_pfptr_k(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
                         end do
                     end do
-                    !$omp end target teams distribute parallel do
                 end if
             end do
-            write(500 + ims_pro, *) '[KFR_FBD_S4] PE', ims_pro, ' GPU intra writes done' ; flush(500 + ims_pro)
-            ! Step 5: Win_fence (close) — GPU writes visible to peers. Then WAITALL for inter-node MPI.
+            write(500 + ims_pro, *) '[KFR_FBD_S4] PE', ims_pro, ' CPU intra writes done' ; flush(500 + ims_pro)
+            ! Step 5: Win_fence (close) — CPU writes coherent for peers. Then WAITALL for inter MPI.
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
             write(500 + ims_pro, *) '[KFR_FBD_S5a] PE', ims_pro, ' past Win_fence-close' ; flush(500 + ims_pro)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
@@ -1355,14 +1359,13 @@ contains
                 if (apu_async_is_local_k(m)) then
                     call c_f_pointer(apu_async_peer_k(m), apu_pfptr_k, [apu_async_size_k])
                     flat_off = ims_pro_k * nmax_p * nlines_p
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    ! CPU write — same reason as K-Forward Step 4 (cross-XCD coherence).
                     do i = 1, nmax_p * nlines_p
                         apu_pfptr_k(flat_off + i) = b(m * nmax_p * nlines_p + i)
                     end do
-                    !$omp end target teams distribute parallel do
                 end if
             end do
-            write(500 + ims_pro, *) '[KBR_FBD_S4] PE', ims_pro, ' GPU intra writes done' ; flush(500 + ims_pro)
+            write(500 + ims_pro, *) '[KBR_FBD_S4] PE', ims_pro, ' CPU intra writes done' ; flush(500 + ims_pro)
             ! Step 5: Win_fence (close) + WAITALL.
             call MPI_Win_fence(0, apu_async_win_k, ims_err)
             write(500 + ims_pro, *) '[KBR_FBD_S5a] PE', ims_pro, ' past Win_fence-close' ; flush(500 + ims_pro)
