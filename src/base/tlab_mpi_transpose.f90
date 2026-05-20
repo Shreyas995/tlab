@@ -695,8 +695,7 @@ contains
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_ns, mas
 #ifdef USE_APU
-        real(dp), pointer, contiguous :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC/FABRIC_DIRECT per-peer writes
-        real(dp), pointer, contiguous :: c_wrk_dp_recv(:) => null() ! clean recv buffer (NOT shared-window-aliased) for MPI IRECVs
+        real(dp), pointer, contiguous :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
         real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
 #endif
 #ifdef PROFILE_ON
@@ -814,101 +813,57 @@ contains
             nullify (c_wrk_dp, apu_pfptr_k)
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-            ! Two-level K-forward: intra-node peers via direct GPU writes into their shared-
-            ! window recv buffer (apu_async_win_k); inter-node peers via plain MPI ISEND/IRECV
-            ! on MPI_COMM_WORLD (global rank = m*npro_i + pro_i). Mirrors I-Forward FABRIC_DIRECT
-            ! which is confirmed correct on 2 nodes. Win_fence provides cross-process GPU cache
-            ! coherence for the shared window — same mechanism that works for I-direction.
-            ! Input  a: strided Z-space, a(m*nlines_p + i*npage + j + 1).
-            ! Output b: flat K-space,    b(m*chunk + i).
+            ! K-Forward FABRIC_DIRECT: K-intra peers span different XCDs on MI300A
+            ! (global ranks 0,6,12,18 → XCDs 0,1,2,3). Cross-XCD CPU writes to the shared
+            ! window are NOT coherent — each XCD has independent CPU caches and MPI_Win_fence
+            ! only synchronizes MPI RMA ops, not raw pointer writes. GPU writes in separate
+            ! kernels on different XCDs are similarly incoherent. So ALL K-peers go through
+            ! plain MPI ISEND/IRECV; apu_async_recv_k is just used as the IRECV target buffer.
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(wrk_mpi_dp(1)),         c_wrk_dp,      shape=[size])
-            call c_f_pointer(c_loc(wrk_mpi_dp(size + 1)),  c_wrk_dp_recv, shape=[size])
+            call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
             l = 0
-            ! Step 1: post IRECVs for inter-node K-peers into clean recv buffer.
+            ! Post IRECVs for ALL K-peers (intra and inter) into our recv buffer.
             do m = 0, ims_npro_k - 1
-                if (.not. apu_async_is_local_k(m)) then
-                    l = l + 1
-                    call MPI_IRECV(c_wrk_dp_recv(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m*ims_npro_i + ims_pro_i, &
-                                   3001, MPI_COMM_WORLD, request(l), ims_err)
-                end if
+                l = l + 1
+                call MPI_IRECV(apu_async_recv_k(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                               trp_plan%base_type, m*ims_npro_i + ims_pro_i, &
+                               3001, MPI_COMM_WORLD, request(l), ims_err)
             end do
             write(500 + ims_pro, *) '[KFR_FBD_S1] PE', ims_pro, ' IRECVs posted, l=', l ; flush(500 + ims_pro)
-            ! Step 2: Win_fence (open) — synchronizes shmem peers + flushes GPU/CPU caches for win.
-            call MPI_Win_fence(0, apu_async_win_k, ims_err)
-            write(500 + ims_pro, *) '[KFR_FBD_S2] PE', ims_pro, ' past Win_fence-open' ; flush(500 + ims_pro)
-            ! Step 3: inter-node — CPU pack strided a -> flat c_wrk_dp + ISEND.
-            do m = 0, ims_npro_k - 1
-                if (.not. apu_async_is_local_k(m)) then
-                    flat_off = m * nmax_p * nlines_p
-                    disp_ns  = m * nlines_p
-                    do i = 0, nmax_p - 1
-                        do j = 0, nlines_p - 1
-                            c_wrk_dp(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
-                        end do
-                    end do
-                    l = l + 1
-                    call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m*ims_npro_i + ims_pro_i, &
-                                   3001, MPI_COMM_WORLD, request(l), ims_err)
-                end if
-            end do
-            write(500 + ims_pro, *) '[KFR_FBD_S3] PE', ims_pro, ' ISENDs posted, l=', l ; flush(500 + ims_pro)
-            ! Step 4: intra-node — CPU write our strided chunk into each peer's recv buffer
-            !   at slot ims_pro_k. NOTE: must be CPU (not !$omp target) because K-shmem peers
-            !   span different XCDs on MI300A (global ranks 0,6,12,18 → XCDs 0,1,2,3); cross-XCD
-            !   GPU writes land in per-XCD L2 caches and are NOT visible to peers after Win_fence
-            !   (Win_fence only synchronizes MPI RMA ops, not OpenMP target writes). CPU writes
-            !   go through the unified-memory CPU coherence protocol that Win_fence is designed
-            !   to synchronize. I-direction intra peers (0,1,2 → same XCD) are fine with GPU.
-            do m = 0, ims_npro_k - 1
-                if (apu_async_is_local_k(m)) then
-                    call c_f_pointer(apu_async_peer_k(m), apu_pfptr_k, [apu_async_size_k])
-                    flat_off = ims_pro_k * nmax_p * nlines_p
-                    disp_ns  = m * nlines_p
-                    do i = 0, nmax_p - 1
-                        do j = 0, nlines_p - 1
-                            apu_pfptr_k(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
-                        end do
-                    end do
-                end if
-            end do
-            write(500 + ims_pro, *) '[KFR_FBD_S4] PE', ims_pro, ' CPU intra writes done' ; flush(500 + ims_pro)
-            ! Step 5: Win_fence (close) — CPU writes coherent for peers. Then WAITALL for inter MPI.
-            call MPI_Win_fence(0, apu_async_win_k, ims_err)
-            write(500 + ims_pro, *) '[KFR_FBD_S5a] PE', ims_pro, ' past Win_fence-close' ; flush(500 + ims_pro)
-            if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            write(500 + ims_pro, *) '[KFR_FBD_S5b] PE', ims_pro, ' past WAITALL' ; flush(500 + ims_pro)
-            ! debug: split checksum (intra from shared window, inter from clean MPI recv buffer).
-            dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
-            do m = 0, ims_npro_k - 1
-                if (apu_async_is_local_k(m)) then
-                    dbg_intra = dbg_intra + sum(apu_async_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
-                else
-                    dbg_inter = dbg_inter + sum(c_wrk_dp_recv(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
-                end if
-            end do
-            write(500 + ims_pro, *) '[KFR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
-                ' total=', dbg_intra + dbg_inter
-            flush(500 + ims_pro)
-            ! Step 6: flat-copy b. Intra slots from apu_async_recv_k (GPU); inter from c_wrk_dp_recv (CPU).
+            write(500 + ims_pro, *) '[KFR_FBD_S2] PE', ims_pro, ' (no Win_fence)' ; flush(500 + ims_pro)
+            ! Pack ALL K-peers (strided a → flat c_wrk_dp) and post ISENDs.
             do m = 0, ims_npro_k - 1
                 flat_off = m * nmax_p * nlines_p
-                if (apu_async_is_local_k(m)) then
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
-                    do i = 1, nmax_p*nlines_p
-                        b(flat_off + i) = apu_async_recv_k(flat_off + i)
+                disp_ns  = m * nlines_p
+                do i = 0, nmax_p - 1
+                    do j = 0, nlines_p - 1
+                        c_wrk_dp(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
                     end do
-                    !$omp end target teams distribute parallel do
-                else
-                    do i = 1, nmax_p*nlines_p
-                        b(flat_off + i) = c_wrk_dp_recv(flat_off + i)
-                    end do
-                end if
+                end do
+                l = l + 1
+                call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
+                               trp_plan%base_type, m*ims_npro_i + ims_pro_i, &
+                               3001, MPI_COMM_WORLD, request(l), ims_err)
             end do
+            write(500 + ims_pro, *) '[KFR_FBD_S3] PE', ims_pro, ' ISENDs posted, l=', l ; flush(500 + ims_pro)
+            write(500 + ims_pro, *) '[KFR_FBD_S4] PE', ims_pro, ' (no shared-window writes)' ; flush(500 + ims_pro)
+            write(500 + ims_pro, *) '[KFR_FBD_S5a] PE', ims_pro, ' (no Win_fence)' ; flush(500 + ims_pro)
+            call MPI_WAITALL(l, request, status, ims_err)
+            write(500 + ims_pro, *) '[KFR_FBD_S5b] PE', ims_pro, ' past WAITALL' ; flush(500 + ims_pro)
+            ! debug checksum: all peers now in apu_async_recv_k via MPI.
+            dbg_intra = sum(apu_async_recv_k(1 : size))
+            dbg_inter = 0.0_dp
+            write(500 + ims_pro, *) '[KFR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
+                ' total=', dbg_intra
+            flush(500 + ims_pro)
+            ! Flat copy recv buffer → b.
+            !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+            do i = 1, size
+                b(i) = apu_async_recv_k(i)
+            end do
+            !$omp end target teams distribute parallel do
             write(500 + ims_pro, *) '[KFR_FBD_S6] PE', ims_pro, ' unpack done' ; flush(500 + ims_pro)
-            nullify (c_wrk_dp, c_wrk_dp_recv, apu_pfptr_k)
+            nullify (c_wrk_dp)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
 #endif
@@ -1216,7 +1171,6 @@ contains
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_nr, mas
 #ifdef USE_APU
         real(dp), pointer, contiguous :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
-        real(dp), pointer, contiguous :: c_wrk_dp_recv(:) => null() ! clean recv buffer (NOT shared-window-aliased) for MPI IRECVs
         real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
         real(wp) :: slot_max               ! per-slot debug max (for apudirect-vs-fabricdirect diff)
         integer(MPI_ADDRESS_KIND) :: dbg_addr
@@ -1324,87 +1278,49 @@ contains
             nullify (apu_pfptr_k)
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-            ! Two-level K-backward: intra-node peers via direct GPU writes into their shared-
-            ! window recv buffer (apu_async_win_k); inter-node peers via plain MPI ISEND/IRECV
-            ! on MPI_COMM_WORLD. b is already flat per-peer (b(m*chunk + i)), no CPU packing needed.
-            ! Mirrors I-Backward FABRIC_DIRECT. Win_fence provides GPU cache coherence for intra.
+            ! K-Backward FABRIC_DIRECT: same all-MPI approach as K-Forward (K-intra peers
+            ! are cross-XCD; shared-window CPU/GPU writes are not cache-coherent across XCDs).
+            ! b is already flat per-peer (b(m*chunk + i)), so ISEND directly from b.
             size = trp_plan%size3d
-            call c_f_pointer(c_loc(wrk_mpi_dp(size + 1)), c_wrk_dp_recv, shape=[size])
             l = 0
-            ! Step 1: IRECVs for inter-node K-peers.
+            ! Post IRECVs for ALL K-peers into our recv buffer.
             do m = 0, ims_npro_k - 1
-                if (.not. apu_async_is_local_k(m)) then
-                    l = l + 1
-                    call MPI_IRECV(c_wrk_dp_recv(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m*ims_npro_i + ims_pro_i, &
-                                   3002, MPI_COMM_WORLD, request(l), ims_err)
-                end if
+                l = l + 1
+                call MPI_IRECV(apu_async_recv_k(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                               trp_plan%base_type, m*ims_npro_i + ims_pro_i, &
+                               3002, MPI_COMM_WORLD, request(l), ims_err)
             end do
             write(500 + ims_pro, *) '[KBR_FBD_S1] PE', ims_pro, ' IRECVs posted, l=', l ; flush(500 + ims_pro)
-            ! Step 2: Win_fence (open).
-            call MPI_Win_fence(0, apu_async_win_k, ims_err)
-            write(500 + ims_pro, *) '[KBR_FBD_S2] PE', ims_pro, ' past Win_fence-open' ; flush(500 + ims_pro)
-            ! Step 3: inter-node — b is already flat; ISEND directly.
+            write(500 + ims_pro, *) '[KBR_FBD_S2] PE', ims_pro, ' (no Win_fence)' ; flush(500 + ims_pro)
+            ! Post ISENDs for ALL K-peers from b (already flat).
             do m = 0, ims_npro_k - 1
-                if (.not. apu_async_is_local_k(m)) then
-                    l = l + 1
-                    call MPI_ISEND(b(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                                   trp_plan%base_type, m*ims_npro_i + ims_pro_i, &
-                                   3002, MPI_COMM_WORLD, request(l), ims_err)
-                end if
+                l = l + 1
+                call MPI_ISEND(b(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                               trp_plan%base_type, m*ims_npro_i + ims_pro_i, &
+                               3002, MPI_COMM_WORLD, request(l), ims_err)
             end do
             write(500 + ims_pro, *) '[KBR_FBD_S3] PE', ims_pro, ' ISENDs posted, l=', l ; flush(500 + ims_pro)
-            ! Step 4: intra-node — GPU write b[m*chunk] into each peer's recv buffer at our slot.
-            do m = 0, ims_npro_k - 1
-                if (apu_async_is_local_k(m)) then
-                    call c_f_pointer(apu_async_peer_k(m), apu_pfptr_k, [apu_async_size_k])
-                    flat_off = ims_pro_k * nmax_p * nlines_p
-                    ! CPU write — same reason as K-Forward Step 4 (cross-XCD coherence).
-                    do i = 1, nmax_p * nlines_p
-                        apu_pfptr_k(flat_off + i) = b(m * nmax_p * nlines_p + i)
-                    end do
-                end if
-            end do
-            write(500 + ims_pro, *) '[KBR_FBD_S4] PE', ims_pro, ' CPU intra writes done' ; flush(500 + ims_pro)
-            ! Step 5: Win_fence (close) + WAITALL.
-            call MPI_Win_fence(0, apu_async_win_k, ims_err)
-            write(500 + ims_pro, *) '[KBR_FBD_S5a] PE', ims_pro, ' past Win_fence-close' ; flush(500 + ims_pro)
-            if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+            write(500 + ims_pro, *) '[KBR_FBD_S4] PE', ims_pro, ' (no shared-window writes)' ; flush(500 + ims_pro)
+            write(500 + ims_pro, *) '[KBR_FBD_S5a] PE', ims_pro, ' (no Win_fence)' ; flush(500 + ims_pro)
+            call MPI_WAITALL(l, request, status, ims_err)
             write(500 + ims_pro, *) '[KBR_FBD_S5b] PE', ims_pro, ' past WAITALL' ; flush(500 + ims_pro)
-            ! debug: split checksum (intra from shared window, inter from clean MPI recv buffer).
-            dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
-            do m = 0, ims_npro_k - 1
-                if (apu_async_is_local_k(m)) then
-                    dbg_intra = dbg_intra + sum(apu_async_recv_k(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
-                else
-                    dbg_inter = dbg_inter + sum(c_wrk_dp_recv(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
-                end if
-            end do
+            ! debug checksum: all peers now in apu_async_recv_k via MPI.
+            dbg_intra = sum(apu_async_recv_k(1 : size))
+            dbg_inter = 0.0_dp
             write(500 + ims_pro, *) '[KBR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
-                ' total=', dbg_intra + dbg_inter
+                ' total=', dbg_intra
             flush(500 + ims_pro)
-            ! Step 6: scatter -> strided a. Intra from apu_async_recv_k (GPU); inter from c_wrk_dp_recv (CPU).
+            ! Scatter recv buffer → strided a.
             do m = 0, ims_npro_k - 1
                 flat_off = m * nmax_p * nlines_p
                 disp_nr  = m * nlines_p
-                if (apu_async_is_local_k(m)) then
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
-                    do i = 0, nmax_p - 1
-                        do j = 0, nlines_p - 1
-                            a(disp_nr + i*npage + j + 1) = apu_async_recv_k(flat_off + i*nlines_p + j + 1)
-                        end do
+                do i = 0, nmax_p - 1
+                    do j = 0, nlines_p - 1
+                        a(disp_nr + i*npage + j + 1) = apu_async_recv_k(flat_off + i*nlines_p + j + 1)
                     end do
-                    !$omp end target teams distribute parallel do
-                else
-                    do i = 0, nmax_p - 1
-                        do j = 0, nlines_p - 1
-                            a(disp_nr + i*npage + j + 1) = c_wrk_dp_recv(flat_off + i*nlines_p + j + 1)
-                        end do
-                    end do
-                end if
+                end do
             end do
             write(500 + ims_pro, *) '[KBR_FBD_S6] PE', ims_pro, ' scatter done' ; flush(500 + ims_pro)
-            nullify (c_wrk_dp_recv, apu_pfptr_k)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
 #endif
