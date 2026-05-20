@@ -111,12 +111,24 @@ program vmpi_hip_shmwrite
     ! -------------------------------------------------------------------
     ! MPI init
     ! -------------------------------------------------------------------
+    ! ALIVE marker BEFORE MPI_Init: if this never appears anywhere, Fortran
+    ! runtime is dying before main() even runs.
+    write(*,'(a)') '[ALIVE-PRE] before MPI_Init'; flush(6)
+    print *, '[ALIVE-PRE-PRINT] before MPI_Init'
+
     call MPI_Init(ims_err)
+
+    ! Get rank/size for per-rank diagnostics
     call MPI_Comm_rank(MPI_COMM_WORLD, ims_pro, ims_err)
     call MPI_Comm_size(MPI_COMM_WORLD, ims_npro, ims_err)
-    ! S0: printed before any collective — if this never appears, the issue is
-    ! in the MPI/GPU runtime init, not in our code.
-    write(*,'(a,i4,a,i4)') '[S0] PE', ims_pro, ' alive, npro=', ims_npro; flush(6)
+
+    ! Every rank writes to stdout AND to its own fort.<1000+rank> file.
+    ! Per-rank files survive even if stdout is lost.
+    write(*,'(a,i4,a,i4)') '[S0] PE', ims_pro, ' alive after MPI_Init, npro=', ims_npro
+    flush(6)
+    write(1000+ims_pro, '(a,i4,a,i4)') '[S0-FILE] PE', ims_pro, ' alive, npro=', ims_npro
+    flush(1000+ims_pro)
+    print *, '[S0-PRINT] PE', ims_pro, ' npro=', ims_npro
 
     if (command_argument_count() < 2) then
         if (ims_pro == 0) write(*,*) 'Usage: vmpi_hip_shmwrite.x <npro_k> <npro_i> [chunk]'
