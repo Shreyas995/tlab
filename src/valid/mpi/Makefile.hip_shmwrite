@@ -1,0 +1,57 @@
+# Makefile.hip_shmwrite
+# Standalone build for the HIP shmem-write validation test on Hunter.
+#
+# Usage (from this directory, on a Hunter login or batch node):
+#   make -f Makefile.hip_shmwrite
+#   srun -N 2 -n 96 ./vmpi_hip_shmwrite.x 8 12 512
+#
+# Clean:
+#   make -f Makefile.hip_shmwrite clean
+
+# ---------------------------------------------------------------------------
+# Compilers
+# ---------------------------------------------------------------------------
+# Cray Fortran wrapper (wraps clang/flang, picks up MPI automatically)
+FC      = ftn
+# HIP compiler from the ROCm stack on Hunter
+HIPCC   = hipcc
+
+# ---------------------------------------------------------------------------
+# Flags
+# ---------------------------------------------------------------------------
+# -DUSE_APU: activates the USE_APU code paths (same flag as the main cmake build)
+FFLAGS  = -DUSE_APU -fopenmp
+
+# HIP: compile for MI300A (GFX940 / GFX942 depending on exact SKU).
+# --offload-arch selects the target ISA; -fPIC is safe for shared libs.
+# Adjust gfxXXX if Hunter's exact arch differs (check: rocminfo | grep gfx).
+HIPFLAGS = --offload-arch=gfx942 -O2 -fPIC
+
+# Libraries to link against.
+# -lamdhip64 : HIP runtime (hipDeviceSynchronize, hipLaunchKernelGGL, etc.)
+# -lm        : math (pulled in anyway by ftn on Cray but explicit is safer)
+LIBS    = -lamdhip64 -lm
+
+# ---------------------------------------------------------------------------
+# Targets
+# ---------------------------------------------------------------------------
+TARGET  = vmpi_hip_shmwrite.x
+HIP_OBJ = hip_write_fence.o
+F90_SRC = vmpi_hip_shmwrite.f90
+HIP_SRC = hip_write_fence.hip
+
+all: $(TARGET)
+
+# Step 1: compile the HIP C++ wrapper to an object file
+$(HIP_OBJ): $(HIP_SRC)
+	$(HIPCC) $(HIPFLAGS) -c $< -o $@
+
+# Step 2: compile Fortran + link with HIP object
+# ftn automatically adds MPI includes/libs; we append HIP manually.
+$(TARGET): $(F90_SRC) $(HIP_OBJ)
+	$(FC) $(FFLAGS) $^ $(LIBS) -o $@
+
+clean:
+	rm -f $(HIP_OBJ) $(TARGET) *.mod fort.5[0-9][0-9]
+
+.PHONY: all clean
