@@ -5,7 +5,10 @@
 
 ulimit -c unlimited
 export HSA_XNACK=1
-export MPICH_GPU_SUPPORT_ENABLED=1
+# Disabled: MPICH_GPU_SUPPORT_ENABLED=1 forces GPU-aware MPI init across 96 ranks
+# and may be what's killing the job before any Fortran code runs.
+# Re-enable only after the basic test passes.
+# export MPICH_GPU_SUPPORT_ENABLED=1
 export OMP_NUM_THREADS=1
 
 # Set this to the directory where vmpi_hip_shmwrite.x was compiled

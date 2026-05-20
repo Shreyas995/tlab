@@ -114,6 +114,9 @@ program vmpi_hip_shmwrite
     call MPI_Init(ims_err)
     call MPI_Comm_rank(MPI_COMM_WORLD, ims_pro, ims_err)
     call MPI_Comm_size(MPI_COMM_WORLD, ims_npro, ims_err)
+    ! S0: printed before any collective — if this never appears, the issue is
+    ! in the MPI/GPU runtime init, not in our code.
+    write(*,'(a,i4,a,i4)') '[S0] PE', ims_pro, ' alive, npro=', ims_npro; flush(6)
 
     if (command_argument_count() < 2) then
         if (ims_pro == 0) write(*,*) 'Usage: vmpi_hip_shmwrite.x <npro_k> <npro_i> [chunk]'
