@@ -1,0 +1,22 @@
+#!/bin/bash
+#PBS -N hip_shmwrite_test
+#PBS -l select=2:node_type=mi300a:mpiprocs=48
+#PBS -l walltime=00:05:00
+
+ulimit -c unlimited
+export HSA_XNACK=1
+export MPICH_GPU_SUPPORT_ENABLED=1
+export OMP_NUM_THREADS=1
+
+# Set this to the directory where vmpi_hip_shmwrite.x was compiled
+cd /zhome/academic/HLRS/xub/xkodeshp/tlab_test/src/valid/mpi
+
+# 96 ranks total (48 per node), npro_k=8, npro_i=12, chunk=512
+# CPU binding: step-2 fill of the existing step-4 pattern (cores 1,3,5,...,95)
+# GPU binding: 4 XCDs x 12 ranks each
+mpirun -np 96 \
+ --cpu-bind=verbose,list:1:3:5:7:9:11:13:15:17:19:21:23:25:27:29:31:33:35:37:39:41:43:45:47:49:51:53:55:57:59:61:63:65:67:69:71:73:75:77:79:81:83:85:87:89:91:93:95 \
+ --gpu-bind=list:0:0:0:0:0:0:0:0:0:0:0:0:1:1:1:1:1:1:1:1:1:1:1:1:2:2:2:2:2:2:2:2:2:2:2:2:3:3:3:3:3:3:3:3:3:3:3:3 \
+ ./vmpi_hip_shmwrite.x 8 12 512 > output_hip.log 2>&1
+
+echo "Job completed"

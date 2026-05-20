@@ -129,5 +129,5 @@ extern "C" void hip_invalidate_recv(double* buf, int n)
     hipLaunchKernelGGL(hip_invalidate_kernel,
                        dim3(blocks), dim3(threads), 0, 0,
                        buf, n);
-    hipDeviceSynchronize();
+    (void)hipDeviceSynchronize();
 }
