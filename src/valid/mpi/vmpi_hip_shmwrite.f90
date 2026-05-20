@@ -111,151 +111,164 @@ program vmpi_hip_shmwrite
     ! -------------------------------------------------------------------
     ! MPI init
     ! -------------------------------------------------------------------
-    ! ALIVE marker BEFORE MPI_Init: if this never appears anywhere, Fortran
-    ! runtime is dying before main() even runs.
-    write(*,'(a)') '[ALIVE-PRE] before MPI_Init'; flush(6)
-    print *, '[ALIVE-PRE-PRINT] before MPI_Init'
+    ! ===== LINE-BY-LINE TRACE: every step writes to fort.1000+rank =====
+    ! Use unit 999 for pre-MPI_Init output (single file, all ranks contend but
+    ! at least we'll see *something* if any rank reaches this).
+    open(unit=999, file='trace_pre_init.log', status='replace', action='write')
+    write(999,*) 'L114: about to print ALIVE-PRE'; flush(999)
+    write(*,'(a)') '[L114-stdout] alive before MPI_Init'; flush(6)
+    print *, '[L114-print] alive before MPI_Init'
+    write(999,*) 'L115: about to call MPI_Init'; flush(999)
+    close(999)
 
     call MPI_Init(ims_err)
 
-    ! Get rank/size for per-rank diagnostics
     call MPI_Comm_rank(MPI_COMM_WORLD, ims_pro, ims_err)
     call MPI_Comm_size(MPI_COMM_WORLD, ims_npro, ims_err)
 
-    ! Every rank writes to stdout AND to its own fort.<1000+rank> file.
-    ! Per-rank files survive even if stdout is lost.
-    write(*,'(a,i4,a,i4)') '[S0] PE', ims_pro, ' alive after MPI_Init, npro=', ims_npro
-    flush(6)
-    write(1000+ims_pro, '(a,i4,a,i4)') '[S0-FILE] PE', ims_pro, ' alive, npro=', ims_npro
-    flush(1000+ims_pro)
-    print *, '[S0-PRINT] PE', ims_pro, ' npro=', ims_npro
+    ! From here on, every rank writes to its own fort.<1000+rank> file.
+    ! The 'fort.1xxx' files will exist on disk even if the job is killed.
+    write(1000+ims_pro,*) 'L120: MPI_Init done, rank=', ims_pro, ' npro=', ims_npro; flush(1000+ims_pro)
+    write(*,'(a,i4,a,i4)') '[L120-stdout] PE', ims_pro, ' MPI_Init OK, npro=', ims_npro; flush(6)
 
+    write(1000+ims_pro,*) 'L123: about to read args'; flush(1000+ims_pro)
     if (command_argument_count() < 2) then
+        write(1000+ims_pro,*) 'L124: not enough args, exiting'; flush(1000+ims_pro)
         if (ims_pro == 0) write(*,*) 'Usage: vmpi_hip_shmwrite.x <npro_k> <npro_i> [chunk]'
         call MPI_Finalize(ims_err); stop
     end if
     call get_command_argument(1, arg); read(arg,*) npro_k
+    write(1000+ims_pro,*) 'L129: read npro_k=', npro_k; flush(1000+ims_pro)
     call get_command_argument(2, arg); read(arg,*) npro_i
+    write(1000+ims_pro,*) 'L131: read npro_i=', npro_i; flush(1000+ims_pro)
     chunk = 512
     if (command_argument_count() >= 3) then
         call get_command_argument(3, arg); read(arg,*) chunk
     end if
+    write(1000+ims_pro,*) 'L136: chunk=', chunk; flush(1000+ims_pro)
 
     if (npro_i * npro_k /= ims_npro) then
+        write(1000+ims_pro,*) 'L139: rank mismatch, exiting'; flush(1000+ims_pro)
         if (ims_pro == 0) write(*,'(a,3i6)') 'ERROR: npro_k*npro_i /= nproc:', npro_k, npro_i, ims_npro
         call MPI_Finalize(ims_err); stop
     end if
+    write(1000+ims_pro,*) 'L143: rank check OK'; flush(1000+ims_pro)
 
-    ! Cartesian topology: dims = [npro_k, npro_i], k is outer
     dims(1) = npro_k; dims(2) = npro_i; period = .true.; reorder = .false.
+    write(1000+ims_pro,*) 'L146: dims set, calling Cart_create'; flush(1000+ims_pro)
     call MPI_Cart_create(MPI_COMM_WORLD, 2, dims, period, reorder, ims_comm_xz, ims_err)
-    if (ims_pro==0) then; write(*,'(a)') '[S1] Cart_create done'; flush(6); end if
+    write(1000+ims_pro,*) 'L148: Cart_create done, err=', ims_err; flush(1000+ims_pro)
+
     remain_dims(1) = .false.; remain_dims(2) = .true.
-    call MPI_Cart_sub(ims_comm_xz, remain_dims, ims_comm_x, ims_err)   ! I-row comm
+    call MPI_Cart_sub(ims_comm_xz, remain_dims, ims_comm_x, ims_err)
+    write(1000+ims_pro,*) 'L152: Cart_sub I done, err=', ims_err; flush(1000+ims_pro)
     remain_dims(1) = .true.;  remain_dims(2) = .false.
-    call MPI_Cart_sub(ims_comm_xz, remain_dims, ims_comm_z, ims_err)   ! K-column comm
-    if (ims_pro==0) then; write(*,'(a)') '[S2] Cart_sub done'; flush(6); end if
+    call MPI_Cart_sub(ims_comm_xz, remain_dims, ims_comm_z, ims_err)
+    write(1000+ims_pro,*) 'L155: Cart_sub K done, err=', ims_err; flush(1000+ims_pro)
 
     call MPI_Comm_rank(ims_comm_x, ims_pro_i, ims_err)
+    write(1000+ims_pro,*) 'L158: my pro_i=', ims_pro_i; flush(1000+ims_pro)
     call MPI_Comm_rank(ims_comm_z, ims_pro_k, ims_err)
+    write(1000+ims_pro,*) 'L160: my pro_k=', ims_pro_k; flush(1000+ims_pro)
 
-    ! ---------------------------------------------------------------
-    ! CRITICAL: dup directional comms BEFORE any MPI_Win_allocate_shared.
-    ! Allocating a shared window on a MPI_Comm_split_type subcomm of
-    ! ims_comm_x/z taints that comm for two-sided traffic on Cray MPICH.
-    ! Dup'd comms taken here are outside that taint lineage.
-    ! ---------------------------------------------------------------
     call MPI_Comm_dup(ims_comm_x, mpi_comm_i, ims_err)
+    write(1000+ims_pro,*) 'L163: Comm_dup I done, err=', ims_err; flush(1000+ims_pro)
     call MPI_Comm_dup(ims_comm_z, mpi_comm_k, ims_err)
-    if (ims_pro==0) then; write(*,'(a)') '[S3] Comm_dup done'; flush(6); end if
+    write(1000+ims_pro,*) 'L165: Comm_dup K done, err=', ims_err; flush(1000+ims_pro)
 
     allocate(send_buf(chunk))
-    ! Fill: rank-specific, element-specific value that uniquely identifies sender.
-    ! After I-comm: recv_i(m*chunk+j) must equal (ims_pro_k*npro_i+m)*1000.0 + j
-    ! After K-comm: recv_k(m*chunk+j) must equal (m*npro_i+ims_pro_i)*1000.0 + j
-    ! (same send_buf works for both since the receiver formula uses the SENDER's global rank)
+    write(1000+ims_pro,*) 'L168: send_buf allocated'; flush(1000+ims_pro)
     do j = 1, chunk
         send_buf(j) = dble(ims_pro) * 1000.0d0 + dble(j)
     end do
+    write(1000+ims_pro,*) 'L172: send_buf filled'; flush(1000+ims_pro)
 
     allocate(req_i(2*npro_i), sta_i(2*npro_i))
     allocate(req_k(2*npro_k), sta_k(2*npro_k))
+    write(1000+ims_pro,*) 'L176: req/sta arrays allocated'; flush(1000+ims_pro)
 
-    ! ================================================================
-    ! I-DIRECTION SETUP
-    ! ================================================================
     allocate(is_local_i(0:npro_i-1), peer_win_i(0:npro_i-1))
     is_local_i = .false.;  peer_win_i = c_null_ptr
+    write(1000+ims_pro,*) 'L180: I peer arrays allocated'; flush(1000+ims_pro)
 
-    ! Shmem subcomm of the I-comm (splits by XCD on MI300A)
-    if (ims_pro==0) then; write(*,'(a)') '[S4] entering split_type I'; flush(6); end if
+    write(1000+ims_pro,*) 'L182: calling Comm_split_type I'; flush(1000+ims_pro)
     call MPI_Comm_split_type(ims_comm_x, MPI_COMM_TYPE_SHARED, ims_pro_i, &
                              MPI_INFO_NULL, shmem_comm_i, ims_err)
+    write(1000+ims_pro,*) 'L185: Comm_split_type I done, err=', ims_err; flush(1000+ims_pro)
     call MPI_Comm_rank(shmem_comm_i, shmem_rank_i, ims_err)
+    write(1000+ims_pro,*) 'L187: shmem_rank_i=', shmem_rank_i; flush(1000+ims_pro)
     call MPI_Comm_size(shmem_comm_i, shmem_size_i, ims_err)
-    if (ims_pro==0) then; write(*,'(a,i4)') '[S4] split_type I done, shmem_size_i=', shmem_size_i; flush(6); end if
+    write(1000+ims_pro,*) 'L189: shmem_size_i=', shmem_size_i; flush(1000+ims_pro)
 
-    ! Map shmem ranks -> I dir-ranks
     allocate(shmem_to_dir_i(0:shmem_size_i-1))
+    write(1000+ims_pro,*) 'L192: calling Allgather I'; flush(1000+ims_pro)
     call MPI_Allgather(ims_pro_i, 1, MPI_INTEGER, shmem_to_dir_i, 1, MPI_INTEGER, &
                        shmem_comm_i, ims_err)
-    if (ims_pro==0) then; write(*,'(a)') '[S5] Allgather I done'; flush(6); end if
+    write(1000+ims_pro,*) 'L195: Allgather I done, err=', ims_err; flush(1000+ims_pro)
 
-    ! Allocate shared window: each rank's segment = npro_i * chunk doubles.
-    ! This is the full recv buffer: slot m (offset m*chunk) receives from dir-rank m.
     win_size = int(npro_i, MPI_ADDRESS_KIND) * int(chunk, MPI_ADDRESS_KIND) &
              * int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND)
-    if (ims_pro==0) then; write(*,'(a,i12,a)') '[S6] entering Win_allocate_shared I, size=', win_size, ' bytes'; flush(6); end if
+    write(1000+ims_pro,*) 'L199: calling Win_allocate_shared I, size=', win_size; flush(1000+ims_pro)
     call MPI_Win_allocate_shared(win_size, int(c_sizeof(1.0_dp)), MPI_INFO_NULL, &
                                   shmem_comm_i, win_baseptr, win_i, ims_err)
-    if (ims_pro==0) then; write(*,'(a)') '[S6] Win_allocate_shared I done'; flush(6); end if
+    write(1000+ims_pro,*) 'L202: Win_allocate_shared I done, err=', ims_err; flush(1000+ims_pro)
 
-    ! Query peer segment addresses (Bug-A fix: use query result, not win_baseptr)
     call MPI_Comm_group(ims_comm_x, dir_group_i, ims_err)
     call MPI_Comm_group(shmem_comm_i, shmem_group_i, ims_err)
+    write(1000+ims_pro,*) 'L206: Comm_group calls done'; flush(1000+ims_pro)
     do ip = 0, shmem_size_i - 1
         is_local_i(shmem_to_dir_i(ip)) = .true.
         call MPI_Win_shared_query(win_i, ip, seg_size, disp_unit, &
                                   peer_win_i(shmem_to_dir_i(ip)), ims_err)
     end do
-    ! Bind own recv window to the query result for our shmem rank
+    write(1000+ims_pro,*) 'L212: Win_shared_query loop done'; flush(1000+ims_pro)
     call c_f_pointer(peer_win_i(ims_pro_i), recv_i, [npro_i * chunk])
+    write(1000+ims_pro,*) 'L214: I recv_i bound'; flush(1000+ims_pro)
     deallocate(shmem_to_dir_i)
+    write(1000+ims_pro,*) 'L216: I setup complete'; flush(1000+ims_pro)
 
     ! ================================================================
     ! K-DIRECTION SETUP
     ! ================================================================
     allocate(is_local_k(0:npro_k-1), peer_win_k(0:npro_k-1))
     is_local_k = .false.;  peer_win_k = c_null_ptr
+    write(1000+ims_pro,*) 'L220: K peer arrays allocated'; flush(1000+ims_pro)
 
-    if (ims_pro==0) then; write(*,'(a)') '[S7] entering split_type K'; flush(6); end if
+    write(1000+ims_pro,*) 'L222: calling Comm_split_type K'; flush(1000+ims_pro)
     call MPI_Comm_split_type(ims_comm_z, MPI_COMM_TYPE_SHARED, ims_pro_k, &
                              MPI_INFO_NULL, shmem_comm_k, ims_err)
+    write(1000+ims_pro,*) 'L225: Comm_split_type K done, err=', ims_err; flush(1000+ims_pro)
     call MPI_Comm_rank(shmem_comm_k, shmem_rank_k, ims_err)
+    write(1000+ims_pro,*) 'L227: shmem_rank_k=', shmem_rank_k; flush(1000+ims_pro)
     call MPI_Comm_size(shmem_comm_k, shmem_size_k, ims_err)
-    if (ims_pro==0) then; write(*,'(a,i4)') '[S7] split_type K done, shmem_size_k=', shmem_size_k; flush(6); end if
+    write(1000+ims_pro,*) 'L229: shmem_size_k=', shmem_size_k; flush(1000+ims_pro)
 
     allocate(shmem_to_dir_k(0:shmem_size_k-1))
+    write(1000+ims_pro,*) 'L232: calling Allgather K'; flush(1000+ims_pro)
     call MPI_Allgather(ims_pro_k, 1, MPI_INTEGER, shmem_to_dir_k, 1, MPI_INTEGER, &
                        shmem_comm_k, ims_err)
-    if (ims_pro==0) then; write(*,'(a)') '[S8] Allgather K done'; flush(6); end if
+    write(1000+ims_pro,*) 'L235: Allgather K done, err=', ims_err; flush(1000+ims_pro)
 
     win_size = int(npro_k, MPI_ADDRESS_KIND) * int(chunk, MPI_ADDRESS_KIND) &
              * int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND)
-    if (ims_pro==0) then; write(*,'(a,i12,a)') '[S9] entering Win_allocate_shared K, size=', win_size, ' bytes'; flush(6); end if
+    write(1000+ims_pro,*) 'L239: calling Win_allocate_shared K, size=', win_size; flush(1000+ims_pro)
     call MPI_Win_allocate_shared(win_size, int(c_sizeof(1.0_dp)), MPI_INFO_NULL, &
                                   shmem_comm_k, win_baseptr, win_k, ims_err)
-    if (ims_pro==0) then; write(*,'(a)') '[S9] Win_allocate_shared K done'; flush(6); end if
+    write(1000+ims_pro,*) 'L242: Win_allocate_shared K done, err=', ims_err; flush(1000+ims_pro)
 
     call MPI_Comm_group(ims_comm_z, dir_group_k, ims_err)
     call MPI_Comm_group(shmem_comm_k, shmem_group_k, ims_err)
+    write(1000+ims_pro,*) 'L246: Comm_group K calls done'; flush(1000+ims_pro)
     do ip = 0, shmem_size_k - 1
         is_local_k(shmem_to_dir_k(ip)) = .true.
         call MPI_Win_shared_query(win_k, ip, seg_size, disp_unit, &
                                   peer_win_k(shmem_to_dir_k(ip)), ims_err)
     end do
+    write(1000+ims_pro,*) 'L252: K Win_shared_query loop done'; flush(1000+ims_pro)
     call c_f_pointer(peer_win_k(ims_pro_k), recv_k, [npro_k * chunk])
+    write(1000+ims_pro,*) 'L254: K recv_k bound'; flush(1000+ims_pro)
     deallocate(shmem_to_dir_k)
+    write(1000+ims_pro,*) 'L256: ALL SETUP COMPLETE'; flush(1000+ims_pro)
 
     ! Diagnostic: print peer topology for PE 0
     if (ims_pro == 0) then
