@@ -134,10 +134,12 @@ program vmpi_hip_shmwrite
     ! Cartesian topology: dims = [npro_k, npro_i], k is outer
     dims(1) = npro_k; dims(2) = npro_i; period = .true.; reorder = .false.
     call MPI_Cart_create(MPI_COMM_WORLD, 2, dims, period, reorder, ims_comm_xz, ims_err)
+    if (ims_pro==0) then; write(*,'(a)') '[S1] Cart_create done'; flush(6); end if
     remain_dims(1) = .false.; remain_dims(2) = .true.
     call MPI_Cart_sub(ims_comm_xz, remain_dims, ims_comm_x, ims_err)   ! I-row comm
     remain_dims(1) = .true.;  remain_dims(2) = .false.
     call MPI_Cart_sub(ims_comm_xz, remain_dims, ims_comm_z, ims_err)   ! K-column comm
+    if (ims_pro==0) then; write(*,'(a)') '[S2] Cart_sub done'; flush(6); end if
 
     call MPI_Comm_rank(ims_comm_x, ims_pro_i, ims_err)
     call MPI_Comm_rank(ims_comm_z, ims_pro_k, ims_err)
@@ -150,6 +152,7 @@ program vmpi_hip_shmwrite
     ! ---------------------------------------------------------------
     call MPI_Comm_dup(ims_comm_x, mpi_comm_i, ims_err)
     call MPI_Comm_dup(ims_comm_z, mpi_comm_k, ims_err)
+    if (ims_pro==0) then; write(*,'(a)') '[S3] Comm_dup done'; flush(6); end if
 
     allocate(send_buf(chunk))
     ! Fill: rank-specific, element-specific value that uniquely identifies sender.
@@ -170,22 +173,27 @@ program vmpi_hip_shmwrite
     is_local_i = .false.;  peer_win_i = c_null_ptr
 
     ! Shmem subcomm of the I-comm (splits by XCD on MI300A)
+    if (ims_pro==0) then; write(*,'(a)') '[S4] entering split_type I'; flush(6); end if
     call MPI_Comm_split_type(ims_comm_x, MPI_COMM_TYPE_SHARED, ims_pro_i, &
                              MPI_INFO_NULL, shmem_comm_i, ims_err)
     call MPI_Comm_rank(shmem_comm_i, shmem_rank_i, ims_err)
     call MPI_Comm_size(shmem_comm_i, shmem_size_i, ims_err)
+    if (ims_pro==0) then; write(*,'(a,i4)') '[S4] split_type I done, shmem_size_i=', shmem_size_i; flush(6); end if
 
     ! Map shmem ranks -> I dir-ranks
     allocate(shmem_to_dir_i(0:shmem_size_i-1))
     call MPI_Allgather(ims_pro_i, 1, MPI_INTEGER, shmem_to_dir_i, 1, MPI_INTEGER, &
                        shmem_comm_i, ims_err)
+    if (ims_pro==0) then; write(*,'(a)') '[S5] Allgather I done'; flush(6); end if
 
     ! Allocate shared window: each rank's segment = npro_i * chunk doubles.
     ! This is the full recv buffer: slot m (offset m*chunk) receives from dir-rank m.
     win_size = int(npro_i, MPI_ADDRESS_KIND) * int(chunk, MPI_ADDRESS_KIND) &
              * int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND)
+    if (ims_pro==0) then; write(*,'(a,i12,a)') '[S6] entering Win_allocate_shared I, size=', win_size, ' bytes'; flush(6); end if
     call MPI_Win_allocate_shared(win_size, int(c_sizeof(1.0_dp)), MPI_INFO_NULL, &
                                   shmem_comm_i, win_baseptr, win_i, ims_err)
+    if (ims_pro==0) then; write(*,'(a)') '[S6] Win_allocate_shared I done'; flush(6); end if
 
     ! Query peer segment addresses (Bug-A fix: use query result, not win_baseptr)
     call MPI_Comm_group(ims_comm_x, dir_group_i, ims_err)
@@ -205,19 +213,24 @@ program vmpi_hip_shmwrite
     allocate(is_local_k(0:npro_k-1), peer_win_k(0:npro_k-1))
     is_local_k = .false.;  peer_win_k = c_null_ptr
 
+    if (ims_pro==0) then; write(*,'(a)') '[S7] entering split_type K'; flush(6); end if
     call MPI_Comm_split_type(ims_comm_z, MPI_COMM_TYPE_SHARED, ims_pro_k, &
                              MPI_INFO_NULL, shmem_comm_k, ims_err)
     call MPI_Comm_rank(shmem_comm_k, shmem_rank_k, ims_err)
     call MPI_Comm_size(shmem_comm_k, shmem_size_k, ims_err)
+    if (ims_pro==0) then; write(*,'(a,i4)') '[S7] split_type K done, shmem_size_k=', shmem_size_k; flush(6); end if
 
     allocate(shmem_to_dir_k(0:shmem_size_k-1))
     call MPI_Allgather(ims_pro_k, 1, MPI_INTEGER, shmem_to_dir_k, 1, MPI_INTEGER, &
                        shmem_comm_k, ims_err)
+    if (ims_pro==0) then; write(*,'(a)') '[S8] Allgather K done'; flush(6); end if
 
     win_size = int(npro_k, MPI_ADDRESS_KIND) * int(chunk, MPI_ADDRESS_KIND) &
              * int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND)
+    if (ims_pro==0) then; write(*,'(a,i12,a)') '[S9] entering Win_allocate_shared K, size=', win_size, ' bytes'; flush(6); end if
     call MPI_Win_allocate_shared(win_size, int(c_sizeof(1.0_dp)), MPI_INFO_NULL, &
                                   shmem_comm_k, win_baseptr, win_k, ims_err)
+    if (ims_pro==0) then; write(*,'(a)') '[S9] Win_allocate_shared K done'; flush(6); end if
 
     call MPI_Comm_group(ims_comm_z, dir_group_k, ims_err)
     call MPI_Comm_group(shmem_comm_k, shmem_group_k, ims_err)

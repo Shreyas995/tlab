@@ -1,0 +1,19 @@
+
+Due to MODULEPATH changes, the following have been reloaded:
+  1) cce/20.0.0
+
+The following have been reloaded with a version change:
+  1) perftools-base/25.09.0 => perftools-base/25.03.0
+
+Lmod has detected the following error: The following module(s) are unknown:
+"module"
+
+Please check the spelling or version number. Also try "module spider ..."
+It is also possible your cache file is out-of-date; it may help to try:
+  $ module --ignore_cache load "module"
+
+Also make sure that all modulefiles written in TCL start with the string
+#%Module
+
+
+
