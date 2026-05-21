@@ -115,6 +115,13 @@ program vmpi_hip_shmwrite
     ! -------------------------------------------------------------------
     real(dp), allocatable :: send_buf(:)
 
+    ! Separate inter-shmem MPI recv buffers — plain heap allocations, NOT
+    ! shared-window memory. Cray MPICH cannot do RDMA into a buffer that is
+    ! both an MPI shared window AND hipHostRegister'd; mixing them deadlocks
+    ! MPI_WAITALL. The fabricdirect production code uses the same pattern.
+    real(dp), allocatable :: mpi_recv_i(:)   ! npro_i * chunk
+    real(dp), allocatable :: mpi_recv_k(:)   ! npro_k * chunk
+
     ! -------------------------------------------------------------------
     ! Misc
     ! -------------------------------------------------------------------
@@ -207,7 +214,8 @@ program vmpi_hip_shmwrite
 
     allocate(req_i(2*npro_i), sta_i(2*npro_i))
     allocate(req_k(2*npro_k), sta_k(2*npro_k))
-    write(1000+ims_pro,*) 'L176: req/sta arrays allocated'; flush(1000+ims_pro)
+    allocate(mpi_recv_i(npro_i * chunk), mpi_recv_k(npro_k * chunk))
+    write(1000+ims_pro,*) 'L176: req/sta arrays + mpi_recv buffers allocated'; flush(1000+ims_pro)
 
     allocate(is_local_i(0:npro_i-1), peer_win_i(0:npro_i-1))
     is_local_i = .false.;  peer_win_i = c_null_ptr
@@ -335,14 +343,16 @@ program vmpi_hip_shmwrite
     recv_i = 0.0_dp
     write(1000+ims_pro,*) 'L267: recv_i zeroed'; flush(1000+ims_pro)
 
-    ! Step 1: post IRECVs for inter-node I-peers
+    ! Step 1: post IRECVs for inter-shmem I-peers into the PLAIN buffer
+    ! (not into recv_i, which is shared-window + HIP-registered memory).
+    mpi_recv_i = 0.0_dp
     l = 0
     do m = 0, npro_i - 1
         if (.not. is_local_i(m)) then
             l = l + 1
             g_m = ims_pro_k * npro_i + m
             write(1000+ims_pro,*) 'L274: posting IRECV from peer dir=', m, ' g_m=', g_m; flush(1000+ims_pro)
-            call MPI_IRECV(recv_i(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, &
+            call MPI_IRECV(mpi_recv_i(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, &
                            g_m, 1001, MPI_COMM_WORLD, req_i(l), ims_err)
             write(1000+ims_pro,*) 'L277: IRECV posted, err=', ims_err; flush(1000+ims_pro)
         end if
@@ -391,7 +401,17 @@ program vmpi_hip_shmwrite
 
     write(1000+ims_pro,*) 'L319: entering final I-Barrier'; flush(1000+ims_pro)
     call MPI_Barrier(MPI_COMM_WORLD, ims_err)
-    write(1000+ims_pro,*) 'L321: I-DIRECTION TEST COMPLETE'; flush(1000+ims_pro)
+    write(1000+ims_pro,*) 'L321: passed final I-Barrier'; flush(1000+ims_pro)
+
+    ! Copy inter-shmem MPI recv data into recv_i so verification sees it
+    do m = 0, npro_i - 1
+        if (.not. is_local_i(m)) then
+            do j = 1, chunk
+                recv_i(m*chunk + j) = mpi_recv_i(m*chunk + j)
+            end do
+        end if
+    end do
+    write(1000+ims_pro,*) 'L329: inter-shmem data copied to recv_i'; flush(1000+ims_pro)
 
     ! Optional reader-side L2 invalidation — uncomment if mismatches are seen
     ! despite the writer reporting success (indicates COARSE_GRAINED memory):
@@ -421,16 +441,20 @@ program vmpi_hip_shmwrite
     ! TEST K-DIRECTION
     ! ================================================================
     recv_k = 0.0_dp
+    mpi_recv_k = 0.0_dp
+    write(1000+ims_pro,*) 'L335: K test, recv_k zeroed'; flush(1000+ims_pro)
     l = 0
     do m = 0, npro_k - 1
         if (.not. is_local_k(m)) then
             l = l + 1
             g_m = m * npro_i + ims_pro_i
-            call MPI_IRECV(recv_k(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, &
+            call MPI_IRECV(mpi_recv_k(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, &
                            g_m, 1002, MPI_COMM_WORLD, req_k(l), ims_err)
         end if
     end do
+    write(1000+ims_pro,*) 'L344: K IRECVs done, l=', l; flush(1000+ims_pro)
     call MPI_Barrier(MPI_COMM_WORLD, ims_err)
+    write(1000+ims_pro,*) 'L346: K post-IRECV Barrier passed'; flush(1000+ims_pro)
 
     do m = 0, npro_k - 1
         if (.not. is_local_k(m)) then
@@ -440,6 +464,7 @@ program vmpi_hip_shmwrite
                            g_m, 1002, MPI_COMM_WORLD, req_k(l), ims_err)
         end if
     end do
+    write(1000+ims_pro,*) 'L355: K ISENDs done, l=', l; flush(1000+ims_pro)
 
     do m = 0, npro_k - 1
         if (is_local_k(m)) then
@@ -448,9 +473,24 @@ program vmpi_hip_shmwrite
             nullify(pfptr)
         end if
     end do
+    write(1000+ims_pro,*) 'L364: K HIP writes done'; flush(1000+ims_pro)
 
-    if (l > 0) call MPI_WAITALL(l, req_k(1:l), sta_k(1:l), ims_err)
+    if (l > 0) then
+        write(1000+ims_pro,*) 'L367: K entering WAITALL, l=', l; flush(1000+ims_pro)
+        call MPI_WAITALL(l, req_k(1:l), sta_k(1:l), ims_err)
+        write(1000+ims_pro,*) 'L369: K WAITALL done'; flush(1000+ims_pro)
+    end if
     call MPI_Barrier(MPI_COMM_WORLD, ims_err)
+    write(1000+ims_pro,*) 'L372: K final Barrier passed'; flush(1000+ims_pro)
+
+    do m = 0, npro_k - 1
+        if (.not. is_local_k(m)) then
+            do j = 1, chunk
+                recv_k(m*chunk + j) = mpi_recv_k(m*chunk + j)
+            end do
+        end if
+    end do
+    write(1000+ims_pro,*) 'L381: K inter-shmem data copied'; flush(1000+ims_pro)
 
     ! Optional: call hip_invalidate_recv(recv_k(1), int(npro_k * chunk, c_int))
     ! call MPI_Barrier(MPI_COMM_WORLD, ims_err)
@@ -510,6 +550,7 @@ program vmpi_hip_shmwrite
     nullify(recv_i, recv_k)
     deallocate(send_buf, is_local_i, is_local_k, peer_win_i, peer_win_k)
     deallocate(req_i, sta_i, req_k, sta_k)
+    deallocate(mpi_recv_i, mpi_recv_k)
 
     call MPI_Finalize(ims_err)
 
