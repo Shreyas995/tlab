@@ -482,43 +482,40 @@ contains
             allocate (apu_async_is_local_i(0:ims_npro_i - 1))
             allocate (apu_async_peer_i(0:ims_npro_i - 1))
             apu_async_peer_i = c_null_ptr
-            apu_async_is_local_i = .false.
-            call MPI_Comm_split_type(ims_comm_x, MPI_COMM_TYPE_SHARED, ims_pro_i, MPI_INFO_NULL, apu_async_shmem_comm, ims_err)
-            call MPI_Comm_size(apu_async_shmem_comm, apu_async_shmem_size, ims_err)
-            allocate (apu_async_shmem_to_dir(0:apu_async_shmem_size - 1))
-            call MPI_Allgather(ims_pro_i, 1, MPI_INTEGER, apu_async_shmem_to_dir, 1, MPI_INTEGER, &
-                               apu_async_shmem_comm, ims_err)
+            apu_async_is_local_i = .true.   ! all I-peers on same physical node — all GPU-writable
+            ! Use the full I-comm (ims_comm_x) for the shared window. On Hunter MI300A,
+            ! MPI_COMM_TYPE_SHARED splits I-comm ranks at XCD level (~3/XCD) even though
+            ! all I-peers share the same physical node (same pro_k = same K-slab = same node).
+            ! Cray MPICH's cross-XCD same-node MPI transport is broken after Win_allocate_shared
+            ! on the XCD-level sub-comm (WAITALL hangs: 2026-05-21 crashlog). Using ims_comm_x
+            ! directly gives MPI_Win_shared_query access to ALL ims_npro_i I-peer recv buffers,
+            ! enabling GPU writes for every I-direction slot — no MPI ISEND/IRECV needed.
             call MPI_Win_allocate_shared(int(apu_async_size_i, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
-                                         int(c_sizeof(1.0_dp)), MPI_INFO_NULL, apu_async_shmem_comm, win_baseptr, apu_async_win_i, ims_err)
+                                         int(c_sizeof(1.0_dp)), MPI_INFO_NULL, ims_comm_x, win_baseptr, apu_async_win_i, ims_err)
             if (ims_err /= MPI_SUCCESS) then
                 call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU_ASYNC/FABRIC_DIRECT I recv buffer.')
                 call TLab_Stop(DNS_ERROR_OPTION)
             end if
-            do ip = 0, apu_async_shmem_size - 1
-                apu_async_is_local_i(apu_async_shmem_to_dir(ip)) = .true.
+            ! Rank ip in ims_comm_x == I-rank ip (= pro_i = ip): query all ims_npro_i peers.
+            do ip = 0, ims_npro_i - 1
                 call MPI_Win_shared_query(apu_async_win_i, ip, win_query_size, win_disp_unit, &
-                                          apu_async_peer_i(apu_async_shmem_to_dir(ip)), ims_err)
+                                          apu_async_peer_i(ip), ims_err)
             end do
-            ! Bug A fix (2026-05-18): bind via query result for OUR shmem-rank — see K-direction note.
             call c_f_pointer(apu_async_peer_i(ims_pro_i), apu_async_recv_i, [apu_async_size_i])
-            deallocate (apu_async_shmem_to_dir)
-            apu_async_node_comm_i = apu_async_shmem_comm   ! keep alive for runtime MPI_Barrier
+            ! Use the pre-dup'd I-comm for barriers (untainted, taken before any Win_allocate_shared).
+            apu_async_node_comm_i = apu_async_mpi_comm_i
             if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
                 dbg_addr = transfer(c_loc(apu_async_recv_i(1)), dbg_addr)
                 write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' shm_baseptr=', dbg_addr, &
                     ' size=', apu_async_size_i, ' npro_i=', ims_npro_i, ' pro_i=', ims_pro_i
                 do ip = 0, ims_npro_i - 1
-                    if (apu_async_is_local_i(ip)) then
-                        dbg_addr = transfer(apu_async_peer_i(ip), dbg_addr)
-                        write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' INTRA-node peer i-rank', ip, &
-                            ' shared_query_cptr=', dbg_addr
-                    else
-                        write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' INTER-node peer i-rank', ip
-                    end if
+                    dbg_addr = transfer(apu_async_peer_i(ip), dbg_addr)
+                    write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' INTRA-node peer i-rank', ip, &
+                        ' shared_query_cptr=', dbg_addr
                 end do
                 flush(500 + ims_pro)
             end if
-            call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated I APU_ASYNC/FABRIC_DIRECT recv buffer.')
+            call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated I APU_ASYNC/FABRIC_DIRECT recv buffer (node-level window).')
         end if
 #endif
 
@@ -1775,8 +1772,12 @@ contains
                 end if
             end do
             write(500 + ims_pro, *) '[IFR_FBD_S4] PE', ims_pro, ' GPU intra writes done' ; flush(500 + ims_pro)
-            ! Step 5: wait for inter-node MPI. No Win_fence needed — !$omp end target already
-            !   synchronizes GPU writes to APU unified memory before returning to host.
+            ! Step 4b: barrier — wait for ALL I-peers' GPU writes to finish before unpack.
+            !   All I-peers now write via GPU (MPI ISEND/IRECV no longer used); this barrier
+            !   replaces the WAITALL ordering guarantee.
+            call MPI_Barrier(apu_async_mpi_comm_i, ims_err)
+            write(500 + ims_pro, *) '[IFR_FBD_S4b] PE', ims_pro, ' past post-write Barrier' ; flush(500 + ims_pro)
+            ! Step 5: WAITALL — skipped since l=0 (all I-peers are GPU-writes, no ISEND/IRECV).
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
             write(500 + ims_pro, *) '[IFR_FBD_S5] PE', ims_pro, ' past WAITALL' ; flush(500 + ims_pro)
             ! Step 6: unpack → strided b. Intra slots come from the shared-window mapping
@@ -2262,10 +2263,11 @@ contains
                     !$omp end target teams distribute parallel do
                 end if
             end do
-            ! Step 5: WAITALL for inter-node MPI. No Win_fence needed.
+            ! Step 4b: barrier — wait for ALL I-peers' GPU writes before unpack.
+            call MPI_Barrier(apu_async_mpi_comm_i, ims_err)
+            ! Step 5: WAITALL — skipped since l=0 (all I-peers GPU-write, no ISEND/IRECV).
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            ! debug: split checksum after WAITALL. intra comes from shared window, inter from
-            ! the clean MPI recv buffer; their sum must equal [IBR_post]'s sum(a).
+            ! debug: split checksum. With all-GPU-write design, intra=total and inter=0.
             dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
             do m = 0, ims_npro_i - 1
                 if (apu_async_is_local_i(m)) then
