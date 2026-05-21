@@ -132,6 +132,10 @@ program vmpi_hip_shmwrite
     logical :: period(2), remain_dims(2), reorder
     integer :: m, j, ip, l
     integer :: g_m                           ! global rank of peer m
+    integer, allocatable :: i_global_ranks(:)  ! 0:npro_i-1 : global rank of I-comm dir m
+    integer, allocatable :: k_global_ranks(:)  ! 0:npro_k-1 : global rank of K-comm dir m
+    integer, allocatable :: local_ranks(:)     ! scratch for MPI_Group_translate_ranks
+    type(MPI_Group) :: world_group
     real(dp) :: expected, actual
     integer :: errors_i, errors_k, total_errors
     integer :: total_errors_global
@@ -245,6 +249,13 @@ program vmpi_hip_shmwrite
 
     call MPI_Comm_group(ims_comm_x, dir_group_i, ims_err)
     call MPI_Comm_group(shmem_comm_i, shmem_group_i, ims_err)
+    ! Translate I-comm local ranks 0..npro_i-1 to global MPI_COMM_WORLD ranks.
+    ! This replaces all g_m formula attempts — the topology is opaque; MPI knows it.
+    allocate(i_global_ranks(0:npro_i-1), local_ranks(max(npro_i,npro_k)))
+    call MPI_Comm_group(MPI_COMM_WORLD, world_group, ims_err)
+    do m = 0, npro_i-1; local_ranks(m) = m; end do
+    call MPI_Group_translate_ranks(dir_group_i, npro_i, local_ranks, &
+                                   world_group, i_global_ranks, ims_err)
     write(1000+ims_pro,*) 'L206: Comm_group calls done'; flush(1000+ims_pro)
     do ip = 0, shmem_size_i - 1
         is_local_i(shmem_to_dir_i(ip)) = .true.
@@ -298,6 +309,10 @@ program vmpi_hip_shmwrite
 
     call MPI_Comm_group(ims_comm_z, dir_group_k, ims_err)
     call MPI_Comm_group(shmem_comm_k, shmem_group_k, ims_err)
+    allocate(k_global_ranks(0:npro_k-1))
+    do m = 0, npro_k-1; local_ranks(m) = m; end do
+    call MPI_Group_translate_ranks(dir_group_k, npro_k, local_ranks, &
+                                   world_group, k_global_ranks, ims_err)
     write(1000+ims_pro,*) 'L246: Comm_group K calls done'; flush(1000+ims_pro)
     do ip = 0, shmem_size_k - 1
         is_local_k(shmem_to_dir_k(ip)) = .true.
@@ -365,11 +380,11 @@ program vmpi_hip_shmwrite
     ! Blocking Sendrecv per inter-shmem peer — different MPICH code path.
     do m = 0, npro_i - 1
         if (.not. is_local_i(m)) then
-            g_m = m * npro_k + ims_pro_k   ! col-major: rank = pro_i*npro_k + pro_k
+            g_m = i_global_ranks(m)
             write(1000+ims_pro,*) 'L312: Sendrecv with peer dir=', m, ' g_m=', g_m; flush(1000+ims_pro)
             call MPI_Sendrecv( &
-                send_buf(1),             chunk, MPI_DOUBLE_PRECISION, g_m, 1001, &
-                mpi_recv_i(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, g_m, 1001, &
+                send_buf(1),             chunk, MPI_DOUBLE_PRECISION, g_m, 2000+m, &
+                mpi_recv_i(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, g_m, 2000+ims_pro_i, &
                 MPI_COMM_WORLD, MPI_STATUS_IGNORE, ims_err)
             write(1000+ims_pro,*) 'L317: Sendrecv done, err=', ims_err; flush(1000+ims_pro)
         end if
@@ -395,10 +410,10 @@ program vmpi_hip_shmwrite
     ! call hip_invalidate_recv(recv_i(1), int(npro_i * chunk, c_int))
     ! call MPI_Barrier(MPI_COMM_WORLD, ims_err)
 
-    ! Verify: recv_i(m*chunk + j) must equal (m*npro_k + ims_pro_k)*1000.0 + j
+    ! Verify: recv_i(m*chunk + j) must equal global_rank_of_dir_m * 1000.0 + j
     errors_i = 0
     do m = 0, npro_i - 1
-        g_m = m * npro_k + ims_pro_k   ! col-major: rank = pro_i*npro_k + pro_k
+        g_m = i_global_ranks(m)
         do j = 1, chunk
             expected = dble(g_m) * 1000.0d0 + dble(j)
             actual   = recv_i(m * chunk + j)
@@ -424,7 +439,7 @@ program vmpi_hip_shmwrite
     do m = 0, npro_k - 1
         if (.not. is_local_k(m)) then
             l = l + 1
-            g_m = ims_pro_i * npro_k + m   ! col-major: rank = pro_i*npro_k + pro_k
+            g_m = k_global_ranks(m)
             call MPI_IRECV(mpi_recv_k(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, &
                            g_m, 1002, MPI_COMM_WORLD, req_k(l), ims_err)
         end if
@@ -436,7 +451,7 @@ program vmpi_hip_shmwrite
     do m = 0, npro_k - 1
         if (.not. is_local_k(m)) then
             l = l + 1
-            g_m = ims_pro_i * npro_k + m   ! col-major: rank = pro_i*npro_k + pro_k
+            g_m = k_global_ranks(m)
             call MPI_ISEND(send_buf(1), chunk, MPI_DOUBLE_PRECISION, &
                            g_m, 1002, MPI_COMM_WORLD, req_k(l), ims_err)
         end if
@@ -472,10 +487,10 @@ program vmpi_hip_shmwrite
     ! Optional: call hip_invalidate_recv(recv_k(1), int(npro_k * chunk, c_int))
     ! call MPI_Barrier(MPI_COMM_WORLD, ims_err)
 
-    ! Verify K: recv_k(m*chunk + j) must equal (ims_pro_i*npro_k + m)*1000.0 + j
+    ! Verify K: recv_k(m*chunk + j) must equal global_rank_of_k_dir_m * 1000.0 + j
     errors_k = 0
     do m = 0, npro_k - 1
-        g_m = ims_pro_i * npro_k + m   ! col-major: rank = pro_i*npro_k + pro_k
+        g_m = k_global_ranks(m)
         do j = 1, chunk
             expected = dble(g_m) * 1000.0d0 + dble(j)
             actual   = recv_k(m * chunk + j)
@@ -528,6 +543,7 @@ program vmpi_hip_shmwrite
     deallocate(send_buf, is_local_i, is_local_k, peer_win_i, peer_win_k)
     deallocate(req_i, sta_i, req_k, sta_k)
     deallocate(mpi_recv_i, mpi_recv_k)
+    deallocate(i_global_ranks, k_global_ranks, local_ranks)
 
     call MPI_Finalize(ims_err)
 
