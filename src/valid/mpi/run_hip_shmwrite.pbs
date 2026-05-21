@@ -5,9 +5,11 @@
 
 ulimit -c unlimited
 export HSA_XNACK=1
-# Disabled: MPICH_GPU_SUPPORT_ENABLED=1 forces GPU-aware MPI at init time
-# Re-enable after basic test passes.
-# export MPICH_GPU_SUPPORT_ENABLED=1
+# Re-enabled: with hipHostRegister'd memory + shared windows in the MPI
+# runtime, point-to-point traffic on MPI_COMM_WORLD silently deadlocked
+# in the previous run.  Cray MPICH needs GPU-aware mode to route correctly
+# once HIP buffers are in the picture.
+export MPICH_GPU_SUPPORT_ENABLED=1
 export OMP_NUM_THREADS=1
 
 # Set this to the directory where vmpi_hip_shmwrite.x was compiled
