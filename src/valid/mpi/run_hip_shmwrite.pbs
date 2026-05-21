@@ -33,6 +33,6 @@ cd $PBS_O_WORKDIR
 mpirun -np 48 --ppn 24 \
  --cpu-bind list:0:1:2:3:4:5:24:25:26:27:28:29:48:49:50:51:52:53:72:73:74:75:76:77 \
  --gpu-bind list:0:0:0:0:0:0:1:1:1:1:1:1:2:2:2:2:2:2:3:3:3:3:3:3 \
- ./vmpi_hip_shmwrite.x+orig 4 12 512> output.log 2>&1
+ ./vmpi_hip_shmwrite.x 4 12 512 > output.log 2>&1
 
 echo "Job completed"

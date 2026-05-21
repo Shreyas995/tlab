@@ -251,7 +251,7 @@ program vmpi_hip_shmwrite
     call MPI_Comm_group(shmem_comm_i, shmem_group_i, ims_err)
     ! Translate I-comm local ranks 0..npro_i-1 to global MPI_COMM_WORLD ranks.
     ! This replaces all g_m formula attempts — the topology is opaque; MPI knows it.
-    allocate(i_global_ranks(0:npro_i-1), local_ranks(max(npro_i,npro_k)))
+    allocate(i_global_ranks(0:npro_i-1), local_ranks(0:max(npro_i,npro_k)-1))
     call MPI_Comm_group(MPI_COMM_WORLD, world_group, ims_err)
     do m = 0, npro_i-1; local_ranks(m) = m; end do
     call MPI_Group_translate_ranks(dir_group_i, npro_i, local_ranks, &
