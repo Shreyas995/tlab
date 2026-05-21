@@ -158,6 +158,7 @@ contains
         integer, allocatable :: apu_async_shmem_to_dir(:)  ! shmem-rank → dir-rank (Allgather result)
         integer :: apu_async_shmem_size
         integer(MPI_ADDRESS_KIND) :: dbg_addr   ! FABRIC_DIRECT debug: holds a transferred c_ptr address
+        integer(MPI_ADDRESS_KIND) :: win_segsize ! byte size of one peer's recv segment
 #endif
         ! -----------------------------------------------------------------------
         integer(wi) ip, npage, dummy
@@ -496,10 +497,28 @@ contains
                 call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU_ASYNC/FABRIC_DIRECT I recv buffer.')
                 call TLab_Stop(DNS_ERROR_OPTION)
             end if
-            ! Rank ip in ims_comm_x == I-rank ip (= pro_i = ip): query all ims_npro_i peers.
+            ! Cray MPICH: MPI_Win_shared_query for cross-XCD ranks on a full-I-comm window returns
+            ! garbage (4545058143416972545, segsize-as-int, etc.) — 2026-05-21 crashlog confirmed.
+            ! Root cause: Cray's MPI_Win_shared_query cannot traverse XCD boundaries even when the
+            ! window spans multiple XCDs (full ims_comm_x). A rank on XCD-1 (pro_i=3..5) querying
+            ! rank 0 (XCD-0) gets garbage, just as rank 0 querying ranks 3..5 does.
+            ! Workaround: each rank queries ONLY its own segment (rank ims_pro_i in the window),
+            ! which is always valid (self-query), then computes all peer addresses by arithmetic:
+            !   peer[ip] = own_addr + (ip - ims_pro_i) * segsize
+            ! MPI-3 §11.2.3 guarantees shared windows are allocated contiguously with no guard
+            ! regions; verified for same-XCD ranks (0,1,2 differ by exactly 1×segsize in crashlog).
+            ! This arithmetic is safe across XCDs because MI300A's unified HBM is physically
+            ! addressable by all XCDs from all processes sharing the same node.
+            call MPI_Win_shared_query(apu_async_win_i, ims_pro_i, win_query_size, win_disp_unit, &
+                                      apu_async_peer_i(ims_pro_i), ims_err)
+            ! segsize_i in bytes:  apu_async_size_i * sizeof(real(dp))
+            win_segsize = int(apu_async_size_i, MPI_ADDRESS_KIND) * int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND)
+            ! Derive all peer addresses relative to own segment.
             do ip = 0, ims_npro_i - 1
-                call MPI_Win_shared_query(apu_async_win_i, ip, win_query_size, win_disp_unit, &
-                                          apu_async_peer_i(ip), ims_err)
+                apu_async_peer_i(ip) = transfer( &
+                    transfer(apu_async_peer_i(ims_pro_i), 0_MPI_ADDRESS_KIND) &
+                    + int(ip - ims_pro_i, MPI_ADDRESS_KIND)*win_segsize, &
+                    c_null_ptr)
             end do
             call c_f_pointer(apu_async_peer_i(ims_pro_i), apu_async_recv_i, [apu_async_size_i])
             ! Use the pre-dup'd I-comm for barriers (untainted, taken before any Win_allocate_shared).
@@ -510,8 +529,15 @@ contains
                     ' size=', apu_async_size_i, ' npro_i=', ims_npro_i, ' pro_i=', ims_pro_i
                 do ip = 0, ims_npro_i - 1
                     dbg_addr = transfer(apu_async_peer_i(ip), dbg_addr)
-                    write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' INTRA-node peer i-rank', ip, &
-                        ' shared_query_cptr=', dbg_addr
+                    ! Label: "query" for own rank (actual MPI_Win_shared_query result),
+                    !         "computed" for others (derived as own_addr + offset*segsize).
+                    if (ip == ims_pro_i) then
+                        write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' INTRA-node peer i-rank', ip, &
+                            ' queried_cptr=', dbg_addr
+                    else
+                        write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' INTRA-node peer i-rank', ip, &
+                            ' computed_cptr=', dbg_addr
+                    end if
                 end do
                 flush(500 + ims_pro)
             end if
