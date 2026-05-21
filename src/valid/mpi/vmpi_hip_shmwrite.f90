@@ -365,7 +365,7 @@ program vmpi_hip_shmwrite
     ! Blocking Sendrecv per inter-shmem peer — different MPICH code path.
     do m = 0, npro_i - 1
         if (.not. is_local_i(m)) then
-            g_m = ims_pro_k * npro_i + m
+            g_m = m * npro_k + ims_pro_k   ! col-major: rank = pro_i*npro_k + pro_k
             write(1000+ims_pro,*) 'L312: Sendrecv with peer dir=', m, ' g_m=', g_m; flush(1000+ims_pro)
             call MPI_Sendrecv( &
                 send_buf(1),             chunk, MPI_DOUBLE_PRECISION, g_m, 1001, &
@@ -395,10 +395,10 @@ program vmpi_hip_shmwrite
     ! call hip_invalidate_recv(recv_i(1), int(npro_i * chunk, c_int))
     ! call MPI_Barrier(MPI_COMM_WORLD, ims_err)
 
-    ! Verify: recv_i(m*chunk + j) must equal (ims_pro_k*npro_i + m)*1000.0 + j
+    ! Verify: recv_i(m*chunk + j) must equal (m*npro_k + ims_pro_k)*1000.0 + j
     errors_i = 0
     do m = 0, npro_i - 1
-        g_m = ims_pro_k * npro_i + m
+        g_m = m * npro_k + ims_pro_k   ! col-major: rank = pro_i*npro_k + pro_k
         do j = 1, chunk
             expected = dble(g_m) * 1000.0d0 + dble(j)
             actual   = recv_i(m * chunk + j)
@@ -424,7 +424,7 @@ program vmpi_hip_shmwrite
     do m = 0, npro_k - 1
         if (.not. is_local_k(m)) then
             l = l + 1
-            g_m = m * npro_i + ims_pro_i
+            g_m = ims_pro_i * npro_k + m   ! col-major: rank = pro_i*npro_k + pro_k
             call MPI_IRECV(mpi_recv_k(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, &
                            g_m, 1002, MPI_COMM_WORLD, req_k(l), ims_err)
         end if
@@ -436,7 +436,7 @@ program vmpi_hip_shmwrite
     do m = 0, npro_k - 1
         if (.not. is_local_k(m)) then
             l = l + 1
-            g_m = m * npro_i + ims_pro_i
+            g_m = ims_pro_i * npro_k + m   ! col-major: rank = pro_i*npro_k + pro_k
             call MPI_ISEND(send_buf(1), chunk, MPI_DOUBLE_PRECISION, &
                            g_m, 1002, MPI_COMM_WORLD, req_k(l), ims_err)
         end if
@@ -472,10 +472,10 @@ program vmpi_hip_shmwrite
     ! Optional: call hip_invalidate_recv(recv_k(1), int(npro_k * chunk, c_int))
     ! call MPI_Barrier(MPI_COMM_WORLD, ims_err)
 
-    ! Verify K: recv_k(m*chunk + j) must equal (m*npro_i + ims_pro_i)*1000.0 + j
+    ! Verify K: recv_k(m*chunk + j) must equal (ims_pro_i*npro_k + m)*1000.0 + j
     errors_k = 0
     do m = 0, npro_k - 1
-        g_m = m * npro_i + ims_pro_i
+        g_m = ims_pro_i * npro_k + m   ! col-major: rank = pro_i*npro_k + pro_k
         do j = 1, chunk
             expected = dble(g_m) * 1000.0d0 + dble(j)
             actual   = recv_k(m * chunk + j)

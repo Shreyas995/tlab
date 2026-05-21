@@ -1,20 +1,38 @@
 #!/bin/bash
-#PBS -N hip_shmwrite_test
+#PBS -N Hip_shm_test
 #PBS -l select=2:node_type=mi300a:mpiprocs=24
 #PBS -l walltime=00:02:00
 
+# -------------------------------------------------------------------
+# Required Environment Variables
+# -------------------------------------------------------------------
 ulimit -c unlimited
+
+# Enable Unified Memory Page Migration (Critical for APU Direct Writes)
 export HSA_XNACK=1
+
+# Enable Direct GPU-to-GPU memory copies inside ROCm-Aware MPI
 export MPICH_GPU_SUPPORT_ENABLED=1
+
+# Disable OpenMP multi-threading inside the MPI ranks
 export OMP_NUM_THREADS=1
 
-# Set this to the directory where vmpi_hip_shmwrite.x was compiled
-cd ~/tlab_test/src/valid/mpi
+# Change to the directory where the job request was submitted
+cd $PBS_O_WORKDIR
 
-# Using Cray mpiexec with appropriate binding for AMD MI300A
-mpiexec -n 48 --ppn 24 \
-  --cpu-bind=core \
-  --depth=1 \
-  ./vmpi_hip_shmwrite.x 4 12 512 > output_hip.log 2>&1
+# -------------------------------------------------------------------
+# Execution Engine
+# -------------------------------------------------------------------
+# Total tasks = 48 (2 nodes x 24 mpiprocs)
+# Each node hosts 4 physical domains. We map 6 tasks sequentially per domain:
+# Domain 0 (Cores 0-5)   -> Bound to GPU 0
+# Domain 1 (Cores 24-29) -> Bound to GPU 1
+# Domain 2 (Cores 48-53) -> Bound to GPU 2
+# Domain 3 (Cores 72-77) -> Bound to GPU 3
+
+mpirun -np 48 --ppn 24 \
+ --cpu-bind list:0:1:2:3:4:5:24:25:26:27:28:29:48:49:50:51:52:53:72:73:74:75:76:77 \
+ --gpu-bind list:0:0:0:0:0:0:1:1:1:1:1:1:2:2:2:2:2:2:3:3:3:3:3:3 \
+ ./vmpi_hip_shmwrite.x+orig 4 12 512> output.log 2>&1
 
 echo "Job completed"
