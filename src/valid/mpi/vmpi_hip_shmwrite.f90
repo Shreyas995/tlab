@@ -286,55 +286,70 @@ program vmpi_hip_shmwrite
     end if
 
     ! Global sync: all init done, recv windows allocated, query complete
+    write(1000+ims_pro,*) 'L260: entering first Barrier WORLD'; flush(1000+ims_pro)
     call MPI_Barrier(MPI_COMM_WORLD, ims_err)
+    write(1000+ims_pro,*) 'L262: passed first Barrier WORLD, err=', ims_err; flush(1000+ims_pro)
 
     ! ================================================================
     ! TEST I-DIRECTION
     ! ================================================================
-    ! Zero out own recv window so stale data from previous runs doesn't fool us
     recv_i = 0.0_dp
+    write(1000+ims_pro,*) 'L267: recv_i zeroed'; flush(1000+ims_pro)
 
-    ! Step 1: post IRECVs for inter-node I-peers (into our recv window at their slot)
+    ! Step 1: post IRECVs for inter-node I-peers
     l = 0
     do m = 0, npro_i - 1
         if (.not. is_local_i(m)) then
             l = l + 1
             g_m = ims_pro_k * npro_i + m
+            write(1000+ims_pro,*) 'L274: posting IRECV from peer dir=', m, ' g_m=', g_m; flush(1000+ims_pro)
             call MPI_IRECV(recv_i(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, &
                            g_m, 1001, MPI_COMM_WORLD, req_i(l), ims_err)
+            write(1000+ims_pro,*) 'L277: IRECV posted, err=', ims_err; flush(1000+ims_pro)
         end if
     end do
-    ! Step 2: barrier — all ranks ready to send (IRECVs posted)
+    write(1000+ims_pro,*) 'L280: all IRECVs done, l=', l; flush(1000+ims_pro)
+
+    write(1000+ims_pro,*) 'L282: entering Barrier (post-IRECV)'; flush(1000+ims_pro)
     call MPI_Barrier(MPI_COMM_WORLD, ims_err)
+    write(1000+ims_pro,*) 'L284: passed Barrier (post-IRECV)'; flush(1000+ims_pro)
 
     ! Step 3: post ISENDs for inter-node I-peers
     do m = 0, npro_i - 1
         if (.not. is_local_i(m)) then
             l = l + 1
             g_m = ims_pro_k * npro_i + m
+            write(1000+ims_pro,*) 'L291: posting ISEND to peer dir=', m, ' g_m=', g_m; flush(1000+ims_pro)
             call MPI_ISEND(send_buf(1), chunk, MPI_DOUBLE_PRECISION, &
                            g_m, 1001, MPI_COMM_WORLD, req_i(l), ims_err)
+            write(1000+ims_pro,*) 'L294: ISEND posted, err=', ims_err; flush(1000+ims_pro)
         end if
     end do
+    write(1000+ims_pro,*) 'L297: all ISENDs done, l=', l; flush(1000+ims_pro)
 
-    ! Step 4: HIP write to intra-node I-peers.
-    ! Write send_buf into peer m's recv window at MY slot (ims_pro_i * chunk).
-    ! hip_write_with_fence is SYNCHRONOUS: returns only after hipDeviceSynchronize,
-    ! which guarantees the write + __threadfence_system() are complete globally.
+    ! Step 4: HIP write to intra-shmem I-peers
     do m = 0, npro_i - 1
         if (is_local_i(m)) then
+            write(1000+ims_pro,*) 'L302: HIP write to intra peer dir=', m; flush(1000+ims_pro)
             call c_f_pointer(peer_win_i(m), pfptr, [npro_i * chunk])
             call hip_write_with_fence(send_buf(1), pfptr(ims_pro_i * chunk + 1), int(chunk, c_int))
             nullify(pfptr)
+            write(1000+ims_pro,*) 'L306: HIP write done for peer dir=', m; flush(1000+ims_pro)
         end if
     end do
+    write(1000+ims_pro,*) 'L309: all HIP writes done'; flush(1000+ims_pro)
 
-    ! Step 5: wait for inter-node transfers
-    if (l > 0) call MPI_WAITALL(l, req_i(1:l), sta_i(1:l), ims_err)
+    if (l > 0) then
+        write(1000+ims_pro,*) 'L312: entering WAITALL, l=', l; flush(1000+ims_pro)
+        call MPI_WAITALL(l, req_i(1:l), sta_i(1:l), ims_err)
+        write(1000+ims_pro,*) 'L314: WAITALL done, err=', ims_err; flush(1000+ims_pro)
+    else
+        write(1000+ims_pro,*) 'L316: no inter-shmem peers, skipping WAITALL'; flush(1000+ims_pro)
+    end if
 
-    ! Step 6: barrier — all ranks have finished HIP writes and MPI transfers.
-    ! After this, every rank's recv_i is fully populated.
+    write(1000+ims_pro,*) 'L319: entering final I-Barrier'; flush(1000+ims_pro)
     call MPI_Barrier(MPI_COMM_WORLD, ims_err)
+    write(1000+ims_pro,*) 'L321: I-DIRECTION TEST COMPLETE'; flush(1000+ims_pro)
 
     ! Optional reader-side L2 invalidation — uncomment if mismatches are seen
     ! despite the writer reporting success (indicates COARSE_GRAINED memory):
