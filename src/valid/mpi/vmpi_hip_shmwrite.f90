@@ -343,46 +343,17 @@ program vmpi_hip_shmwrite
     recv_i = 0.0_dp
     write(1000+ims_pro,*) 'L267: recv_i zeroed'; flush(1000+ims_pro)
 
-    ! Step 1: post IRECVs for inter-shmem I-peers into the PLAIN buffer
-    ! (not into recv_i, which is shared-window + HIP-registered memory).
+    ! ==== I-DIRECTION INTER-SHMEM: blocking MPI_Sendrecv ====
+    ! Replaced ISEND/IRECV/WAITALL with blocking Sendrecv.  Non-blocking ops
+    ! silently deadlock at WAITALL once shared windows + hipHostRegister are
+    ! in the runtime, even on MPI_COMM_WORLD and with GPU-aware MPI enabled.
     mpi_recv_i = 0.0_dp
-    l = 0
-    do m = 0, npro_i - 1
-        if (.not. is_local_i(m)) then
-            l = l + 1
-            g_m = ims_pro_k * npro_i + m
-            write(1000+ims_pro,*) 'L274: posting IRECV from peer dir=', m, ' g_m=', g_m; flush(1000+ims_pro)
-            call MPI_IRECV(mpi_recv_i(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, &
-                           g_m, 1001, MPI_COMM_WORLD, req_i(l), ims_err)
-            write(1000+ims_pro,*) 'L277: IRECV posted, err=', ims_err; flush(1000+ims_pro)
-        end if
-    end do
-    write(1000+ims_pro,*) 'L280: all IRECVs done, l=', l; flush(1000+ims_pro)
 
-    write(1000+ims_pro,*) 'L282: entering Barrier (post-IRECV)'; flush(1000+ims_pro)
-    call MPI_Barrier(MPI_COMM_WORLD, ims_err)
-    write(1000+ims_pro,*) 'L284: passed Barrier (post-IRECV)'; flush(1000+ims_pro)
-
-    ! Step 3: post ISENDs for inter-node I-peers
-    do m = 0, npro_i - 1
-        if (.not. is_local_i(m)) then
-            l = l + 1
-            g_m = ims_pro_k * npro_i + m
-            write(1000+ims_pro,*) 'L291: posting ISEND to peer dir=', m, ' g_m=', g_m; flush(1000+ims_pro)
-            call MPI_ISEND(send_buf(1), chunk, MPI_DOUBLE_PRECISION, &
-                           g_m, 1001, MPI_COMM_WORLD, req_i(l), ims_err)
-            write(1000+ims_pro,*) 'L294: ISEND posted, err=', ims_err; flush(1000+ims_pro)
-        end if
-    end do
-    write(1000+ims_pro,*) 'L297: all ISENDs done, l=', l; flush(1000+ims_pro)
-
-    ! Step 4: HIP write to intra-shmem I-peers (diagnostic version)
+    ! HIP writes first — synchronous, local, already validated.
     do m = 0, npro_i - 1
         if (is_local_i(m)) then
             write(1000+ims_pro,*) 'L302: HIP write to intra peer dir=', m; flush(1000+ims_pro)
             call c_f_pointer(peer_win_i(m), pfptr, [npro_i * chunk])
-            ! Use the DIAGNOSTIC wrapper — writes hip_trace_<rank>.log so we can
-            ! see exactly where inside the HIP layer the call wedges.
             call hip_write_with_fence_diag(int(ims_pro, c_int), send_buf(1), &
                 pfptr(ims_pro_i * chunk + 1), int(chunk, c_int))
             nullify(pfptr)
@@ -391,13 +362,19 @@ program vmpi_hip_shmwrite
     end do
     write(1000+ims_pro,*) 'L309: all HIP writes done'; flush(1000+ims_pro)
 
-    if (l > 0) then
-        write(1000+ims_pro,*) 'L312: entering WAITALL, l=', l; flush(1000+ims_pro)
-        call MPI_WAITALL(l, req_i(1:l), sta_i(1:l), ims_err)
-        write(1000+ims_pro,*) 'L314: WAITALL done, err=', ims_err; flush(1000+ims_pro)
-    else
-        write(1000+ims_pro,*) 'L316: no inter-shmem peers, skipping WAITALL'; flush(1000+ims_pro)
-    end if
+    ! Blocking Sendrecv per inter-shmem peer — different MPICH code path.
+    do m = 0, npro_i - 1
+        if (.not. is_local_i(m)) then
+            g_m = ims_pro_k * npro_i + m
+            write(1000+ims_pro,*) 'L312: Sendrecv with peer dir=', m, ' g_m=', g_m; flush(1000+ims_pro)
+            call MPI_Sendrecv( &
+                send_buf(1),             chunk, MPI_DOUBLE_PRECISION, g_m, 1001, &
+                mpi_recv_i(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, g_m, 1001, &
+                MPI_COMM_WORLD, MPI_STATUS_IGNORE, ims_err)
+            write(1000+ims_pro,*) 'L317: Sendrecv done, err=', ims_err; flush(1000+ims_pro)
+        end if
+    end do
+    write(1000+ims_pro,*) 'L320: all I Sendrecvs done'; flush(1000+ims_pro)
 
     write(1000+ims_pro,*) 'L319: entering final I-Barrier'; flush(1000+ims_pro)
     call MPI_Barrier(MPI_COMM_WORLD, ims_err)
