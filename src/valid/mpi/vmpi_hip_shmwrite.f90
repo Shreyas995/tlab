@@ -377,22 +377,23 @@ program vmpi_hip_shmwrite
     end do
     write(1000+ims_pro,*) 'L309: all HIP writes done'; flush(1000+ims_pro)
 
-    ! Blocking Sendrecv per inter-shmem peer — different MPICH code path.
+    ! Blocking Sendrecv on mpi_comm_i (dup'd BEFORE any Win_allocate_shared, so untainted).
+    ! Use local I-comm rank m directly — no global-rank formula needed.
+    ! This mirrors the production apu_async_mpi_comm_i pattern exactly.
     do m = 0, npro_i - 1
         if (.not. is_local_i(m)) then
-            g_m = i_global_ranks(m)
-            write(1000+ims_pro,*) 'L312: Sendrecv with peer dir=', m, ' g_m=', g_m; flush(1000+ims_pro)
+            write(1000+ims_pro,*) 'L312: Sendrecv with I-comm rank=', m; flush(1000+ims_pro)
             call MPI_Sendrecv( &
-                send_buf(1),             chunk, MPI_DOUBLE_PRECISION, g_m, 2000+m, &
-                mpi_recv_i(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, g_m, 2000+ims_pro_i, &
-                MPI_COMM_WORLD, MPI_STATUS_IGNORE, ims_err)
+                send_buf(1),             chunk, MPI_DOUBLE_PRECISION, m, 1001, &
+                mpi_recv_i(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, m, 1001, &
+                mpi_comm_i, MPI_STATUS_IGNORE, ims_err)
             write(1000+ims_pro,*) 'L317: Sendrecv done, err=', ims_err; flush(1000+ims_pro)
         end if
     end do
     write(1000+ims_pro,*) 'L320: all I Sendrecvs done'; flush(1000+ims_pro)
 
     write(1000+ims_pro,*) 'L319: entering final I-Barrier'; flush(1000+ims_pro)
-    call MPI_Barrier(MPI_COMM_WORLD, ims_err)
+    call MPI_Barrier(mpi_comm_i, ims_err)
     write(1000+ims_pro,*) 'L321: passed final I-Barrier'; flush(1000+ims_pro)
 
     ! Copy inter-shmem MPI recv data into recv_i so verification sees it
@@ -439,21 +440,19 @@ program vmpi_hip_shmwrite
     do m = 0, npro_k - 1
         if (.not. is_local_k(m)) then
             l = l + 1
-            g_m = k_global_ranks(m)
             call MPI_IRECV(mpi_recv_k(m*chunk + 1), chunk, MPI_DOUBLE_PRECISION, &
-                           g_m, 1002, MPI_COMM_WORLD, req_k(l), ims_err)
+                           m, 1002, mpi_comm_k, req_k(l), ims_err)
         end if
     end do
     write(1000+ims_pro,*) 'L344: K IRECVs done, l=', l; flush(1000+ims_pro)
-    call MPI_Barrier(MPI_COMM_WORLD, ims_err)
+    call MPI_Barrier(mpi_comm_k, ims_err)
     write(1000+ims_pro,*) 'L346: K post-IRECV Barrier passed'; flush(1000+ims_pro)
 
     do m = 0, npro_k - 1
         if (.not. is_local_k(m)) then
             l = l + 1
-            g_m = k_global_ranks(m)
             call MPI_ISEND(send_buf(1), chunk, MPI_DOUBLE_PRECISION, &
-                           g_m, 1002, MPI_COMM_WORLD, req_k(l), ims_err)
+                           m, 1002, mpi_comm_k, req_k(l), ims_err)
         end if
     end do
     write(1000+ims_pro,*) 'L355: K ISENDs done, l=', l; flush(1000+ims_pro)
@@ -472,7 +471,7 @@ program vmpi_hip_shmwrite
         call MPI_WAITALL(l, req_k(1:l), sta_k(1:l), ims_err)
         write(1000+ims_pro,*) 'L369: K WAITALL done'; flush(1000+ims_pro)
     end if
-    call MPI_Barrier(MPI_COMM_WORLD, ims_err)
+    call MPI_Barrier(mpi_comm_k, ims_err)
     write(1000+ims_pro,*) 'L372: K final Barrier passed'; flush(1000+ims_pro)
 
     do m = 0, npro_k - 1
