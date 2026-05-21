@@ -53,7 +53,20 @@ program vmpi_hip_shmwrite
             real(c_double), intent(inout) :: buf(*)
             integer(c_int), value         :: n
         end subroutine
+
+        ! Register a host pointer with the HIP runtime so the GPU MMU has
+        ! a mapping for it.  Required for MPI_Win_allocate_shared memory
+        ! when HSA_XNACK is not effective.  Returns hipError_t (0 on success).
+        function hipHostRegister(ptr, sz, flags) bind(C, name='hipHostRegister') result(ierr)
+            use iso_c_binding
+            integer(c_int) :: ierr
+            type(c_ptr), value :: ptr
+            integer(c_size_t), value :: sz
+            integer(c_int), value :: flags
+        end function
     end interface
+
+    integer :: hip_reg_err
 
     ! -------------------------------------------------------------------
     ! MPI state
@@ -224,6 +237,16 @@ program vmpi_hip_shmwrite
     write(1000+ims_pro,*) 'L212: Win_shared_query loop done'; flush(1000+ims_pro)
     call c_f_pointer(peer_win_i(ims_pro_i), recv_i, [npro_i * chunk])
     write(1000+ims_pro,*) 'L214: I recv_i bound'; flush(1000+ims_pro)
+    ! Register each intra-shmem peer's segment with HIP so the GPU MMU has a
+    ! mapping for it.  Without this, hipDeviceSynchronize blocks forever waiting
+    ! on a kernel that silently faulted on an unmapped address.  Flag 0 = default.
+    do ip = 0, npro_i - 1
+        if (is_local_i(ip)) then
+            hip_reg_err = hipHostRegister(peer_win_i(ip), &
+                int(npro_i * chunk * 8, c_size_t), 0_c_int)
+            write(1000+ims_pro,*) 'L222: hipHostRegister I peer ', ip, ' err=', hip_reg_err; flush(1000+ims_pro)
+        end if
+    end do
     deallocate(shmem_to_dir_i)
     write(1000+ims_pro,*) 'L216: I setup complete'; flush(1000+ims_pro)
 
@@ -267,6 +290,13 @@ program vmpi_hip_shmwrite
     write(1000+ims_pro,*) 'L252: K Win_shared_query loop done'; flush(1000+ims_pro)
     call c_f_pointer(peer_win_k(ims_pro_k), recv_k, [npro_k * chunk])
     write(1000+ims_pro,*) 'L254: K recv_k bound'; flush(1000+ims_pro)
+    do ip = 0, npro_k - 1
+        if (is_local_k(ip)) then
+            hip_reg_err = hipHostRegister(peer_win_k(ip), &
+                int(npro_k * chunk * 8, c_size_t), 0_c_int)
+            write(1000+ims_pro,*) 'L258: hipHostRegister K peer ', ip, ' err=', hip_reg_err; flush(1000+ims_pro)
+        end if
+    end do
     deallocate(shmem_to_dir_k)
     write(1000+ims_pro,*) 'L256: ALL SETUP COMPLETE'; flush(1000+ims_pro)
 
