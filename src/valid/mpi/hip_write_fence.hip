@@ -131,3 +131,65 @@ extern "C" void hip_invalidate_recv(double* buf, int n)
                        buf, n);
     (void)hipDeviceSynchronize();
 }
+
+// ------------------------------------------------------------------
+// DIAGNOSTIC wrapper: writes a detailed trace to hip_trace_<rank>.log
+// so we can see exactly where inside the HIP layer the wedge happens.
+// Use this in place of hip_write_with_fence to debug.
+// ------------------------------------------------------------------
+extern "C" void hip_write_with_fence_diag(int rank,
+                                           const double* src,
+                                           double* dst,
+                                           int n)
+{
+    char fname[64];
+    snprintf(fname, sizeof(fname), "hip_trace_%04d.log", rank);
+    FILE* f = fopen(fname, "a");
+    if (!f) return;
+
+    fprintf(f, "[ENTRY] n=%d src=%p dst=%p\n", n, (const void*)src, (void*)dst); fflush(f);
+
+    if (n <= 0) { fclose(f); return; }
+
+    int dev_count = -1;
+    hipError_t e_count = hipGetDeviceCount(&dev_count);
+    fprintf(f, "[DEV] hipGetDeviceCount=%d err=%d (%s)\n",
+            dev_count, (int)e_count, hipGetErrorString(e_count)); fflush(f);
+
+    int dev = -1;
+    hipError_t e_getdev = hipGetDevice(&dev);
+    fprintf(f, "[DEV] current device=%d err=%d (%s)\n",
+            dev, (int)e_getdev, hipGetErrorString(e_getdev)); fflush(f);
+
+    hipDeviceProp_t props;
+    hipError_t e_prop = hipGetDeviceProperties(&props, dev);
+    if (e_prop == hipSuccess) {
+        fprintf(f, "[DEV] name=%s\n", props.name); fflush(f);
+    }
+
+    // Probe: can the GPU actually see this 'dst' pointer?
+    hipPointerAttribute_t attr;
+    hipError_t e_attr = hipPointerGetAttributes(&attr, (const void*)dst);
+    fprintf(f, "[PTR] hipPointerGetAttributes err=%d (%s)\n",
+            (int)e_attr, hipGetErrorString(e_attr)); fflush(f);
+
+    const int threads = 256;
+    const int blocks  = (n + threads - 1) / threads;
+    fprintf(f, "[KERNEL] launching blocks=%d threads=%d\n", blocks, threads); fflush(f);
+
+    hipLaunchKernelGGL(hip_write_fence_kernel,
+                       dim3(blocks), dim3(threads), 0, 0,
+                       src, dst, n);
+
+    hipError_t launch_err = hipGetLastError();
+    fprintf(f, "[KERNEL] post-launch hipGetLastError=%d (%s)\n",
+            (int)launch_err, hipGetErrorString(launch_err)); fflush(f);
+
+    fprintf(f, "[SYNC] calling hipDeviceSynchronize ...\n"); fflush(f);
+    hipError_t sync_err = hipDeviceSynchronize();
+    fprintf(f, "[SYNC] hipDeviceSynchronize returned, err=%d (%s)\n",
+            (int)sync_err, hipGetErrorString(sync_err)); fflush(f);
+
+    fprintf(f, "[EXIT] OK\n"); fflush(f);
+    fclose(f);
+}

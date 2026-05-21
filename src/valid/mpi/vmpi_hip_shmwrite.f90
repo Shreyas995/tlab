@@ -54,6 +54,15 @@ program vmpi_hip_shmwrite
             integer(c_int), value         :: n
         end subroutine
 
+        subroutine hip_write_with_fence_diag(rank, src, dst, n) &
+                bind(C, name='hip_write_with_fence_diag')
+            use iso_c_binding
+            integer(c_int), value       :: rank
+            real(c_double), intent(in)  :: src(*)
+            real(c_double), intent(out) :: dst(*)
+            integer(c_int), value       :: n
+        end subroutine
+
         ! Register a host pointer with the HIP runtime so the GPU MMU has
         ! a mapping for it.  Required for MPI_Win_allocate_shared memory
         ! when HSA_XNACK is not effective.  Returns hipError_t (0 on success).
@@ -357,12 +366,15 @@ program vmpi_hip_shmwrite
     end do
     write(1000+ims_pro,*) 'L297: all ISENDs done, l=', l; flush(1000+ims_pro)
 
-    ! Step 4: HIP write to intra-shmem I-peers
+    ! Step 4: HIP write to intra-shmem I-peers (diagnostic version)
     do m = 0, npro_i - 1
         if (is_local_i(m)) then
             write(1000+ims_pro,*) 'L302: HIP write to intra peer dir=', m; flush(1000+ims_pro)
             call c_f_pointer(peer_win_i(m), pfptr, [npro_i * chunk])
-            call hip_write_with_fence(send_buf(1), pfptr(ims_pro_i * chunk + 1), int(chunk, c_int))
+            ! Use the DIAGNOSTIC wrapper — writes hip_trace_<rank>.log so we can
+            ! see exactly where inside the HIP layer the call wedges.
+            call hip_write_with_fence_diag(int(ims_pro, c_int), send_buf(1), &
+                pfptr(ims_pro_i * chunk + 1), int(chunk, c_int))
             nullify(pfptr)
             write(1000+ims_pro,*) 'L306: HIP write done for peer dir=', m; flush(1000+ims_pro)
         end if
