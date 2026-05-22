@@ -79,13 +79,17 @@ program vmpi_xcd_write
     ! Window pointers and VA check
     ! -------------------------------------------------------------------
     type(c_ptr) :: win_baseptr, own_seg_ptr, peer_i_0_cptr
-    integer(MPI_ADDRESS_KIND) :: seg_size_abi, win_size_abi
+    integer(MPI_ADDRESS_KIND) :: seg_size_abi, win_size_abi, i_seg_bytes
     integer :: disp_unit_i
 
     integer(MPI_ADDRESS_KIND) :: rank0_VA, own_VA, expected_own_VA
 
     real(dp), pointer, contiguous :: recv_i(:) => null()  ! own I recv buffer
-    real(dp), pointer, contiguous :: all_i(:)  => null()  ! full span all I-peers
+    real(dp), pointer, contiguous :: all_i(:)  => null()  ! full span all I-peers (P1)
+    real(dp), pointer, contiguous :: pfptr_m(:) => null() ! per-peer scratch (P2)
+    type(c_ptr), allocatable :: peer_cptrs(:)              ! per-peer VAs (P2)
+    integer(MPI_ADDRESS_KIND) :: va_peer
+    integer :: ip
 
     ! -------------------------------------------------------------------
     ! Test data
@@ -172,8 +176,9 @@ program vmpi_xcd_write
     ! Step 2: I-window on full ims_comm_x
     ! Per-rank segment holds npro_i*chunk elements (slot per I-peer).
     seg_size_elems = npro_i * chunk
-    win_size_abi = int(seg_size_elems, MPI_ADDRESS_KIND) &
-                 * int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND)
+    i_seg_bytes = int(seg_size_elems, MPI_ADDRESS_KIND) &
+                * int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND)
+    win_size_abi = i_seg_bytes
     call MPI_Win_allocate_shared(win_size_abi, int(c_sizeof(1.0_dp)), MPI_INFO_NULL, &
                                   ims_comm_x, win_baseptr, win_i, ims_err)
     write(1000+ims_pro,*) 'Step2: I-window on ims_comm_x done, err=', ims_err
@@ -239,6 +244,20 @@ program vmpi_xcd_write
         '  own_VA=', own_VA, &
         '  expected_own=', expected_own_VA, &
         '  MATCH=', (own_VA == expected_own_VA)
+    ! Log VA for every I-peer as seen from this process — shows XCD grouping
+    block
+        integer(MPI_ADDRESS_KIND) :: vap
+        integer :: ipx
+        type(c_ptr) :: tmp_cptr
+        integer(MPI_ADDRESS_KIND) :: tmp_sz
+        integer :: tmp_du
+        do ipx = 0, npro_i - 1
+            call MPI_Win_shared_query(win_i, ipx, tmp_sz, tmp_du, tmp_cptr, ims_err)
+            vap = transfer(tmp_cptr, vap)
+            write(500+ims_pro,'(a,i4,a,i4,a,i22)') &
+                '[VA_PEER] PE', ims_pro, '  peer_pro_i=', ipx, '  query_VA=', vap
+        end do
+    end block
     flush(500+ims_pro)
     call MPI_Barrier(mpi_comm_i, ims_err)
 
@@ -302,31 +321,51 @@ program vmpi_xcd_write
     end if
 
     ! ================================================================
-    ! PHASE 2: hipHostRegister + hip_write_with_fence
-    ! Tests the Gemini hypothesis: !$omp target may not issue a
-    ! system-scope cache flush; __threadfence_system() in the HIP
-    ! kernel guarantees all XCDs see the written data.
+    ! PHASE 2: per-peer hipHostRegister + hip_write_with_fence
+    ! Mirrors the production tlab_mpi_transpose.f90 fix exactly:
+    !   - Query EACH I-peer individually via MPI_Win_shared_query
+    !   - hipHostRegister each peer's segment (creates cross-XCD GPU MMU mapping)
+    !   - hip_write_with_fence per peer (__threadfence_system guarantees visibility)
+    ! Using per-peer VAs avoids assuming contiguous layout across XCDs.
+    ! Array section arguments (:) avoid Cray ftn-435 "scalar actual argument" error.
     ! ================================================================
     if (phase_select == 0 .or. phase_select == 2) then
         recv_i = 0.0_dp
         call MPI_Barrier(MPI_COMM_WORLD, ims_err)
-        write(1000+ims_pro,*) 'P2: barrier passed, registering shmem with HIP...'
+        write(1000+ims_pro,*) 'P2: barrier passed, querying all I-peers...'
         flush(1000+ims_pro)
 
-        ! Register the full contiguous I-window span with the HIP runtime.
-        ! This enables GPU kernel access to the MPI shared-memory region.
-        hip_reg_err = hipHostRegister(peer_i_0_cptr, &
-            int(seg_size_elems * npro_i, c_size_t) &
-            * int(c_sizeof(1.0_dp), c_size_t), 0_c_int)
-        write(1000+ims_pro,*) 'hipHostRegister span, err=', hip_reg_err
-        flush(1000+ims_pro)
-        write(500+ims_pro,'(a,i4,a,i4)') '[P2_HIPREGISTER] PE', ims_pro, '  err=', hip_reg_err
+        ! Query all npro_i I-peers — each process gets the VA valid in ITS address space
+        allocate(peer_cptrs(0:npro_i-1))
+        peer_cptrs = c_null_ptr
+        do ip = 0, npro_i - 1
+            call MPI_Win_shared_query(win_i, ip, seg_size_abi, disp_unit_i, &
+                                      peer_cptrs(ip), ims_err)
+            va_peer = transfer(peer_cptrs(ip), va_peer)
+            write(500+ims_pro,'(a,i4,a,i4,a,i22,a,i0)') &
+                '[P2_PEER_VA] PE', ims_pro, '  peer=', ip, &
+                '  VA=', va_peer, '  query_err=', ims_err
+        end do
         flush(500+ims_pro)
 
-        ! Write OUR chunk into each I-peer's slot with system-scope fence.
+        ! hipHostRegister each peer's segment individually (i_seg_bytes = npro_i*chunk*8)
+        ! Note: use i_seg_bytes, NOT win_size_abi (which was overwritten for K-window)
+        do ip = 0, npro_i - 1
+            hip_reg_err = hipHostRegister(peer_cptrs(ip), i_seg_bytes, 0_c_int)
+            write(500+ims_pro,'(a,i4,a,i4,a,i0)') &
+                '[P2_HIREG] PE', ims_pro, '  peer=', ip, '  err=', hip_reg_err
+        end do
+        flush(500+ims_pro)
+        write(1000+ims_pro,*) 'P2: hipHostRegister done for all peers'
+        flush(1000+ims_pro)
+
+        ! hip_write_with_fence: write OUR chunk into peer m's slot at our pro_i offset
+        ! Array sections avoid Cray ftn-435: pfptr_m(a:b) instead of pfptr_m(scalar)
         do m = 0, npro_i - 1
-            call hip_write_with_fence(send_buf(1), &
-                all_i(m * seg_size_elems + flat_off + 1), int(chunk, c_int))
+            call c_f_pointer(peer_cptrs(m), pfptr_m, [seg_size_elems])
+            call hip_write_with_fence(send_buf(1:chunk), &
+                pfptr_m(flat_off + 1 : flat_off + chunk), int(chunk, c_int))
+            nullify(pfptr_m)
         end do
 
         write(500+ims_pro,'(a,i4)') '[P2_HIP_WRITES_DONE] PE', ims_pro
@@ -358,6 +397,7 @@ program vmpi_xcd_write
             write(500+ims_pro,'(a,i4,a,i6)') '[P2_FAIL] PE', ims_pro, '  errors=', errors_p2
         end if
         flush(500+ims_pro)
+        deallocate(peer_cptrs)
     end if
 
     ! ================================================================
