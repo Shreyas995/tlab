@@ -144,6 +144,25 @@ module TLabMPI_Transpose
         module procedure TLabMPI_Trp_ExecI_Backward_Real, TLabMPI_Trp_ExecI_Backward_Complex
     end interface TLabMPI_Trp_ExecI_Backward
 
+#ifdef USE_APU
+    interface
+        subroutine hip_write_with_fence(src, dst, n) bind(C, name='hip_write_with_fence')
+            use iso_c_binding
+            real(c_double), intent(in)  :: src(*)
+            real(c_double), intent(out) :: dst(*)
+            integer(c_int), value       :: n
+        end subroutine
+
+        function hipHostRegister(ptr, sz, flags) bind(C, name='hipHostRegister') result(ierr)
+            use iso_c_binding
+            integer(c_int) :: ierr
+            type(c_ptr), value       :: ptr
+            integer(c_size_t), value :: sz
+            integer(c_int), value    :: flags
+        end function
+    end interface
+#endif
+
 contains
 
     ! ######################################################################
@@ -163,6 +182,7 @@ contains
         integer :: apu_async_shmem_size
         integer(MPI_ADDRESS_KIND) :: dbg_addr   ! FABRIC_DIRECT debug: holds a transferred c_ptr address
         integer(MPI_ADDRESS_KIND) :: win_segsize ! byte size of one peer's recv segment
+        integer :: hip_reg_err
 #endif
         ! -----------------------------------------------------------------------
         integer(wi) ip, npage, dummy
@@ -506,18 +526,33 @@ contains
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated K APU_ASYNC/FABRIC_DIRECT recv buffer.')
         end if
         if ((trp_mode_i == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) .and. ims_npro_i > 1) then
-            ! apu_async_size_i, apu_async_recv_i, apu_async_win_i, apu_async_mpi_comm_i, and
-            ! apu_async_node_comm_i are set in the early block above (before K-shmem allocation).
+            ! apu_async_size_i, apu_async_win_i, apu_async_mpi_comm_i, and apu_async_node_comm_i
+            ! are set in the early block above (before K-shmem allocation).
             allocate (apu_async_is_local_i(0:ims_npro_i - 1))
             allocate (apu_async_peer_i(0:ims_npro_i - 1))
             apu_async_peer_i = c_null_ptr
             apu_async_is_local_i = .true.   ! all I-peers are on the same physical node (same pro_k)
-            ! Query rank 0 → BASE of the window. With no K-shmem taint (window allocated above),
-            ! all ranks in ims_comm_x see the SAME VA for rank 0 → BASE is consistent everywhere.
-            call MPI_Win_shared_query(apu_async_win_i, 0, win_query_size, win_disp_unit, &
-                                      apu_async_peer_i(0), ims_err)
-            ! Single all-peers view: same pattern as APU_DIRECT's apu_all_i.
-            call c_f_pointer(apu_async_peer_i(0), apu_async_all_i, [apu_async_size_i * ims_npro_i])
+            ! Query ALL I-peers for their segment pointers.
+            do ip = 0, ims_npro_i - 1
+                call MPI_Win_shared_query(apu_async_win_i, ip, win_query_size, win_disp_unit, &
+                                          apu_async_peer_i(ip), ims_err)
+            end do
+            ! Bug A fix: bind apu_async_recv_i via own-rank query, not win_baseptr.
+            ! On Cray MPICH some shmem comms return win_baseptr that is 1 segsize BEFORE the
+            ! caller's actual segment. MPI_Win_shared_query(own_rank) is always correct.
+            call c_f_pointer(apu_async_peer_i(ims_pro_i), apu_async_recv_i, [apu_async_size_i])
+            ! FABRIC_DIRECT: register each local peer's segment with HIP so GPU kernels can
+            ! write across XCD boundaries without VA mismatch or cache coherence faults.
+            ! hipHostRegister pins the memory and creates cross-XCD MMU mappings;
+            ! hip_write_with_fence + __threadfence_system() then guarantees visibility.
+            if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
+                do ip = 0, ims_npro_i - 1
+                    if (apu_async_is_local_i(ip)) then
+                        hip_reg_err = hipHostRegister(apu_async_peer_i(ip), &
+                            int(apu_async_size_i, c_size_t) * int(c_sizeof(1.0_dp), c_size_t), 0)
+                    end if
+                end do
+            end if
             if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
                 dbg_addr = transfer(c_loc(apu_async_recv_i(1)), dbg_addr)
                 write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' own_win_baseptr=', dbg_addr, &
@@ -525,9 +560,12 @@ contains
                 dbg_addr = transfer(apu_async_peer_i(0), dbg_addr)
                 write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' BASE (query rank 0)=', dbg_addr, &
                     ' expected=', dbg_addr + int(ims_pro_i, 8) * int(apu_async_size_i, 8) * 8_8, &
-                    ' (uniform VA check: own_win_baseptr should equal expected)'
-                dbg_addr = transfer(c_loc(apu_async_all_i(1)), dbg_addr)
-                write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' apu_async_all_i(1)=', dbg_addr
+                    ' (own_win_baseptr should match expected when VA is uniform)'
+                do ip = 0, ims_npro_i - 1
+                    dbg_addr = transfer(apu_async_peer_i(ip), dbg_addr)
+                    write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' I peer', ip, &
+                        ' shared_query_cptr=', dbg_addr
+                end do
                 flush(500 + ims_pro)
             end if
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: I APU_ASYNC/FABRIC_DIRECT recv buffer setup complete.')
@@ -1772,19 +1810,20 @@ contains
                 end if
             end do
             write(500 + ims_pro, *) '[IFR_FBD_S3] PE', ims_pro, ' ISENDs posted, l=', l ; flush(500 + ims_pro)
-            ! Step 4: fused GPU write — push OUR chunk (a[m*chunk]) into ALL same-node peers'
-            !   recv buffers at our slot (ims_pro_i * chunk), using ONE !$omp target region over
-            !   the single contiguous apu_async_all_i array (same pattern as APU_DIRECT's apu_all_i).
-            !   This avoids separate per-peer c_f_pointer registrations, which cause HSA aperture
-            !   violations when the peer is on a different XCD (2026-05-21 GPU crash).
+            ! Step 4: per-peer hip_write_with_fence — push OUR chunk (a[m*chunk]) into each
+            !   same-node peer's recv buffer at our slot (ims_pro_i * chunk).
+            !   hip_write_with_fence uses a HIP kernel + __threadfence_system() so writes are
+            !   visible across XCD boundaries (fixes the SIGABRT/signal-6 crash caused by
+            !   !$omp target writing to per-XCD VAs via the invalid apu_async_all_i view).
             flat_off = ims_pro_i * nmax_p * nlines_p
-            !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
             do m = 0, ims_npro_i - 1
-                do i = 1, nmax_p * nlines_p
-                    apu_async_all_i(m*apu_async_size_i + flat_off + i) = a(m * nmax_p * nlines_p + i)
-                end do
+                if (apu_async_is_local_i(m)) then
+                    call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
+                    call hip_write_with_fence(a(m*nmax_p*nlines_p + 1), apu_pfptr_i(flat_off + 1), &
+                                              int(nmax_p * nlines_p))
+                    nullify(apu_pfptr_i)
+                end if
             end do
-            !$omp end target teams distribute parallel do
             write(500 + ims_pro, *) '[IFR_FBD_S4] PE', ims_pro, ' GPU intra writes done' ; flush(500 + ims_pro)
             ! Step 4b: barrier — all peers' GPU writes must complete before anyone unpacks.
             call MPI_Barrier(apu_async_mpi_comm_i, ims_err)
@@ -2261,19 +2300,23 @@ contains
                 end if
             end do
             write(500 + ims_pro, *) '[IBR_FBD_S3] PE', ims_pro, ' ISENDs posted, l=', l ; flush(500 + ims_pro)
-            ! Step 4: fused GPU write using apu_async_all_i — push OUR chunk into ALL peers'
-            !   recv buffers at our slot, using ONE !$omp target region over the single contiguous
-            !   apu_async_all_i array (same pattern as I-Forward FABRIC_DIRECT).
+            ! Step 4: per-peer pack + hip_write_with_fence — pack strided b[m] into c_wrk_dp
+            !   then write to peer m's recv buffer at our slot with system-scope fence.
             flat_off = ims_pro_i * nmax_p * nlines_p
-            !$omp target teams distribute parallel do collapse(3) if(mas * sizeofreal > 100000_wi)
             do m = 0, ims_npro_i - 1
-                do i = 0, nlines_p - 1
-                    do j = 0, nmax_p - 1
-                        apu_async_all_i(m*apu_async_size_i + flat_off + i*nmax_p + j + 1) = b(m*nmax_p + i*nmax_full + j + 1)
+                if (apu_async_is_local_i(m)) then
+                    disp_ns = m * nmax_p
+                    do i = 0, nlines_p - 1
+                        do j = 0, nmax_p - 1
+                            c_wrk_dp(m*nmax_p*nlines_p + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
+                        end do
                     end do
-                end do
+                    call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
+                    call hip_write_with_fence(c_wrk_dp(m*nmax_p*nlines_p + 1), apu_pfptr_i(flat_off + 1), &
+                                              int(nmax_p * nlines_p))
+                    nullify(apu_pfptr_i)
+                end if
             end do
-            !$omp end target teams distribute parallel do
             write(500 + ims_pro, *) '[IBR_FBD_S4] PE', ims_pro, ' GPU intra writes done' ; flush(500 + ims_pro)
             ! Step 4b: barrier — all peers' GPU writes must complete before anyone unpacks.
             call MPI_Barrier(apu_async_mpi_comm_i, ims_err)

@@ -13,7 +13,25 @@ list(REMOVE_ITEM sourcefiles ${to_remove})
 endif()
 
 add_executable(dns.x ${sourcefiles})
-target_link_libraries(dns.x statistics physics mappings operators particles filters fdm ibm thermodynamics ${LEVEL1_LIBS} ${LIBS})
+
+# USE_APU: compile hip_write_fence.hip (provides hip_write_with_fence/hipHostRegister
+# C wrappers used by tlab_mpi_transpose FABRIC_DIRECT I-direction).
+get_directory_property(defs COMPILE_DEFINITIONS)
+if ( "USE_APU" IN_LIST defs )
+  set(HIP_FENCE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../valid/mpi/hip_write_fence.hip")
+  set(HIP_FENCE_OBJ "${CMAKE_CURRENT_BINARY_DIR}/hip_write_fence.o")
+  add_custom_command(
+    OUTPUT  ${HIP_FENCE_OBJ}
+    COMMAND hipcc --offload-arch=gfx942 -O2 -fPIC -c ${HIP_FENCE_SRC} -o ${HIP_FENCE_OBJ}
+    DEPENDS ${HIP_FENCE_SRC}
+    COMMENT "Compiling hip_write_fence.hip"
+  )
+  add_custom_target(hip_fence_obj DEPENDS ${HIP_FENCE_OBJ})
+  add_dependencies(dns.x hip_fence_obj)
+  target_link_libraries(dns.x statistics physics mappings operators particles filters fdm ibm thermodynamics ${LEVEL1_LIBS} ${HIP_FENCE_OBJ} -lamdhip64 ${LIBS})
+else()
+  target_link_libraries(dns.x statistics physics mappings operators particles filters fdm ibm thermodynamics ${LEVEL1_LIBS} ${LIBS})
+endif()
 if (PSFFT_LIB)
 set_source_files_properties(dns/rhs_global_incompressible_nbc.f90 PROPERTIES COMPILE_FLAGS "${PSFFT_COMPILE_FLAGS}")
 set_target_properties(dns.x PROPERTIES LINK_FLAGS "${PSFFT_LINK_FLAGS} ${LINK_FLAGS}")
