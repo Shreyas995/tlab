@@ -1,0 +1,49 @@
+# Makefile.xcd_write
+# Standalone build for the XCD GPU-write validation test on Hunter.
+# Tests the session-2 FABRIC_DIRECT I-direction window ordering and
+# two GPU-write approaches (!$omp target vs hipHostRegister+hip_write_with_fence).
+#
+# Usage (from this directory, on a Hunter login or batch node):
+#   make -f Makefile.xcd_write
+#   qsub run_xcd_write.pbs
+#
+# Or interactively:
+#   mpirun -np 48 ./vmpi_xcd_write.x 8 6 512        (both phases)
+#   mpirun -np 48 ./vmpi_xcd_write.x 8 6 512 2      (Phase 2 only, if P1 crashes)
+#
+# Clean:
+#   make -f Makefile.xcd_write clean
+
+# ---------------------------------------------------------------------------
+# Compilers
+# ---------------------------------------------------------------------------
+FC      = ftn
+HIPCC   = hipcc
+
+# ---------------------------------------------------------------------------
+# Flags
+# ---------------------------------------------------------------------------
+FFLAGS   = -DUSE_APU -fopenmp
+HIPFLAGS = --offload-arch=gfx942 -O2 -fPIC
+LIBS     = -lamdhip64 -lm
+
+# ---------------------------------------------------------------------------
+# Targets
+# ---------------------------------------------------------------------------
+TARGET   = vmpi_xcd_write.x
+HIP_OBJ  = hip_write_fence.o
+F90_SRC  = vmpi_xcd_write.f90
+HIP_SRC  = hip_write_fence.hip
+
+all: $(TARGET)
+
+$(HIP_OBJ): $(HIP_SRC)
+	$(HIPCC) $(HIPFLAGS) -c $< -o $@
+
+$(TARGET): $(F90_SRC) $(HIP_OBJ)
+	$(FC) $(FFLAGS) $^ $(LIBS) -o $@
+
+clean:
+	rm -f $(HIP_OBJ) $(TARGET) *.mod fort.5[0-9][0-9] fort.1[0-9][0-9][0-9]
+
+.PHONY: all clean

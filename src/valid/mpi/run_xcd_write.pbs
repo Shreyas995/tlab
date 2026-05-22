@@ -1,0 +1,38 @@
+#!/bin/bash
+#PBS -N xcd_write_test
+#PBS -l select=2:node_type=mi300a:mpiprocs=24
+#PBS -l walltime=00:05:00
+
+# Enable Unified Memory Page Migration
+export HSA_XNACK=1
+
+# Enable ROCm-aware MPI
+export MPICH_GPU_SUPPORT_ENABLED=1
+
+# One OpenMP thread per rank (test is MPI-only)
+export OMP_NUM_THREADS=1
+
+cd $PBS_O_WORKDIR
+
+# 48 ranks: 2 nodes x 24 mpiprocs, npro_k=8 npro_i=6
+# Matches the session-2 crashlog topology exactly.
+# CPU/GPU binding mirrors run_hip_shmwrite.pbs:
+#   6 ranks per GPU domain, 4 domains per node.
+#
+# Phase argument (4th arg):
+#   omit or 0 = run both Phase 1 (!$omp target) and Phase 2 (HIP fence)
+#   1          = Phase 1 only
+#   2          = Phase 2 only (use if Phase 1 crashes with signal 6)
+
+PHASE=${1:-0}
+
+mpirun -np 48 --ppn 24 \
+ --cpu-bind list:0:1:2:3:4:5:24:25:26:27:28:29:48:49:50:51:52:53:72:73:74:75:76:77 \
+ --gpu-bind list:0:0:0:0:0:0:1:1:1:1:1:1:2:2:2:2:2:2:3:3:3:3:3:3 \
+ ./vmpi_xcd_write.x 8 6 512 ${PHASE} > output_xcd.log 2>&1
+
+echo "Job completed (phase=${PHASE})"
+echo ""
+echo "Checking key results:"
+grep -h 'VA_UNIFORM.*MATCH' fort.500 fort.503 fort.506 fort.524 2>/dev/null | head -8
+grep -h 'P1_\|P2_\|RESULT' fort.500 2>/dev/null
