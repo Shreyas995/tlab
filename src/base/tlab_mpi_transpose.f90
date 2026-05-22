@@ -11,14 +11,7 @@ module TLabMPI_Transpose
     use TLab_Memory, only: TLab_Allocate_Real
     use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc, c_null_ptr, c_associated, c_size_t, c_sizeof
     ! c_ptr / c_intptr_t are accessible via mpi_f08 (which re-exports iso_c_binding); re-declaring causes ambiguity.
-    ! For debug address dumps below we reuse MPI_ADDRESS_KIND (8-byte) instead of c_intptr_t.
     use TLabMPI_VARS
-#ifdef USE_APU
-    ! FABRIC_DIRECT debug taps (per-rank checksum logs in fort.500+rank or debug_thread_testing<rank>.log).
-    ! Diff the per-rank files between an asynchronous run (working reference) and a fabricdirect run on
-    ! Hunter; the first checkpoint where sums differ identifies where the data is going wrong.
-    use Tlab_Debug, only: TLab_Debug_Print_1D
-#endif
     implicit none
     private
 
@@ -121,15 +114,6 @@ module TLabMPI_Transpose
     type(MPI_Status) status(128)
     type(MPI_Request) request(128)
 
-    ! Debug stop counter (for apudirect vs fabricdirect per-slot diff comparison).
-    ! Each of the 4 real-typed transpose routines increments dbg_trp_call_count after its
-    ! per-slot debug print. When the count reaches DBG_TRP_STOP_AT, MPI_Abort(0) is called
-    ! so the run halts cleanly with minimal output. Set DBG_TRP_STOP_AT to a small value
-    ! (e.g. 4 or 8) to capture the first divergence, or huge(0_wi) to disable the early
-    ! stop entirely so the simulation can run to completion.
-    integer(wi) :: dbg_trp_call_count = 0_wi
-    integer(wi), parameter :: DBG_TRP_STOP_AT = huge(0_wi)   ! disabled: run to completion
-
     interface TLabMPI_Trp_ExecK_Forward
         module procedure TLabMPI_Trp_ExecK_Forward_Real, TLabMPI_Trp_ExecK_Forward_Complex
     end interface TLabMPI_Trp_ExecK_Forward
@@ -180,7 +164,6 @@ contains
         type(MPI_Comm)  :: apu_async_shmem_comm
         integer, allocatable :: apu_async_shmem_to_dir(:)  ! shmem-rank → dir-rank (Allgather result)
         integer :: apu_async_shmem_size
-        integer(MPI_ADDRESS_KIND) :: dbg_addr   ! FABRIC_DIRECT debug: holds a transferred c_ptr address
         integer(MPI_ADDRESS_KIND) :: win_segsize ! byte size of one peer's recv segment
         integer :: hip_reg_err
 #endif
@@ -482,21 +465,6 @@ contains
             call c_f_pointer(apu_async_peer_k(ims_pro_k), apu_async_recv_k, [apu_async_size_k])
             deallocate (apu_async_shmem_to_dir)
             apu_async_node_comm_k = apu_async_shmem_comm   ! keep alive for runtime MPI_Barrier
-            if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-                dbg_addr = transfer(c_loc(apu_async_recv_k(1)), dbg_addr)
-                write(500 + ims_pro, *) '[INIT_FBD_K] PE', ims_pro, ' shm_baseptr=', dbg_addr, &
-                    ' size=', apu_async_size_k, ' npro_k=', ims_npro_k, ' pro_k=', ims_pro_k
-                do ip = 0, ims_npro_k - 1
-                    if (apu_async_is_local_k(ip)) then
-                        dbg_addr = transfer(apu_async_peer_k(ip), dbg_addr)
-                        write(500 + ims_pro, *) '[INIT_FBD_K] PE', ims_pro, ' INTRA-node peer k-rank', ip, &
-                            ' shared_query_cptr=', dbg_addr
-                    else
-                        write(500 + ims_pro, *) '[INIT_FBD_K] PE', ims_pro, ' INTER-node peer k-rank', ip
-                    end if
-                end do
-                flush(500 + ims_pro)
-            end if
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated K APU_ASYNC/FABRIC_DIRECT recv buffer.')
         end if
         if ((trp_mode_i == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) .and. ims_npro_i > 1) then
@@ -539,21 +507,6 @@ contains
                             int(apu_async_size_i, c_size_t) * int(c_sizeof(1.0_dp), c_size_t), 0)
                     end if
                 end do
-            end if
-            if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
-                dbg_addr = transfer(c_loc(apu_async_recv_i(1)), dbg_addr)
-                write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' own_win_baseptr=', dbg_addr, &
-                    ' size=', apu_async_size_i, ' npro_i=', ims_npro_i, ' pro_i=', ims_pro_i
-                do ip = 0, ims_npro_i - 1
-                    if (apu_async_is_local_i(ip)) then
-                        dbg_addr = transfer(apu_async_peer_i(ip), dbg_addr)
-                        write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' INTRA-node peer i-rank', ip, &
-                            ' shared_query_cptr=', dbg_addr
-                    else
-                        write(500 + ims_pro, *) '[INIT_FBD_I] PE', ims_pro, ' INTER-node peer i-rank', ip
-                    end if
-                end do
-                flush(500 + ims_pro)
             end if
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: I APU_ASYNC/FABRIC_DIRECT recv buffer setup complete.')
         end if
@@ -733,7 +686,6 @@ contains
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_ns, mas
 #ifdef USE_APU
         real(dp), pointer, contiguous :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
-        real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
 #endif
 #ifdef PROFILE_ON
         real(wp) :: time_loc_1, time_loc_2
@@ -746,11 +698,6 @@ contains
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k   ! total Z-lines across all K ranks
         mas      = nmax_p * nlines_p       ! elements per peer chunk
-
-        ! Common-path debug tap: input checksum (runs for ALL modes, diff async vs fabricdirect).
-#ifdef USE_APU
-        call TLab_Debug_Print_1D('[KFR_pre] sum(a)=', a)
-#endif
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between peer recv buffers.            !
@@ -866,7 +813,6 @@ contains
                 call MPI_IRECV(apu_async_recv_k(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
             end do
-            write(500 + ims_pro, *) '[KFR_FBD_S1] PE', ims_pro, ' IRECVs posted, l=', l ; flush(500 + ims_pro)
             ! Pack ALL K-peers (strided a → flat c_wrk_dp) and post ISENDs.
             do m = 0, ims_npro_k - 1
                 flat_off = m * nmax_p * nlines_p
@@ -880,24 +826,13 @@ contains
                 call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
                                trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
             end do
-            write(500 + ims_pro, *) '[KFR_FBD_S3] PE', ims_pro, ' ISENDs posted, l=', l ; flush(500 + ims_pro)
-            write(500 + ims_pro, *) '[KFR_FBD_S4] PE', ims_pro, ' (no shared-window writes)' ; flush(500 + ims_pro)
-            write(500 + ims_pro, *) '[KFR_FBD_S5a] PE', ims_pro, ' (no Win_fence)' ; flush(500 + ims_pro)
             call MPI_WAITALL(l, request, status, ims_err)
-            write(500 + ims_pro, *) '[KFR_FBD_S5b] PE', ims_pro, ' past WAITALL' ; flush(500 + ims_pro)
-            ! debug checksum: all peers now in apu_async_recv_k via MPI.
-            dbg_intra = sum(apu_async_recv_k(1 : size))
-            dbg_inter = 0.0_dp
-            write(500 + ims_pro, *) '[KFR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
-                ' total=', dbg_intra
-            flush(500 + ims_pro)
             ! Flat copy recv buffer → b.
             !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
             do i = 1, size
                 b(i) = apu_async_recv_k(i)
             end do
             !$omp end target teams distribute parallel do
-            write(500 + ims_pro, *) '[KFR_FBD_S6] PE', ims_pro, ' unpack done' ; flush(500 + ims_pro)
             nullify (c_wrk_dp)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
@@ -1030,32 +965,6 @@ contains
         ims_time_trans = ims_time_trans + (time_loc_2 - time_loc_1)
 #endif
 
-        ! Common-path debug tap: output checksum (runs for ALL modes; first divergence vs the
-        ! asynchronous-reference log identifies which K-forward call goes wrong in fabricdirect).
-#ifdef USE_APU
-        call TLab_Debug_Print_1D('[KFR_post] sum(b)=', b)
-        ! Per-slot sum/min/max — fires for ALL modes (apudirect, apuasync, fabricdirect, async).
-        ! Diff this between an apudirect run and a fabricdirect run with the same input/topology
-        ! to find which sender's chunk lands wrong on which receiver. K-Forward b is flat:
-        ! slot m = b(m*chunk + 1 : (m+1)*chunk), chunk = nmax_p*nlines_p.
-        do m = 0, ims_npro_k - 1
-            write(500 + ims_pro, '(A,I0,A,I0,A,3(ES23.15,A))') &
-                ' [KFR_SLOT] PE ', ims_pro, ' m=', m, &
-                ' sum=', sum(b(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p)), &
-                ' min=', minval(b(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p)), &
-                ' max=', maxval(b(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p))
-        end do
-        flush(500 + ims_pro)
-        dbg_trp_call_count = dbg_trp_call_count + 1
-        if (dbg_trp_call_count >= DBG_TRP_STOP_AT) then
-            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling MPI_Abort(0)'
-            flush(500 + ims_pro)
-            ! TLab_Stop(0) only calls MPI_FINALIZE then returns — the program continues running with
-            ! finalized MPI, producing garbage and many extra fort.500+rank lines. MPI_Abort with
-            ! error_code=0 actually terminates all ranks synchronously, leaving a small, diffable log.
-            call MPI_Abort(MPI_COMM_WORLD, 0, ims_err)
-        end if
-#endif
         return
     end subroutine TLabMPI_Trp_ExecK_Forward_Real
 
@@ -1203,9 +1112,6 @@ contains
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_nr, mas
 #ifdef USE_APU
         real(dp), pointer, contiguous :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
-        real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
-        real(wp) :: slot_max               ! per-slot debug max (for apudirect-vs-fabricdirect diff)
-        integer(MPI_ADDRESS_KIND) :: dbg_addr
 #endif
 #ifdef PROFILE_ON
         real(wp) :: time_loc_1, time_loc_2
@@ -1218,11 +1124,6 @@ contains
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k
         mas      = nmax_p * nlines_p
-
-        ! Common-path debug tap: input checksum for K-backward.
-#ifdef USE_APU
-        call TLab_Debug_Print_1D('[KBR_pre] sum(b)=', b)
-#endif
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes; inverse of K-Forward.                  !
@@ -1322,24 +1223,13 @@ contains
                 call MPI_IRECV(apu_async_recv_k(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
             end do
-            write(500 + ims_pro, *) '[KBR_FBD_S1] PE', ims_pro, ' IRECVs posted, l=', l ; flush(500 + ims_pro)
             ! Post ISENDs for ALL K-peers from b (already flat).
             do m = 0, ims_npro_k - 1
                 l = l + 1
                 call MPI_ISEND(b(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
             end do
-            write(500 + ims_pro, *) '[KBR_FBD_S3] PE', ims_pro, ' ISENDs posted, l=', l ; flush(500 + ims_pro)
-            write(500 + ims_pro, *) '[KBR_FBD_S4] PE', ims_pro, ' (no shared-window writes)' ; flush(500 + ims_pro)
-            write(500 + ims_pro, *) '[KBR_FBD_S5a] PE', ims_pro, ' (no Win_fence)' ; flush(500 + ims_pro)
             call MPI_WAITALL(l, request, status, ims_err)
-            write(500 + ims_pro, *) '[KBR_FBD_S5b] PE', ims_pro, ' past WAITALL' ; flush(500 + ims_pro)
-            ! debug checksum: all peers now in apu_async_recv_k via MPI.
-            dbg_intra = sum(apu_async_recv_k(1 : size))
-            dbg_inter = 0.0_dp
-            write(500 + ims_pro, *) '[KBR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
-                ' total=', dbg_intra
-            flush(500 + ims_pro)
             ! Scatter recv buffer → strided a.
             do m = 0, ims_npro_k - 1
                 flat_off = m * nmax_p * nlines_p
@@ -1350,7 +1240,6 @@ contains
                     end do
                 end do
             end do
-            write(500 + ims_pro, *) '[KBR_FBD_S6] PE', ims_pro, ' scatter done' ; flush(500 + ims_pro)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
 #endif
@@ -1491,37 +1380,6 @@ contains
         ims_time_trans = ims_time_trans + (time_loc_2 - time_loc_1)
 #endif
 
-        ! Common-path debug tap: K-backward output checksum.
-#ifdef USE_APU
-        call TLab_Debug_Print_1D('[KBR_post] sum(a)=', a)
-        ! Per-slot sum/min/max — fires for ALL modes. K-Backward a is strided in Z-space:
-        ! slot m's data is a(m*nlines_p + i*npage + j + 1) for i in [0,nmax_p), j in [0,nlines_p).
-        do m = 0, ims_npro_k - 1
-            dbg_intra = 0.0_wp  ! reuse dbg_intra as a scratch slot-sum accumulator
-            dbg_inter = huge(1.0_wp)   ! min
-            slot_max  = -huge(1.0_wp)
-            do i = 0, nmax_p - 1
-                do j = 0, nlines_p - 1
-                    dbg_intra = dbg_intra + a(m*nlines_p + i*npage + j + 1)
-                    if (a(m*nlines_p + i*npage + j + 1) < dbg_inter) dbg_inter = a(m*nlines_p + i*npage + j + 1)
-                    if (a(m*nlines_p + i*npage + j + 1) > slot_max)  slot_max  = a(m*nlines_p + i*npage + j + 1)
-                end do
-            end do
-            write(500 + ims_pro, '(A,I0,A,I0,A,3(ES23.15,A))') &
-                ' [KBR_SLOT] PE ', ims_pro, ' m=', m, &
-                ' sum=', dbg_intra, ' min=', dbg_inter, ' max=', slot_max
-        end do
-        flush(500 + ims_pro)
-        dbg_trp_call_count = dbg_trp_call_count + 1
-        if (dbg_trp_call_count >= DBG_TRP_STOP_AT) then
-            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling MPI_Abort(0)'
-            flush(500 + ims_pro)
-            ! TLab_Stop(0) only calls MPI_FINALIZE then returns — the program continues running with
-            ! finalized MPI, producing garbage and many extra fort.500+rank lines. MPI_Abort with
-            ! error_code=0 actually terminates all ranks synchronously, leaving a small, diffable log.
-            call MPI_Abort(MPI_COMM_WORLD, 0, ims_err)
-        end if
-#endif
         return
     end subroutine TLabMPI_Trp_ExecK_Backward_Real
 
@@ -1659,18 +1517,12 @@ contains
 #ifdef USE_APU
         real(dp), pointer, contiguous :: apu_pfptr_i(:) => null()   ! scratch pointer for APU_ASYNC/FABRIC_DIRECT per-peer writes
         real(dp), pointer, contiguous :: c_wrk_dp_recv(:) => null() ! clean recv buffer (NOT shared-window-aliased) for MPI IRECVs
-        real(wp) :: slot_sum, slot_min, slot_max  ! per-slot debug (for apudirect-vs-fabricdirect diff)
 #endif
 
         nmax_p    = trp_plan%nmax
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i   ! total X-elements per line (stride in b)
         mas       = nmax_p * nlines_p
-
-        ! Common-path debug tap: input checksum for I-forward.
-#ifdef USE_APU
-        call TLab_Debug_Print_1D('[IFR_pre] sum(a)=', a)
-#endif
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
@@ -1767,10 +1619,11 @@ contains
             ! IRECVs land in c_wrk_dp_recv (clean allocatable in wrk_mpi_dp second half).
             ! Local I-comm rank m is used directly — no global-rank formula needed since
             ! apu_async_mpi_comm_i is the I-comm dup (rank m in it == dir m in the I-comm).
-            ! MPI_Win_fence is removed: it was collective on the tainted shmem subcomm and
-            ! hung 48 of 96 PEs. MPI_Barrier on apu_async_mpi_comm_i (untainted) replaces
-            ! it for ordering. Cache coherency for intra writes is handled by the !$omp target
-            ! exit synchronization on APU unified memory.
+            ! Barriers use apu_async_node_comm_i (3-member node-local), NOT apu_async_mpi_comm_i:
+            ! calling MPI_Barrier on a comm while IRECV/ISEND are outstanding on that same comm
+            ! corrupts Cray MPICH's internal collective state and causes WAITALL to hang for
+            ! exactly half the ranks. apu_async_node_comm_i is a separate comm (no shared state
+            ! with apu_async_mpi_comm_i), so barriers on it never touch the point-to-point comm.
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(size + 1)), c_wrk_dp_recv, shape=[size])
             l = 0
@@ -1783,12 +1636,10 @@ contains
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
                 end if
             end do
-            write(500 + ims_pro, *) '[IFR_FBD_S1] PE', ims_pro, ' IRECVs posted, l=', l ; flush(500 + ims_pro)
-            ! Step 2: barrier on the untainted I-comm dup — ensures all IRECVs are posted
-            !   before any ISEND goes out (avoids unexpected-message buffering overhead).
-            call MPI_Barrier(apu_async_mpi_comm_i, ims_err)
-            write(500 + ims_pro, *) '[IFR_FBD_S2] PE', ims_pro, ' past Barrier (IRECVs ready)' ; flush(500 + ims_pro)
             ! Step 3: inter-node ISENDs. Overlaps with GPU intra writes (Step 4).
+            !   No S2 barrier needed: MPI handles unexpected messages correctly, and using
+            !   apu_async_mpi_comm_i for a barrier while IRECV/ISEND are outstanding on it
+            !   leaves Cray MPICH in a bad collective state that causes WAITALL to hang.
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
                     l = l + 1
@@ -1796,12 +1647,8 @@ contains
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
                 end if
             end do
-            write(500 + ims_pro, *) '[IFR_FBD_S3] PE', ims_pro, ' ISENDs posted, l=', l ; flush(500 + ims_pro)
             ! Step 4: per-peer hip_write_with_fence — push OUR chunk (a[m*chunk]) into each
             !   same-node peer's recv buffer at our slot (ims_pro_i * chunk).
-            !   hip_write_with_fence uses a HIP kernel + __threadfence_system() so writes are
-            !   visible across XCD boundaries (fixes the SIGABRT/signal-6 crash caused by
-            !   !$omp target writing to per-XCD VAs via the invalid apu_async_all_i view).
             flat_off = ims_pro_i * nmax_p * nlines_p
             do m = 0, ims_npro_i - 1
                 if (apu_async_is_local_i(m)) then
@@ -1812,13 +1659,13 @@ contains
                     nullify(apu_pfptr_i)
                 end if
             end do
-            write(500 + ims_pro, *) '[IFR_FBD_S4] PE', ims_pro, ' GPU intra writes done' ; flush(500 + ims_pro)
-            ! Step 4b: barrier — all peers' GPU writes must complete before anyone unpacks.
-            call MPI_Barrier(apu_async_mpi_comm_i, ims_err)
-            write(500 + ims_pro, *) '[IFR_FBD_S4b] PE', ims_pro, ' past post-write Barrier' ; flush(500 + ims_pro)
+            ! Step 4b: barrier on node-local comm — syncs intra-node GPU writes.
+            !   Use apu_async_node_comm_i (3-member), NOT apu_async_mpi_comm_i (6-member):
+            !   calling a collective on apu_async_mpi_comm_i while IRECV/ISEND are outstanding
+            !   on that same comm corrupts Cray MPICH's internal state and hangs WAITALL.
+            call MPI_Barrier(apu_async_node_comm_i, ims_err)
             ! Step 5: WAITALL for any inter-node peers (l=0 when all I-peers are same-node).
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            write(500 + ims_pro, *) '[IFR_FBD_S5] PE', ims_pro, ' past WAITALL' ; flush(500 + ims_pro)
             ! Step 6: unpack recv buffer → strided b.
             do m = 0, ims_npro_i - 1
                 flat_off = m * nmax_p * nlines_p
@@ -1839,7 +1686,6 @@ contains
                     end do
                 end if
             end do
-            write(500 + ims_pro, *) '[IFR_FBD_S6] PE', ims_pro, ' unpack done' ; flush(500 + ims_pro)
             nullify (c_wrk_dp_recv)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
@@ -1975,37 +1821,6 @@ contains
         end if   ! end APU/CPU dispatch
 #endif
 
-        ! Common-path debug tap: I-forward output checksum.
-#ifdef USE_APU
-        call TLab_Debug_Print_1D('[IFR_post] sum(b)=', b)
-        ! Per-slot sum/min/max — fires for ALL modes. I-Forward b is strided in X-space:
-        ! slot m's data is b(m*nmax_p + i*nmax_full + j + 1) for i in [0,nlines_p), j in [0,nmax_p).
-        do m = 0, ims_npro_i - 1
-            slot_sum = 0.0_wp
-            slot_min = huge(1.0_wp)
-            slot_max = -huge(1.0_wp)
-            do i = 0, nlines_p - 1
-                do j = 0, nmax_p - 1
-                    slot_sum = slot_sum + b(m*nmax_p + i*nmax_full + j + 1)
-                    if (b(m*nmax_p + i*nmax_full + j + 1) < slot_min) slot_min = b(m*nmax_p + i*nmax_full + j + 1)
-                    if (b(m*nmax_p + i*nmax_full + j + 1) > slot_max) slot_max = b(m*nmax_p + i*nmax_full + j + 1)
-                end do
-            end do
-            write(500 + ims_pro, '(A,I0,A,I0,A,3(ES23.15,A))') &
-                ' [IFR_SLOT] PE ', ims_pro, ' m=', m, &
-                ' sum=', slot_sum, ' min=', slot_min, ' max=', slot_max
-        end do
-        flush(500 + ims_pro)
-        dbg_trp_call_count = dbg_trp_call_count + 1
-        if (dbg_trp_call_count >= DBG_TRP_STOP_AT) then
-            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling MPI_Abort(0)'
-            flush(500 + ims_pro)
-            ! TLab_Stop(0) only calls MPI_FINALIZE then returns — the program continues running with
-            ! finalized MPI, producing garbage and many extra fort.500+rank lines. MPI_Abort with
-            ! error_code=0 actually terminates all ranks synchronously, leaving a small, diffable log.
-            call MPI_Abort(MPI_COMM_WORLD, 0, ims_err)
-        end if
-#endif
         return
     end subroutine TLabMPI_Trp_ExecI_Forward_Real
 
@@ -2143,8 +1958,6 @@ contains
 #ifdef USE_APU
         real(dp), pointer, contiguous :: apu_pfptr_i(:) => null()   ! scratch pointer for APU_ASYNC/FABRIC_DIRECT per-peer writes
         real(dp), pointer, contiguous :: c_wrk_dp_recv(:) => null() ! clean recv buffer (NOT shared-window-aliased) for MPI IRECVs
-        real(dp) :: dbg_intra, dbg_inter   ! FABRIC_DIRECT debug: recv-buffer split checksums
-        integer(MPI_ADDRESS_KIND) :: dbg_addr
 #endif
 
         ! #######################################################################
@@ -2152,11 +1965,6 @@ contains
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i
         mas       = nmax_p * nlines_p
-
-        ! Common-path debug tap: input checksum for I-backward.
-#ifdef USE_APU
-        call TLab_Debug_Print_1D('[IBR_pre] sum(b)=', b)
-#endif
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
@@ -2268,11 +2076,9 @@ contains
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
                 end if
             end do
-            write(500 + ims_pro, *) '[IBR_FBD_S1] PE', ims_pro, ' IRECVs posted, l=', l ; flush(500 + ims_pro)
-            ! Step 2: barrier — ensure all IRECVs posted before ISENDs go out.
-            call MPI_Barrier(apu_async_mpi_comm_i, ims_err)
-            write(500 + ims_pro, *) '[IBR_FBD_S2] PE', ims_pro, ' past Barrier (IRECVs ready)' ; flush(500 + ims_pro)
             ! Step 3: inter-node — CPU pack strided b[m] → flat c_wrk_dp + ISEND.
+            !   No S2 barrier: same reasoning as IFR — barrier on apu_async_mpi_comm_i while
+            !   IRECV/ISEND are outstanding on it hangs WAITALL on Cray MPICH.
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
                     flat_off = m * nmax_p * nlines_p
@@ -2287,9 +2093,7 @@ contains
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
                 end if
             end do
-            write(500 + ims_pro, *) '[IBR_FBD_S3] PE', ims_pro, ' ISENDs posted, l=', l ; flush(500 + ims_pro)
-            ! Step 4: per-peer pack + hip_write_with_fence — pack strided b[m] into c_wrk_dp
-            !   then write to peer m's recv buffer at our slot with system-scope fence.
+            ! Step 4: per-peer pack + hip_write_with_fence.
             flat_off = ims_pro_i * nmax_p * nlines_p
             do m = 0, ims_npro_i - 1
                 if (apu_async_is_local_i(m)) then
@@ -2306,25 +2110,10 @@ contains
                     nullify(apu_pfptr_i)
                 end if
             end do
-            write(500 + ims_pro, *) '[IBR_FBD_S4] PE', ims_pro, ' GPU intra writes done' ; flush(500 + ims_pro)
-            ! Step 4b: barrier — all peers' GPU writes must complete before anyone unpacks.
-            call MPI_Barrier(apu_async_mpi_comm_i, ims_err)
-            write(500 + ims_pro, *) '[IBR_FBD_S4b] PE', ims_pro, ' past post-write Barrier' ; flush(500 + ims_pro)
+            ! Step 4b: barrier on node-local comm — syncs intra-node GPU writes only.
+            call MPI_Barrier(apu_async_node_comm_i, ims_err)
             ! Step 5: WAITALL for any inter-node peers (l=0 when all I-peers are same-node).
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            write(500 + ims_pro, *) '[IBR_FBD_S5] PE', ims_pro, ' past WAITALL' ; flush(500 + ims_pro)
-            ! debug: split checksum. With all-GPU-write design, intra=total and inter=0.
-            dbg_intra = 0.0_dp; dbg_inter = 0.0_dp
-            do m = 0, ims_npro_i - 1
-                if (apu_async_is_local_i(m)) then
-                    dbg_intra = dbg_intra + sum(apu_async_recv_i(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
-                else
-                    dbg_inter = dbg_inter + sum(c_wrk_dp_recv(m*nmax_p*nlines_p + 1 : (m + 1)*nmax_p*nlines_p))
-                end if
-            end do
-            write(500 + ims_pro, *) '[IBR_FBD] PE', ims_pro, ' recv intra=', dbg_intra, ' inter=', dbg_inter, &
-                ' total=', dbg_intra + dbg_inter
-            flush(500 + ims_pro)
             ! Step 6: flat copy → a. Intra slots from shared window (GPU); inter slots from
             !   c_wrk_dp_recv (CPU, matches "inter on CPU" rule to avoid stale GPU cache reads).
             do m = 0, ims_npro_i - 1
@@ -2341,7 +2130,6 @@ contains
                     end do
                 end if
             end do
-            write(500 + ims_pro, *) '[IBR_FBD_S6] PE', ims_pro, ' unpack done' ; flush(500 + ims_pro)
             nullify (c_wrk_dp, c_wrk_dp_recv)
         else   ! CPU paths
 #endif
@@ -2478,29 +2266,6 @@ contains
             end if
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
-#endif
-        ! Common-path debug tap: I-backward output checksum.
-#ifdef USE_APU
-        call TLab_Debug_Print_1D('[IBR_post] sum(a)=', a)
-        ! Per-slot sum/min/max — fires for ALL modes. I-Backward a is flat in I-space:
-        ! slot m = a(m*chunk + 1 : (m+1)*chunk), chunk = nmax_p*nlines_p.
-        do m = 0, ims_npro_i - 1
-            write(500 + ims_pro, '(A,I0,A,I0,A,3(ES23.15,A))') &
-                ' [IBR_SLOT] PE ', ims_pro, ' m=', m, &
-                ' sum=', sum(a(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p)), &
-                ' min=', minval(a(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p)), &
-                ' max=', maxval(a(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p))
-        end do
-        flush(500 + ims_pro)
-        dbg_trp_call_count = dbg_trp_call_count + 1
-        if (dbg_trp_call_count >= DBG_TRP_STOP_AT) then
-            write(500 + ims_pro, *) '[DBG_STOP] PE', ims_pro, ' transpose count =', dbg_trp_call_count, ' — calling MPI_Abort(0)'
-            flush(500 + ims_pro)
-            ! TLab_Stop(0) only calls MPI_FINALIZE then returns — the program continues running with
-            ! finalized MPI, producing garbage and many extra fort.500+rank lines. MPI_Abort with
-            ! error_code=0 actually terminates all ranks synchronously, leaving a small, diffable log.
-            call MPI_Abort(MPI_COMM_WORLD, 0, ims_err)
-        end if
 #endif
         return
     end subroutine TLabMPI_Trp_ExecI_Backward_Real
