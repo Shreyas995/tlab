@@ -472,28 +472,62 @@ contains
             allocate (apu_async_peer_i(0:ims_npro_i - 1))
             apu_async_peer_i = c_null_ptr
             apu_async_is_local_i = .false.
-            ! Node-local sub-comm for barriers ONLY — no window is allocated on it.
-            ! MPI_Comm_split_type alone does NOT taint ims_comm_x; only a subsequent
-            ! MPI_Win_allocate_shared on a sub-comm of ims_comm_x would taint it.
-            ! Tainting ims_comm_x breaks FFTW plan creation (which uses ims_comm_x directly).
+            ! Step (1): split_type sub-comm identifies intra-node I-peers AND serves as barrier comm.
+            ! NO window is allocated on this sub-comm — the window goes on full ims_comm_x below.
+            ! MPI_Comm_split_type alone does NOT taint ims_comm_x (only Win_allocate_shared on a
+            ! sub-comm does). MPI_Allgather on the sub-comm is also safe (not a window op).
             call MPI_Comm_split_type(ims_comm_x, MPI_COMM_TYPE_SHARED, ims_pro_i, MPI_INFO_NULL, &
                                      apu_async_node_comm_i, ims_err)
-            ! Allocate the I-window on the FULL ims_comm_x, NOT a sub-comm.
-            ! MPI_Win_shared_query returns a valid c_ptr for same-node peers and c_null_ptr
-            ! for cross-node peers — we use this NULL check to identify local vs remote.
+            call MPI_Comm_size(apu_async_node_comm_i, apu_async_shmem_size, ims_err)
+            allocate (apu_async_shmem_to_dir(0:apu_async_shmem_size - 1))
+            call MPI_Allgather(ims_pro_i, 1, MPI_INTEGER, apu_async_shmem_to_dir, 1, MPI_INTEGER, &
+                               apu_async_node_comm_i, ims_err)
+            ! Mark intra-node peers from sub-comm membership (NOT from VA NULL-check).
+            ! MPI_Win_shared_query for cross-node peers on a full-comm window returns garbage
+            ! non-NULL values, NOT c_null_ptr, so c_associated() is unreliable for locality.
+            do ip = 0, apu_async_shmem_size - 1
+                apu_async_is_local_i(apu_async_shmem_to_dir(ip)) = .true.
+            end do
+            deallocate (apu_async_shmem_to_dir)
+            ! Step (2): allocate I-window on full ims_comm_x (NOT the sub-comm).
+            ! Avoids sub-comm taint that would break FFTW plan creation on ims_comm_x.
             call MPI_Win_allocate_shared(int(apu_async_size_i, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
                                          int(c_sizeof(1.0_dp)), MPI_INFO_NULL, ims_comm_x, win_baseptr, apu_async_win_i, ims_err)
             if (ims_err /= MPI_SUCCESS) then
                 call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU_ASYNC/FABRIC_DIRECT I recv buffer.')
                 call TLab_Stop(DNS_ERROR_OPTION)
             end if
+            ! Step (3): query VAs only for LOCAL peers (their queries give valid same-node VAs).
+            ! Remote peers keep c_null_ptr; MPI handles them.
             do ip = 0, ims_npro_i - 1
-                call MPI_Win_shared_query(apu_async_win_i, ip, win_query_size, win_disp_unit, &
-                                          apu_async_peer_i(ip), ims_err)
-                apu_async_is_local_i(ip) = c_associated(apu_async_peer_i(ip))
+                if (apu_async_is_local_i(ip)) then
+                    call MPI_Win_shared_query(apu_async_win_i, ip, win_query_size, win_disp_unit, &
+                                              apu_async_peer_i(ip), ims_err)
+                end if
             end do
-            ! Bug A fix: bind apu_async_recv_i via own-rank query (always non-NULL).
+            ! Bug A fix: bind recv_i via own-rank query result (not win_baseptr).
             call c_f_pointer(apu_async_peer_i(ims_pro_i), apu_async_recv_i, [apu_async_size_i])
+            ! Debug: log locality + VAs + size sanity (cause 1 and 2 checks)
+            block
+                integer(MPI_ADDRESS_KIND) :: dbg_va
+                write(500+ims_pro,'(a,i4,a,i12,a,i4,a,i4)') &
+                    '[INIT_FBD_I] PE', ims_pro, ' size=', apu_async_size_i, &
+                    ' npro_i=', ims_npro_i, ' pro_i=', ims_pro_i
+                dbg_va = transfer(c_loc(apu_async_recv_i(1)), dbg_va)
+                write(500+ims_pro,'(a,i4,a,i22)') '[INIT_FBD_I] PE', ims_pro, ' own_VA=', dbg_va
+                do ip = 0, ims_npro_i - 1
+                    dbg_va = transfer(apu_async_peer_i(ip), dbg_va)
+                    write(500+ims_pro,'(a,i4,a,i4,a,l1,a,i22)') &
+                        '[INIT_FBD_I] PE', ims_pro, ' peer', ip, &
+                        ' local=', apu_async_is_local_i(ip), ' VA=', dbg_va
+                end do
+                ! Cause 3: sanity-check window size vs flat_off upper bound
+                write(500+ims_pro,'(a,i4,a,i12,a,i12)') &
+                    '[INIT_FBD_I] PE', ims_pro, ' max_flat_off=', &
+                    (ims_npro_i-1)*apu_async_size_i/ims_npro_i, &
+                    ' size=', apu_async_size_i
+                flush(500+ims_pro)
+            end block
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: I APU_ASYNC/FABRIC_DIRECT recv buffer setup complete.')
         end if
 #endif
@@ -1635,9 +1669,21 @@ contains
             end do
             ! Step 4: per-peer hip_write_with_fence — push OUR chunk (a[m*chunk]) into each
             !   same-node peer's recv buffer at our slot (ims_pro_i * chunk).
+            ! Debug (cause 1+3): log target VA and bounds before each GPU write.
+            write(500+ims_pro,'(a,i4,a,g20.6)') '[IFR_pre] PE', ims_pro, ' sum(a)=', sum(a)
+            flush(500+ims_pro)
             flat_off = ims_pro_i * nmax_p * nlines_p
             do m = 0, ims_npro_i - 1
                 if (apu_async_is_local_i(m)) then
+                    block
+                        integer(MPI_ADDRESS_KIND) :: dbg_va
+                        dbg_va = transfer(apu_async_peer_i(m), dbg_va)
+                        write(500+ims_pro,'(a,i4,a,i4,a,i22,a,i10,a,i10,a,i12)') &
+                            '[IFR_S4] PE', ims_pro, ' peer=', m, ' VA=', dbg_va, &
+                            ' flat_off=', flat_off, ' chunk=', nmax_p*nlines_p, &
+                            ' size=', apu_async_size_i
+                        flush(500+ims_pro)
+                    end block
                     call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
                     call hip_write_with_fence(a(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p), &
                                               apu_pfptr_i(flat_off + 1 : flat_off + nmax_p*nlines_p), &
@@ -1672,6 +1718,9 @@ contains
                     end do
                 end if
             end do
+            ! Debug (cause 2+4): post-IFR checksum for comparison with apudirect
+            write(500+ims_pro,'(a,i4,a,g20.6)') '[IFR_post] PE', ims_pro, ' sum(b)=', sum(b)
+            flush(500+ims_pro)
             nullify (c_wrk_dp_recv)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
@@ -2080,9 +2129,21 @@ contains
                 end if
             end do
             ! Step 4: per-peer pack + hip_write_with_fence.
+            ! Debug (cause 1+3): log target VA and bounds before each GPU write.
+            write(500+ims_pro,'(a,i4,a,g20.6)') '[IBR_pre] PE', ims_pro, ' sum(b)=', sum(b)
+            flush(500+ims_pro)
             flat_off = ims_pro_i * nmax_p * nlines_p
             do m = 0, ims_npro_i - 1
                 if (apu_async_is_local_i(m)) then
+                    block
+                        integer(MPI_ADDRESS_KIND) :: dbg_va
+                        dbg_va = transfer(apu_async_peer_i(m), dbg_va)
+                        write(500+ims_pro,'(a,i4,a,i4,a,i22,a,i10,a,i10,a,i12)') &
+                            '[IBR_S4] PE', ims_pro, ' peer=', m, ' VA=', dbg_va, &
+                            ' flat_off=', flat_off, ' chunk=', nmax_p*nlines_p, &
+                            ' size=', apu_async_size_i
+                        flush(500+ims_pro)
+                    end block
                     disp_ns = m * nmax_p
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
@@ -2116,6 +2177,9 @@ contains
                     end do
                 end if
             end do
+            ! Debug (cause 2+4): post-IBR checksum for comparison with apudirect
+            write(500+ims_pro,'(a,i4,a,g20.6)') '[IBR_post] PE', ims_pro, ' sum(a)=', sum(a)
+            flush(500+ims_pro)
             nullify (c_wrk_dp, c_wrk_dp_recv)
         else   ! CPU paths
 #endif
