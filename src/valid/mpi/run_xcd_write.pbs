@@ -19,12 +19,12 @@ cd $PBS_O_WORKDIR
 # CPU/GPU binding mirrors run_hip_shmwrite.pbs:
 #   6 ranks per GPU domain, 4 domains per node.
 #
-# Phase argument (4th arg):
-#   omit or 0 = run both Phase 1 (!$omp target) and Phase 2 (HIP fence)
-#   1          = Phase 1 only
-#   2          = Phase 2 only (use if Phase 1 crashes with signal 6)
+# Phase argument (via -v):
+#   qsub run_xcd_write.pbs           -> PHASE=0 (both phases)
+#   qsub -v PHASE=1 run_xcd_write.pbs -> Phase 1 only (!$omp target)
+#   qsub -v PHASE=2 run_xcd_write.pbs -> Phase 2 only (HIP fence, use if P1 crashes)
 
-PHASE=${1:-0}
+PHASE=${PHASE:-0}
 
 mpirun -np 48 --ppn 24 \
  --cpu-bind list:0:1:2:3:4:5:24:25:26:27:28:29:48:49:50:51:52:53:72:73:74:75:76:77 \
