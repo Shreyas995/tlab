@@ -1819,7 +1819,8 @@ contains
             do m = 0, ims_npro_i - 1
                 if (apu_async_is_local_i(m)) then
                     call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
-                    call hip_write_with_fence(a(m*nmax_p*nlines_p + 1), apu_pfptr_i(flat_off + 1), &
+                    call hip_write_with_fence(a(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p), &
+                                              apu_pfptr_i(flat_off + 1 : flat_off + nmax_p*nlines_p), &
                                               int(nmax_p * nlines_p))
                     nullify(apu_pfptr_i)
                 end if
@@ -2312,7 +2313,8 @@ contains
                         end do
                     end do
                     call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
-                    call hip_write_with_fence(c_wrk_dp(m*nmax_p*nlines_p + 1), apu_pfptr_i(flat_off + 1), &
+                    call hip_write_with_fence(c_wrk_dp(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p), &
+                                              apu_pfptr_i(flat_off + 1 : flat_off + nmax_p*nlines_p), &
                                               int(nmax_p * nlines_p))
                     nullify(apu_pfptr_i)
                 end if
