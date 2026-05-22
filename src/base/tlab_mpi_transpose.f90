@@ -165,7 +165,6 @@ contains
         integer, allocatable :: apu_async_shmem_to_dir(:)  ! shmem-rank → dir-rank (Allgather result)
         integer :: apu_async_shmem_size
         integer(MPI_ADDRESS_KIND) :: win_segsize ! byte size of one peer's recv segment
-        integer :: hip_reg_err
 #endif
         ! -----------------------------------------------------------------------
         integer(wi) ip, npage, dummy
@@ -473,41 +472,28 @@ contains
             allocate (apu_async_peer_i(0:ims_npro_i - 1))
             apu_async_peer_i = c_null_ptr
             apu_async_is_local_i = .false.
-            ! Identify node-local I-peers via MPI_Comm_split_type on ims_comm_x.
-            ! On Hunter the I-direction is the inter-node direction (node 0 holds pro_i=0..2,
-            ! node 1 holds pro_i=3..5). MPI_COMM_TYPE_SHARED splits at the node boundary,
-            ! giving an intra-node sub-comm of ~npro_i/num_nodes members.
-            ! MPI_Win_allocate_shared on this sub-comm gives valid shared-memory pointers for
-            ! intra-node I-peers only; cross-node peers are handled via MPI ISEND/IRECV on
-            ! the dup'd apu_async_mpi_comm_i (taken before any window allocation above).
+            ! Node-local sub-comm for barriers ONLY — no window is allocated on it.
+            ! MPI_Comm_split_type alone does NOT taint ims_comm_x; only a subsequent
+            ! MPI_Win_allocate_shared on a sub-comm of ims_comm_x would taint it.
+            ! Tainting ims_comm_x breaks FFTW plan creation (which uses ims_comm_x directly).
             call MPI_Comm_split_type(ims_comm_x, MPI_COMM_TYPE_SHARED, ims_pro_i, MPI_INFO_NULL, &
                                      apu_async_node_comm_i, ims_err)
-            call MPI_Comm_size(apu_async_node_comm_i, apu_async_shmem_size, ims_err)
-            allocate (apu_async_shmem_to_dir(0:apu_async_shmem_size - 1))
-            call MPI_Allgather(ims_pro_i, 1, MPI_INTEGER, apu_async_shmem_to_dir, 1, MPI_INTEGER, &
-                               apu_async_node_comm_i, ims_err)
+            ! Allocate the I-window on the FULL ims_comm_x, NOT a sub-comm.
+            ! MPI_Win_shared_query returns a valid c_ptr for same-node peers and c_null_ptr
+            ! for cross-node peers — we use this NULL check to identify local vs remote.
             call MPI_Win_allocate_shared(int(apu_async_size_i, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
-                                         int(c_sizeof(1.0_dp)), MPI_INFO_NULL, apu_async_node_comm_i, win_baseptr, apu_async_win_i, ims_err)
+                                         int(c_sizeof(1.0_dp)), MPI_INFO_NULL, ims_comm_x, win_baseptr, apu_async_win_i, ims_err)
             if (ims_err /= MPI_SUCCESS) then
                 call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU_ASYNC/FABRIC_DIRECT I recv buffer.')
                 call TLab_Stop(DNS_ERROR_OPTION)
             end if
-            do ip = 0, apu_async_shmem_size - 1
-                apu_async_is_local_i(apu_async_shmem_to_dir(ip)) = .true.
+            do ip = 0, ims_npro_i - 1
                 call MPI_Win_shared_query(apu_async_win_i, ip, win_query_size, win_disp_unit, &
-                                          apu_async_peer_i(apu_async_shmem_to_dir(ip)), ims_err)
+                                          apu_async_peer_i(ip), ims_err)
+                apu_async_is_local_i(ip) = c_associated(apu_async_peer_i(ip))
             end do
-            ! Bug A fix: bind apu_async_recv_i via own-rank query, not win_baseptr.
+            ! Bug A fix: bind apu_async_recv_i via own-rank query (always non-NULL).
             call c_f_pointer(apu_async_peer_i(ims_pro_i), apu_async_recv_i, [apu_async_size_i])
-            deallocate (apu_async_shmem_to_dir)
-            if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
-                do ip = 0, ims_npro_i - 1
-                    if (apu_async_is_local_i(ip)) then
-                        hip_reg_err = hipHostRegister(apu_async_peer_i(ip), &
-                            int(apu_async_size_i, c_size_t) * int(c_sizeof(1.0_dp), c_size_t), 0)
-                    end if
-                end do
-            end if
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: I APU_ASYNC/FABRIC_DIRECT recv buffer setup complete.')
         end if
 #endif
