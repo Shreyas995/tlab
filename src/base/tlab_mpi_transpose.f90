@@ -1694,11 +1694,11 @@ contains
                         flush(500+ims_pro)
                     end block
                     call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
-                    write(500+ims_pro,'(IFR_S5)')
+                    write(500+ims_pro,'(a)') '[IFR_S5]'
                     call hip_write_with_fence(a(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p), &
                                               apu_pfptr_i(flat_off + 1 : flat_off + nmax_p*nlines_p), &
                                               int(nmax_p * nlines_p))
-                    write(500+ims_pro,'(IFR_S6)')
+                    write(500+ims_pro,'(a)') '[IFR_S6]'
                     nullify(apu_pfptr_i)
                 end if
             end do
@@ -1706,12 +1706,12 @@ contains
             !   Use apu_async_node_comm_i (3-member), NOT apu_async_mpi_comm_i (6-member):
             !   calling a collective on apu_async_mpi_comm_i while IRECV/ISEND are outstanding
             !   on that same comm corrupts Cray MPICH's internal state and hangs WAITALL.
-            write(500+ims_pro,'(IFR_S7)')
+            write(500+ims_pro,'(a)') '[IFR_S7]'
             call MPI_Barrier(apu_async_node_comm_i, ims_err)
-            write(500+ims_pro,'(IFR_S8)')
+            write(500+ims_pro,'(a)') '[IFR_S8]'
             ! Step 5: WAITALL for any inter-node peers (l=0 when all I-peers are same-node).
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-            write(500+ims_pro,'(IFR_S9)')
+            write(500+ims_pro,'(a)') '[IFR_S9]'
             ! Step 6: unpack recv buffer → strided b.
             do m = 0, ims_npro_i - 1
                 flat_off = m * nmax_p * nlines_p
