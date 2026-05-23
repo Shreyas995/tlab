@@ -483,8 +483,8 @@ contains
             ! throwaway dup) and NOT ims_comm_x (dups have independent MPI state). FFTW which
             ! uses ims_comm_x directly is therefore unaffected.
             ! The split_type sub-comm gives GPU-registered (SVM coherent) shared memory —
-            ! required for hip_write_with_fence. MPI_COMM_WORLD-derived comms lack this
-            ! registration and can give memory that hip_write_with_fence cannot access.
+            ! required for !$omp target cross-process writes. MPI_COMM_WORLD-derived comms lack
+            ! this registration and !$omp target cannot access the memory.
             call MPI_Comm_split_type(ims_comm_x_dup2, MPI_COMM_TYPE_SHARED, ims_pro_i, MPI_INFO_NULL, &
                                      apu_async_shmem_comm, ims_err)
             call MPI_Comm_size(apu_async_shmem_comm, apu_async_shmem_size, ims_err)
@@ -852,13 +852,6 @@ contains
             end do
             call MPI_WAITALL(l, request, status, ims_err)
             ! CPU copy recv buffer → b.
-            ! Intentionally NOT using !$omp target here: the GPU operation reading from
-            ! apu_async_recv_k (shared K-window memory) via !$omp target leaves ROCm
-            ! device state that causes subsequent hipDeviceSynchronize() calls in
-            ! I-Forward's hip_write_with_fence to block on specific GPUs (observed on
-            ! GPU 2 of node-0 where all 6 ranks hung after the first GPU write).
-            ! K-Backward already uses a CPU scatter for the same reason; using CPU copy
-            ! here is consistent and eliminates the blocking GPU state.
             do i = 1, size
                 b(i) = apu_async_recv_k(i)
             end do
@@ -1676,9 +1669,11 @@ contains
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
                 end if
             end do
-            ! Step 4: per-peer hip_write_with_fence — push OUR chunk (a[m*chunk]) into each
-            !   same-node peer's recv buffer at our slot (ims_pro_i * chunk).
-            ! Debug (cause 1+3): log target VA and bounds before each GPU write.
+            ! Step 4: intra-node — GPU direct write OUR chunk (a[m*chunk]) into each
+            !   same-XCD peer's recv buffer at our slot (ims_pro_i * chunk).
+            !   Uses !$omp target (same as APU_ASYNC) — avoids hipDeviceSynchronize() deadlock
+            !   that occurred with hip_write_with_fence when multiple processes on the same XCD
+            !   called __threadfence_system() concurrently.
             write(500+ims_pro,'(a,i4,a,g20.6)') '[IFR_pre] PE', ims_pro, ' sum(a)=', sum(a)
             flush(500+ims_pro)
             flat_off = ims_pro_i * nmax_p * nlines_p
@@ -1695,10 +1690,14 @@ contains
                     end block
                     call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
                     write(500+ims_pro,'(a)') '[IFR_S5]'
-                    call hip_write_with_fence(a(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p), &
-                                              apu_pfptr_i(flat_off + 1 : flat_off + nmax_p*nlines_p), &
-                                              int(nmax_p * nlines_p))
+                    flush(500+ims_pro)
+                    !$omp target teams distribute parallel do
+                    do i = 1, nmax_p * nlines_p
+                        apu_pfptr_i(flat_off + i) = a(m * nmax_p * nlines_p + i)
+                    end do
+                    !$omp end target teams distribute parallel do
                     write(500+ims_pro,'(a)') '[IFR_S6]'
+                    flush(500+ims_pro)
                     nullify(apu_pfptr_i)
                 end if
             end do
@@ -2142,8 +2141,8 @@ contains
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
                 end if
             end do
-            ! Step 4: per-peer pack + hip_write_with_fence.
-            ! Debug (cause 1+3): log target VA and bounds before each GPU write.
+            ! Step 4: intra-node — GPU pack strided b[m] directly into peer m's recv buffer at our slot.
+            !   Uses !$omp target (same as APU_ASYNC) — avoids hipDeviceSynchronize() deadlock.
             write(500+ims_pro,'(a,i4,a,g20.6)') '[IBR_pre] PE', ims_pro, ' sum(b)=', sum(b)
             flush(500+ims_pro)
             flat_off = ims_pro_i * nmax_p * nlines_p
@@ -2158,16 +2157,19 @@ contains
                             ' size=', apu_async_size_i
                         flush(500+ims_pro)
                     end block
+                    call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
                     disp_ns = m * nmax_p
+                    write(500+ims_pro,'(a)') '[IBR_S5]'
+                    flush(500+ims_pro)
+                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
-                            c_wrk_dp(m*nmax_p*nlines_p + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
+                            apu_pfptr_i(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
                         end do
                     end do
-                    call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
-                    call hip_write_with_fence(c_wrk_dp(m*nmax_p*nlines_p + 1 : (m+1)*nmax_p*nlines_p), &
-                                              apu_pfptr_i(flat_off + 1 : flat_off + nmax_p*nlines_p), &
-                                              int(nmax_p * nlines_p))
+                    !$omp end target teams distribute parallel do
+                    write(500+ims_pro,'(a)') '[IBR_S6]'
+                    flush(500+ims_pro)
                     nullify(apu_pfptr_i)
                 end if
             end do
