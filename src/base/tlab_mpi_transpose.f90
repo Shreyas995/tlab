@@ -1020,21 +1020,14 @@ contains
 
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_ns, mas
-        integer :: send_to, recv_from, fbd_tag   ! FABRIC_DIRECT: global rank + distinct tag
+        integer :: send_to, recv_from, fbd_tag
 #ifdef USE_APU
         complex(dp), pointer :: apu_cx_all(:) => null()   ! complex view of apu_all_k across all peers
 #endif
-        type(MPI_Comm) :: trp_comm_k   ! ims_comm_z normally; MPI_COMM_WORLD for FABRIC_DIRECT (the
-                                       ! dup'd apu_async_mpi_comm_k is still in the tainted lineage
-                                       ! of MPI_Win_allocate_shared on the shmem sub-comm — the same
-                                       ! reason the REAL FABRIC_DIRECT path was switched to
-                                       ! MPI_COMM_WORLD. The COMPLEX path falling back to ASYNC
-                                       ! while still using the dup'd comm produced ~1.5e-7 relative
-                                       ! divergence at the first complex transpose call, amplified
-                                       ! by the Poisson solver to explosion at step 200001.)
+        type(MPI_Comm) :: trp_comm_k   ! dup of ims_comm_z; K-comm local rank = K-dir rank
 #ifdef USE_APU
         if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT .or. trp_mode_k == TLAB_MPI_TRP_APU_ASYNC) then
-            trp_comm_k = apu_async_mpi_comm_k   ! untainted dup; local K-rank = dir rank m
+            trp_comm_k = apu_async_mpi_comm_k   ! untainted dup of ims_comm_z; local K-rank = dir rank
             fbd_tag = ims_tag
         else
             trp_comm_k = ims_comm_z
@@ -1104,19 +1097,15 @@ contains
                     end do
                 end do
                 ! ISEND/IRECV in batches of trp_sizBlock_k peers per WAITALL.
-                ! For FABRIC_DIRECT: ips/ipr are K-ranks (= peer pro_k); peer global rank = pro_k*npro_i + ims_pro_i.
+                ! trp_comm_k is apu_async_mpi_comm_k (dup of ims_comm_z) for FABRIC_DIRECT/APU_ASYNC;
+                ! ips/ipr are local K-comm ranks (0..npro_k-1), valid in all K-direction comms.
                 do j = 1, ims_npro_k, trp_sizBlock_k
                     l = 0
                     do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
                         ns = maps_send_k(m) + 1; ips = ns - 1
                         nr = maps_recv_k(m) + 1; ipr = nr - 1
-                        if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-                            send_to   = ips*ims_npro_i + ims_pro_i
-                            recv_from = ipr*ims_npro_i + ims_pro_i
-                        else
-                            send_to   = ips
-                            recv_from = ipr
-                        end if
+                        send_to   = ips
+                        recv_from = ipr
                         l = l + 1
                         call MPI_ISEND(c_wrk_cx((ns-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, send_to, fbd_tag, trp_comm_k, request(l), ims_err)
@@ -1433,11 +1422,11 @@ contains
 
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_nr, mas
-        integer :: send_to, recv_from, fbd_tag   ! FABRIC_DIRECT: global rank + distinct tag
+        integer :: send_to, recv_from, fbd_tag
 #ifdef USE_APU
         complex(dp), pointer :: apu_cx_all(:) => null()
 #endif
-        type(MPI_Comm) :: trp_comm_k   ! MPI_COMM_WORLD for FABRIC_DIRECT (see K-Forward_Complex comment).
+        type(MPI_Comm) :: trp_comm_k   ! dup of ims_comm_z; K-comm local rank = K-dir rank
 #ifdef USE_APU
         if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT .or. trp_mode_k == TLAB_MPI_TRP_APU_ASYNC) then
             trp_comm_k = apu_async_mpi_comm_k   ! untainted dup; local K-rank = dir rank m
@@ -1503,13 +1492,8 @@ contains
                     do m = j, min(j + trp_sizBlock_k - 1, ims_npro_k)
                         ns = maps_recv_k(m) + 1; ips = ns - 1   ! backward: send/recv maps swapped
                         nr = maps_send_k(m) + 1; ipr = nr - 1
-                        if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-                            send_to   = ips*ims_npro_i + ims_pro_i
-                            recv_from = ipr*ims_npro_i + ims_pro_i
-                        else
-                            send_to   = ips
-                            recv_from = ipr
-                        end if
+                        send_to   = ips
+                        recv_from = ipr
                         l = l + 1
                         call MPI_ISEND(b(trp_plan%disp_r(ns) + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, send_to, fbd_tag, trp_comm_k, request(l), ims_err)
