@@ -81,10 +81,12 @@ module TLabMPI_Transpose
     ! apu_all_k/i(m*stride + 1 : (m+1)*stride) = rank m's recv buffer.
     integer(wi) :: apu_stride_k = 0_wi, apu_stride_i = 0_wi
     real(dp), pointer :: apu_all_k(:) => null(), apu_all_i(:) => null()
-    ! APU_ASYNC/FABRIC_DIRECT: contiguous all-peers view analogous to apu_all_i but for the
-    ! APU_ASYNC/FABRIC_DIRECT shared window (different size: imax*jmax*kmax vs (imax+2)*jmax*kmax).
-    ! Created only when the window uses a same-VA-for-all allocation (no prior MPI_Comm_dup).
+    ! APU_ASYNC/FABRIC_DIRECT: contiguous all-local-shmem-peers view for fused single-kernel writes.
+    ! Spans apu_async_shmem_size_i * apu_async_size_i elements starting at shmem rank 0's segment.
+    ! apu_async_all_i(shmem_m*apu_async_size_i + 1 : (shmem_m+1)*apu_async_size_i) = shmem peer m's recv buffer.
     real(dp), pointer :: apu_async_all_i(:) => null()
+    integer(wi) :: apu_async_shmem_size_i = 0_wi       ! number of local shmem peers in the I-window
+    integer(wi) :: apu_async_shmem_base_pro_i = 0_wi   ! pro_i of shmem rank 0 in the local I-shmem group
 #endif
 
     integer(wi) :: trp_sizBlock_i, trp_sizBlock_k                   ! explicit send/recv: group sizes of send/recv messages
@@ -506,6 +508,11 @@ contains
             end do
             ! Bug A fix: bind recv_i via own-rank query result (not win_baseptr).
             call c_f_pointer(apu_async_peer_i(ims_pro_i), apu_async_recv_i, [apu_async_size_i])
+            ! Fused kernel setup: shmem rank 0's segment is the base of the contiguous window.
+            apu_async_shmem_size_i = int(apu_async_shmem_size, wi)
+            apu_async_shmem_base_pro_i = int(apu_async_shmem_to_dir(0), wi)
+            call c_f_pointer(apu_async_peer_i(apu_async_shmem_to_dir(0)), apu_async_all_i, &
+                             [apu_async_shmem_size_i * apu_async_size_i])
             deallocate (apu_async_shmem_to_dir)
             apu_async_node_comm_i = apu_async_shmem_comm  ! keep alive for runtime MPI_Barrier
             ! ims_comm_x_dup2 is intentionally not freed here.
@@ -1677,30 +1684,20 @@ contains
             write(500+ims_pro,'(a,i4,a,g20.6)') '[IFR_pre] PE', ims_pro, ' sum(a)=', sum(a)
             flush(500+ims_pro)
             flat_off = ims_pro_i * nmax_p * nlines_p
-            do m = 0, ims_npro_i - 1
-                if (apu_async_is_local_i(m)) then
-                    block
-                        integer(MPI_ADDRESS_KIND) :: dbg_va
-                        dbg_va = transfer(apu_async_peer_i(m), dbg_va)
-                        write(500+ims_pro,'(a,i4,a,i4,a,i22,a,i10,a,i10,a,i12)') &
-                            '[IFR_S4] PE', ims_pro, ' peer=', m, ' VA=', dbg_va, &
-                            ' flat_off=', flat_off, ' chunk=', nmax_p*nlines_p, &
-                            ' size=', apu_async_size_i
-                        flush(500+ims_pro)
-                    end block
-                    call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
-                    write(500+ims_pro,'(a)') '[IFR_S5]'
-                    flush(500+ims_pro)
-                    !$omp target teams distribute parallel do
-                    do i = 1, nmax_p * nlines_p
-                        apu_pfptr_i(flat_off + i) = a(m * nmax_p * nlines_p + i)
-                    end do
-                    !$omp end target teams distribute parallel do
-                    write(500+ims_pro,'(a)') '[IFR_S6]'
-                    flush(500+ims_pro)
-                    nullify(apu_pfptr_i)
-                end if
+            ! Single fused kernel writes our chunk into ALL local shmem peers in one GPU dispatch.
+            ! apu_async_all_i spans the contiguous shared window from shmem rank 0.
+            ! Index: shmem_rank * apu_async_size_i + flat_off + j  (j = 1..chunk)
+            ! Source: a[(shmem_base + shmem_rank) * chunk + j]
+            !$omp target teams distribute parallel do collapse(2)
+            do m = 0, apu_async_shmem_size_i - 1
+                do i = 1, nmax_p * nlines_p
+                    apu_async_all_i(m * apu_async_size_i + flat_off + i) = &
+                        a((apu_async_shmem_base_pro_i + m) * nmax_p * nlines_p + i)
+                end do
             end do
+            !$omp end target teams distribute parallel do
+            write(500+ims_pro,'(a)') '[IFR_S4]'
+            flush(500+ims_pro)
             ! Step 4b: barrier on node-local comm — syncs intra-node GPU writes.
             !   Use apu_async_node_comm_i (3-member), NOT apu_async_mpi_comm_i (6-member):
             !   calling a collective on apu_async_mpi_comm_i while IRECV/ISEND are outstanding
@@ -2146,33 +2143,19 @@ contains
             write(500+ims_pro,'(a,i4,a,g20.6)') '[IBR_pre] PE', ims_pro, ' sum(b)=', sum(b)
             flush(500+ims_pro)
             flat_off = ims_pro_i * nmax_p * nlines_p
-            do m = 0, ims_npro_i - 1
-                if (apu_async_is_local_i(m)) then
-                    block
-                        integer(MPI_ADDRESS_KIND) :: dbg_va
-                        dbg_va = transfer(apu_async_peer_i(m), dbg_va)
-                        write(500+ims_pro,'(a,i4,a,i4,a,i22,a,i10,a,i10,a,i12)') &
-                            '[IBR_S4] PE', ims_pro, ' peer=', m, ' VA=', dbg_va, &
-                            ' flat_off=', flat_off, ' chunk=', nmax_p*nlines_p, &
-                            ' size=', apu_async_size_i
-                        flush(500+ims_pro)
-                    end block
-                    call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
-                    disp_ns = m * nmax_p
-                    write(500+ims_pro,'(a)') '[IBR_S5]'
-                    flush(500+ims_pro)
-                    !$omp target teams distribute parallel do collapse(2)
-                    do i = 0, nlines_p - 1
-                        do j = 0, nmax_p - 1
-                            apu_pfptr_i(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
-                        end do
+            ! Single fused kernel packs strided b into ALL local shmem peers in one GPU dispatch.
+            !$omp target teams distribute parallel do collapse(3)
+            do m = 0, apu_async_shmem_size_i - 1
+                do i = 0, nlines_p - 1
+                    do j = 0, nmax_p - 1
+                        apu_async_all_i(m * apu_async_size_i + flat_off + i*nmax_p + j + 1) = &
+                            b((apu_async_shmem_base_pro_i + m)*nmax_p + i*nmax_full + j + 1)
                     end do
-                    !$omp end target teams distribute parallel do
-                    write(500+ims_pro,'(a)') '[IBR_S6]'
-                    flush(500+ims_pro)
-                    nullify(apu_pfptr_i)
-                end if
+                end do
             end do
+            !$omp end target teams distribute parallel do
+            write(500+ims_pro,'(a)') '[IBR_S4]'
+            flush(500+ims_pro)
             ! Step 4b: barrier on node-local comm — syncs intra-node GPU writes only.
             call MPI_Barrier(apu_async_node_comm_i, ims_err)
             ! Step 5: WAITALL for any inter-node peers (l=0 when all I-peers are same-node).
