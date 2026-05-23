@@ -741,6 +741,8 @@ contains
         npage    = nlines_p * ims_npro_k   ! total Z-lines across all K ranks
         mas      = nmax_p * nlines_p       ! elements per peer chunk
 
+        write(500+ims_pro,'(a,i4,a,g20.6)') '[KFR_pre] PE', ims_pro, ' sum(a)=', sum(a); flush(500+ims_pro)
+
         ! ==================================================================== !
         ! APU paths — GPU direct writes between peer recv buffers.            !
         ! APU_DIRECT: all ranks on one node share one big window; one fused   !
@@ -1000,6 +1002,8 @@ contains
         end if   ! end APU/CPU dispatch
 #endif
 
+        write(500+ims_pro,'(a,i4,a,g20.6)') '[KFR_post] PE', ims_pro, ' sum(b)=', sum(b); flush(500+ims_pro)
+
 #ifdef PROFILE_ON
         time_loc_2 = MPI_WTIME()
         ims_time_trans = ims_time_trans + (time_loc_2 - time_loc_1)
@@ -1153,6 +1157,8 @@ contains
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k
         mas      = nmax_p * nlines_p
+
+        write(500+ims_pro,'(a,i4,a,g20.6)') '[KBR_pre] PE', ims_pro, ' sum(b)=', sum(b); flush(500+ims_pro)
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes; inverse of K-Forward.                  !
@@ -1404,6 +1410,8 @@ contains
         end if   ! end APU/CPU dispatch
 #endif
 
+        write(500+ims_pro,'(a,i4,a,g20.6)') '[KBR_post] PE', ims_pro, ' sum(a)=', sum(a); flush(500+ims_pro)
+
 #ifdef PROFILE_ON
         time_loc_2 = MPI_WTIME()
         ims_time_trans = ims_time_trans + (time_loc_2 - time_loc_1)
@@ -1548,6 +1556,8 @@ contains
         nmax_full = nmax_p * ims_npro_i   ! total X-elements per line (stride in b)
         mas       = nmax_p * nlines_p
 
+        write(500+ims_pro,'(a,i4,a,g20.6)') '[IFR_pre] PE', ims_pro, ' sum(a)=', sum(a); flush(500+ims_pro)
+
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
         ! a is flat (chunk per peer); each rank pushes a[m*chunk] to peer m's  !
@@ -1642,8 +1652,6 @@ contains
             ! ISEND/IRECV on ims_comm_x (never had a window; fully clean) for all 6 I-peers.
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
-            write(500+ims_pro,'(a,i4,a,g20.6)') '[IFR_pre] PE', ims_pro, ' sum(a)=', sum(a)
-            flush(500+ims_pro)
             ! IRECVs
             l = 0
             do m = 1, ims_npro_i
@@ -1677,8 +1685,6 @@ contains
                     end do
                 end do
             end do
-            write(500+ims_pro,'(a,i4,a,g20.6)') '[IFR_post] PE', ims_pro, ' sum(b)=', sum(b)
-            flush(500+ims_pro)
             nullify (c_wrk_dp)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
@@ -1813,6 +1819,8 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
+
+        write(500+ims_pro,'(a,i4,a,g20.6)') '[IFR_post] PE', ims_pro, ' sum(b)=', sum(b); flush(500+ims_pro)
 
         return
     end subroutine TLabMPI_Trp_ExecI_Forward_Real
@@ -1959,6 +1967,8 @@ contains
         nmax_full = nmax_p * ims_npro_i
         mas       = nmax_p * nlines_p
 
+        write(500+ims_pro,'(a,i4,a,g20.6)') '[IBR_pre] PE', ims_pro, ' sum(b)=', sum(b); flush(500+ims_pro)
+
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
         ! ==================================================================== !
@@ -2057,8 +2067,6 @@ contains
             ! Use plain ISEND/IRECV on ims_comm_x for all 6 I-peers.
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
-            write(500+ims_pro,'(a,i4,a,g20.6)') '[IBR_pre] PE', ims_pro, ' sum(b)=', sum(b)
-            flush(500+ims_pro)
             ! IRECVs into a directly (recv layout mirrors disp_s)
             l = 0
             do m = 1, ims_npro_i
@@ -2091,8 +2099,6 @@ contains
             flush(500+ims_pro)
             call MPI_WAITALL(l, request, status, ims_err)
             write(500+ims_pro,'(a)') '[IBR_S9]'
-            flush(500+ims_pro)
-            write(500+ims_pro,'(a,i4,a,g20.6)') '[IBR_post] PE', ims_pro, ' sum(a)=', sum(a)
             flush(500+ims_pro)
             nullify (c_wrk_dp)
         else   ! CPU paths
@@ -2231,6 +2237,9 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
+
+        write(500+ims_pro,'(a,i4,a,g20.6)') '[IBR_post] PE', ims_pro, ' sum(a)=', sum(a); flush(500+ims_pro)
+
         return
     end subroutine TLabMPI_Trp_ExecI_Backward_Real
 
