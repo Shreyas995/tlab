@@ -508,7 +508,10 @@ contains
             call c_f_pointer(apu_async_peer_i(ims_pro_i), apu_async_recv_i, [apu_async_size_i])
             deallocate (apu_async_shmem_to_dir)
             apu_async_node_comm_i = apu_async_shmem_comm  ! keep alive for runtime MPI_Barrier
-            call MPI_Comm_free(ims_comm_x_dup2, ims_err)  ! tainted dup no longer needed
+            ! ims_comm_x_dup2 is intentionally not freed here.
+            ! apu_async_node_comm_i was created from it (split_type sub-comm); on Cray MPICH,
+            ! freeing the parent while the sub-comm is still in runtime use corrupts the
+            ! sub-comm's barrier internals → MPI_Barrier(apu_async_node_comm_i) hangs.
             ! Debug: log locality + VAs + size sanity
             block
                 integer(MPI_ADDRESS_KIND) :: dbg_va
@@ -737,7 +740,7 @@ contains
             ! Eliminates per-peer kernel-launch overhead (npro separate launches → 1).
             size = trp_plan%size3d
             call MPI_Win_fence(0, apu_win_k, ims_err)
-            !$omp target teams distribute parallel do collapse(3) if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_k - 1         ! peer rank (0-based)
                 do i = 0, nmax_p - 1          ! element along K axis (kmax total)
                     do j = 0, nlines_p - 1    ! line within peer's chunk
@@ -750,7 +753,7 @@ contains
             !$omp end target teams distribute parallel do
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: our recv buffer is now fully populated
             ! -- Unpack: recv buffer is already in the flat K-space layout; one-to-one copy to b.
-            !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do
             do i = 1, size
                 b(i) = apu_recv_fptr_k(i)
             end do
@@ -779,7 +782,7 @@ contains
                 if (.not. apu_async_is_local_k(m)) then
                     flat_off = m * nmax_p * nlines_p
                     disp_ns  = m * nlines_p
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
                             c_wrk_dp(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
@@ -797,7 +800,7 @@ contains
                     call c_f_pointer(apu_async_peer_k(m), apu_pfptr_k, [apu_async_size_k])
                     flat_off = ims_pro_k * nmax_p * nlines_p
                     disp_ns  = m * nlines_p
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
                             apu_pfptr_k(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
@@ -810,7 +813,7 @@ contains
             call MPI_Barrier(apu_async_node_comm_k, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
             ! Step 6: recv buffer is fully populated; flat copy to b
-            !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do
             do i = 1, size
                 b(i) = apu_async_recv_k(i)
             end do
@@ -848,12 +851,17 @@ contains
                                trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
             end do
             call MPI_WAITALL(l, request, status, ims_err)
-            ! Flat copy recv buffer → b.
-            !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+            ! CPU copy recv buffer → b.
+            ! Intentionally NOT using !$omp target here: the GPU operation reading from
+            ! apu_async_recv_k (shared K-window memory) via !$omp target leaves ROCm
+            ! device state that causes subsequent hipDeviceSynchronize() calls in
+            ! I-Forward's hip_write_with_fence to block on specific GPUs (observed on
+            ! GPU 2 of node-0 where all 6 ranks hung after the first GPU write).
+            ! K-Backward already uses a CPU scatter for the same reason; using CPU copy
+            ! here is consistent and eliminates the blocking GPU state.
             do i = 1, size
                 b(i) = apu_async_recv_k(i)
             end do
-            !$omp end target teams distribute parallel do
             nullify (c_wrk_dp)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
@@ -870,7 +878,7 @@ contains
                 b_wrk => wrk_mpi_fptr(size + 1:2*size)
                 c_wrk => wrk_mpi_fptr(2*size + 1:3*size)
 #ifdef USE_APU
-                !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                !$omp target teams distribute parallel do
 #endif
                 do i = 1, size
                     a_wrk(i) = real(a(i), sp)   ! dp→sp
@@ -894,7 +902,7 @@ contains
                         flat_off = (ns - 1)*nmax_p*nlines_p
                         disp_ns  = trp_plan%disp_s(ns)
 #ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                        !$omp target teams distribute parallel do collapse(2)
 #endif
                         do i = 0, nmax_p - 1
                             do j = 0, nlines_p - 1
@@ -920,7 +928,7 @@ contains
                                                  ims_comm_z, trp_sizBlock_k, trp_mode_k)
                 end if
 #ifdef USE_APU
-                !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                !$omp target teams distribute parallel do
 #endif
                 do i = 1, size
                     b(i) = real(b_wrk(i), dp)   ! sp→dp
@@ -950,7 +958,7 @@ contains
                         flat_off = (ns - 1)*nmax_p*nlines_p
                         disp_ns  = trp_plan%disp_s(ns)
 #ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                        !$omp target teams distribute parallel do collapse(2)
 #endif
                         do i = 0, nmax_p - 1
                             do j = 0, nlines_p - 1
@@ -1043,7 +1051,7 @@ contains
             call c_f_pointer(apu_peer_cptr_k(0), apu_cx_all, [apu_stride_k*ims_npro_k/2])
             call MPI_Win_fence(0, apu_win_k, ims_err)
             ! Push: strided gather from a into all peers' recv buffers in one fused kernel
-            !$omp target teams distribute parallel do collapse(3) if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_k - 1
                 do i = 0, nmax_p - 1
                     do j = 0, nlines_p - 1
@@ -1056,7 +1064,7 @@ contains
             !$omp end target teams distribute parallel do
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
             ! Unpack: flat copy from complex-typed recv alias to b
-            !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do
             do i = 1, size
                 b(i) = apu_cx_recv_fptr_k(i)
             end do
@@ -1156,7 +1164,7 @@ contains
             ! -- Push: b is flat K-space; push our chunk to all peers' recv buffers in one fused kernel.
             size = trp_plan%size3d
             call MPI_Win_fence(0, apu_win_k, ims_err)
-            !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_k - 1
                 do i = 1, nmax_p * nlines_p
                     ! Write our chunk (b[m*chunk]) into peer m's slot (own_rank*chunk) in their buffer
@@ -1166,7 +1174,7 @@ contains
             !$omp end target teams distribute parallel do
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: all peers have written to our buffer
             ! -- Unpack: recv buffer holds sorted chunks; scatter to strided a in one fused kernel.
-            !$omp target teams distribute parallel do collapse(3) if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_k - 1
                 do i = 0, nmax_p - 1
                     do j = 0, nlines_p - 1
@@ -1207,7 +1215,7 @@ contains
                 if (apu_async_is_local_k(m)) then
                     call c_f_pointer(apu_async_peer_k(m), apu_pfptr_k, [apu_async_size_k])
                     flat_off = ims_pro_k * nmax_p * nlines_p
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do
                     do i = 1, nmax_p * nlines_p
                         apu_pfptr_k(flat_off + i) = b(m * nmax_p * nlines_p + i)
                     end do
@@ -1221,7 +1229,7 @@ contains
             do m = 0, ims_npro_k - 1
                 flat_off = m * nmax_p * nlines_p
                 disp_nr  = m * nlines_p
-                !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                !$omp target teams distribute parallel do collapse(2)
                 do i = 0, nmax_p - 1
                     do j = 0, nlines_p - 1
                         a(disp_nr + i*npage + j + 1) = apu_async_recv_k(flat_off + i*nlines_p + j + 1)
@@ -1275,7 +1283,7 @@ contains
                     b_wrk => wrk_mpi_fptr(1:size)           ! send: dp→sp copy of b
                     c_wrk => wrk_mpi_fptr(size + 1:2*size)  ! recv: flat staging
 #ifdef USE_APU
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do
 #endif
                     do i = 1, size
                         b_wrk(i) = real(b(i), sp)   ! dp→sp
@@ -1306,7 +1314,7 @@ contains
                         flat_off = (nr - 1)*nmax_p*nlines_p
                         disp_nr  = trp_plan%disp_s(nr)
 #ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                        !$omp target teams distribute parallel do collapse(2)
 #endif
                         do i = 0, nmax_p - 1
                             do j = 0, nlines_p - 1
@@ -1322,7 +1330,7 @@ contains
                     b_wrk => wrk_mpi_fptr(1:size)
                     a_wrk => wrk_mpi_fptr(size + 1:2*size)
 #ifdef USE_APU
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do
 #endif
                     do i = 1, size
                         b_wrk(i) = real(b(i), sp)   ! dp→sp
@@ -1334,7 +1342,7 @@ contains
                                                  a_wrk, maps_send_k(:), trp_plan%disp_s(:), trp_plan%type_s, &
                                                  ims_comm_z, trp_sizBlock_k, trp_mode_k)
 #ifdef USE_APU
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do
 #endif
                     do i = 1, size
                         a(i) = real(a_wrk(i), dp)   ! sp→dp
@@ -1374,7 +1382,7 @@ contains
                         flat_off = (nr - 1)*nmax_p*nlines_p
                         disp_nr  = trp_plan%disp_s(nr)
 #ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                        !$omp target teams distribute parallel do collapse(2)
 #endif
                         do i = 0, nmax_p - 1
                             do j = 0, nlines_p - 1
@@ -1446,7 +1454,7 @@ contains
             call c_f_pointer(apu_peer_cptr_k(0), apu_cx_all, [apu_stride_k*ims_npro_k/2])
             call MPI_Win_fence(0, apu_win_k, ims_err)
             ! Push: b is flat K-space; write our chunk (b[m*chunk]) to every peer
-            !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_k - 1
                 do i = 1, nmax_p * nlines_p
                     apu_cx_all(m*(apu_stride_k/2) + ims_pro_k*nmax_p*nlines_p + i) = &
@@ -1456,7 +1464,7 @@ contains
             !$omp end target teams distribute parallel do
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
             ! Unpack: complex recv buffer → strided Z-space a
-            !$omp target teams distribute parallel do collapse(3) if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_k - 1
                 do i = 0, nmax_p - 1
                     do j = 0, nlines_p - 1
@@ -1556,7 +1564,7 @@ contains
             ! -- Push: a is flat; one fused kernel writes our chunk to ALL peers simultaneously.
             size = trp_plan%size3d
             call MPI_Win_fence(0, apu_win_i, ims_err)
-            !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_i - 1
                 do i = 1, nmax_p * nlines_p
                     ! a[m*chunk] is the flat chunk destined for peer m; write to their recv slot
@@ -1566,7 +1574,7 @@ contains
             !$omp end target teams distribute parallel do
             call MPI_Win_fence(0, apu_win_i, ims_err)   ! barrier: recv buffer fully populated
             ! -- Unpack: recv buffer holds sorted flat chunks; scatter to strided b in one fused kernel.
-            !$omp target teams distribute parallel do collapse(3) if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
                 do i = 0, nlines_p - 1
                     do j = 0, nmax_p - 1
@@ -1608,7 +1616,7 @@ contains
                 if (apu_async_is_local_i(m)) then
                     call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
                     flat_off = ims_pro_i * nmax_p * nlines_p
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do
                     do i = 1, nmax_p * nlines_p
                         apu_pfptr_i(flat_off + i) = a(m * nmax_p * nlines_p + i)
                     end do
@@ -1622,7 +1630,7 @@ contains
             do m = 0, ims_npro_i - 1
                 flat_off = m * nmax_p * nlines_p
                 disp_nr  = m * nmax_p
-                !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                !$omp target teams distribute parallel do collapse(2)
                 do i = 0, nlines_p - 1
                     do j = 0, nmax_p - 1
                         b(disp_nr + i*nmax_full + j + 1) = apu_async_recv_i(flat_off + i*nmax_p + j + 1)
@@ -1709,7 +1717,7 @@ contains
                 flat_off = m * nmax_p * nlines_p
                 disp_nr  = m * nmax_p
                 if (apu_async_is_local_i(m)) then
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
                             b(disp_nr + i*nmax_full + j + 1) = apu_async_recv_i(flat_off + i*nmax_p + j + 1)
@@ -1741,7 +1749,7 @@ contains
                     a_wrk => wrk_mpi_fptr(1:size)           ! send: dp→sp copy of a
                     c_wrk => wrk_mpi_fptr(size + 1:2*size)  ! recv: flat staging
 #ifdef USE_APU
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do
 #endif
                     do i = 1, size
                         a_wrk(i) = real(a(i), sp)   ! dp→sp
@@ -1772,7 +1780,7 @@ contains
                         flat_off = (nr - 1)*nmax_p*nlines_p
                         disp_nr  = trp_plan%disp_r(nr)
 #ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                        !$omp target teams distribute parallel do collapse(2)
 #endif
                         do i = 0, nlines_p - 1
                             do j = 0, nmax_p - 1
@@ -1788,7 +1796,7 @@ contains
                     a_wrk => wrk_mpi_fptr(1:size)
                     b_wrk => wrk_mpi_fptr(size + 1:2*size)
 #ifdef USE_APU
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do
 #endif
                     do i = 1, size
                         a_wrk(i) = real(a(i), sp)   ! dp→sp
@@ -1800,7 +1808,7 @@ contains
                                                  b_wrk, maps_recv_i(:), trp_plan%disp_r(:), trp_plan%type_r, &
                                                  ims_comm_x, trp_sizBlock_i, trp_mode_i)
 #ifdef USE_APU
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do
 #endif
                     do i = 1, size
                         b(i) = real(b_wrk(i), dp)   ! sp→dp
@@ -1840,7 +1848,7 @@ contains
                         flat_off = (nr - 1)*nmax_p*nlines_p
                         disp_nr  = trp_plan%disp_r(nr)
 #ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                        !$omp target teams distribute parallel do collapse(2)
 #endif
                         do i = 0, nlines_p - 1
                             do j = 0, nmax_p - 1
@@ -1914,7 +1922,7 @@ contains
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! Push: write each peer's flat chunk into peer m's buffer at slot own_rank*chunk.
-            !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_i - 1
                 do i = 1, nmax_p * nlines_p
                     apu_cx_all(m*(apu_stride_i/2) + ims_pro_i*nmax_p*nlines_p + i) = &
@@ -1925,7 +1933,7 @@ contains
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! Unpack: scatter recv buffer (flat m*chunk+i layout) → b (strided m*nmax_p + i*nmax_full + j).
-            !$omp target teams distribute parallel do collapse(3) if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
                 do i = 0, nlines_p - 1
                     do j = 0, nmax_p - 1
@@ -2019,7 +2027,7 @@ contains
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! Push: pack strided b[m] → peer m's recv buffer at slot own_rank*chunk (flat).
-            !$omp target teams distribute parallel do collapse(3) if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
                 do i = 0, nlines_p - 1
                     do j = 0, nmax_p - 1
@@ -2032,7 +2040,7 @@ contains
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! Flat copy: recv buffer layout is flat and matches a 1:1.
-            !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do
             do i = 1, size
                 a(i) = apu_recv_fptr_i(i)
             end do
@@ -2062,7 +2070,7 @@ contains
                 if (.not. apu_async_is_local_i(m)) then
                     flat_off = m * nmax_p * nlines_p
                     disp_ns  = m * nmax_p
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
                             c_wrk_dp(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
@@ -2081,7 +2089,7 @@ contains
                     call c_f_pointer(apu_async_peer_i(m), apu_pfptr_i, [apu_async_size_i])
                     flat_off = ims_pro_i * nmax_p * nlines_p
                     disp_ns  = m * nmax_p
-                    !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
                             apu_pfptr_i(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
@@ -2094,7 +2102,7 @@ contains
             call MPI_Barrier(apu_async_node_comm_i, ims_err)
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
             ! Step 6: flat copy from unified async recv buffer to a (1:1).
-            !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do
             do i = 1, size
                 a(i) = apu_async_recv_i(i)
             end do
@@ -2172,7 +2180,7 @@ contains
             do m = 0, ims_npro_i - 1
                 flat_off = m * nmax_p * nlines_p
                 if (apu_async_is_local_i(m)) then
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do
                     do i = 1, nmax_p*nlines_p
                         a(flat_off + i) = apu_async_recv_i(flat_off + i)
                     end do
@@ -2213,7 +2221,7 @@ contains
                         flat_off = (ns - 1)*nmax_p*nlines_p
                         disp_ns  = trp_plan%disp_r(ns)
 #ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                        !$omp target teams distribute parallel do collapse(2)
 #endif
                         do i = 0, nlines_p - 1
                             do j = 0, nmax_p - 1
@@ -2235,7 +2243,7 @@ contains
                     call MPI_WAITALL(l, request, status, ims_err)
                     ! sp→dp: flat 1:1 conversion of recv buffer to a.
 #ifdef USE_APU
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do
 #endif
                     do i = 1, size
                         a(i) = real(a_wrk(i), dp)
@@ -2250,7 +2258,7 @@ contains
                     a_wrk => wrk_mpi_fptr(size + 1:2*size)
                     ! dp→sp conversion of b into b_wrk.
 #ifdef USE_APU
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do
 #endif
                     do i = 1, size
                         b_wrk(i) = real(b(i), sp)
@@ -2263,7 +2271,7 @@ contains
                                                  ims_comm_x, trp_sizBlock_i, trp_mode_i)
                     ! sp→dp conversion of a_wrk into a.
 #ifdef USE_APU
-                    !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+                    !$omp target teams distribute parallel do
 #endif
                     do i = 1, size
                         a(i) = real(a_wrk(i), dp)
@@ -2293,7 +2301,7 @@ contains
                         flat_off = (ns - 1)*nmax_p*nlines_p
                         disp_ns  = trp_plan%disp_r(ns)
 #ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2) if(mas * sizeofreal > 100000_wi)
+                        !$omp target teams distribute parallel do collapse(2)
 #endif
                         do i = 0, nlines_p - 1
                             do j = 0, nmax_p - 1
@@ -2375,7 +2383,7 @@ contains
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! Push: pack strided b[m] → peer m's recv buffer at slot own_rank*chunk.
-            !$omp target teams distribute parallel do collapse(3) if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
                 do i = 0, nlines_p - 1
                     do j = 0, nmax_p - 1
@@ -2388,7 +2396,7 @@ contains
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! Flat copy: recv buffer is flat and matches a layout 1:1.
-            !$omp target teams distribute parallel do if(mas * sizeofreal > 100000_wi)
+            !$omp target teams distribute parallel do
             do i = 1, size
                 a(i) = apu_cx_recv_fptr_i(i)
             end do
