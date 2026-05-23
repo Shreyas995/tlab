@@ -443,6 +443,11 @@ contains
             allocate (apu_async_shmem_to_dir(0:apu_async_shmem_size - 1))
             call MPI_Allgather(ims_pro_k, 1, MPI_INTEGER, apu_async_shmem_to_dir, 1, MPI_INTEGER, &
                                apu_async_shmem_comm, ims_err)
+            ! Take a dup of the shmem comm BEFORE window allocation.
+            ! MPI_Win_allocate_shared taints the shmem comm's own barrier internals on Cray MPICH
+            ! (same mechanism that taints the parent two-sided comm). A dup taken here is outside
+            ! that taint and provides a reliable MPI_Barrier for GPU write synchronization.
+            call MPI_Comm_dup(apu_async_shmem_comm, apu_async_node_comm_k, ims_err)
             ! Step (c): allocate the recv buffer as ONE shared mapping across the node-local
             ! sub-comm. MPI_Win_shared_query then returns each peer's segment baseptr as a
             ! c_ptr valid in EVERY node-local process's address space — that is the only
@@ -470,7 +475,7 @@ contains
             ! the loop above (since shmem_to_dir maps OUR shmem-rank → ims_pro_k).
             call c_f_pointer(apu_async_peer_k(ims_pro_k), apu_async_recv_k, [apu_async_size_k])
             deallocate (apu_async_shmem_to_dir)
-            apu_async_node_comm_k = apu_async_shmem_comm   ! keep alive for runtime MPI_Barrier
+            ! apu_async_node_comm_k already set (dup taken before window alloc above).
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated K APU_ASYNC/FABRIC_DIRECT recv buffer.')
         end if
         if ((trp_mode_i == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) .and. ims_npro_i > 1) then
@@ -493,6 +498,8 @@ contains
             allocate (apu_async_shmem_to_dir(0:apu_async_shmem_size - 1))
             call MPI_Allgather(ims_pro_i, 1, MPI_INTEGER, apu_async_shmem_to_dir, 1, MPI_INTEGER, &
                                apu_async_shmem_comm, ims_err)
+            ! Take a dup of the shmem comm BEFORE window allocation — same reasoning as K-direction.
+            call MPI_Comm_dup(apu_async_shmem_comm, apu_async_node_comm_i, ims_err)
             ! Step (2): allocate window on the split_type sub-comm (GPU-registered memory).
             call MPI_Win_allocate_shared(int(apu_async_size_i, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
                                          int(c_sizeof(1.0_dp)), MPI_INFO_NULL, apu_async_shmem_comm, win_baseptr, apu_async_win_i, ims_err)
@@ -514,7 +521,7 @@ contains
             call c_f_pointer(apu_async_peer_i(apu_async_shmem_to_dir(0)), apu_async_all_i, &
                              [apu_async_shmem_size_i * apu_async_size_i])
             deallocate (apu_async_shmem_to_dir)
-            apu_async_node_comm_i = apu_async_shmem_comm  ! keep alive for runtime MPI_Barrier
+            ! apu_async_node_comm_i already set (dup taken before window alloc above).
             ! ims_comm_x_dup2 is intentionally not freed here.
             ! apu_async_node_comm_i was created from it (split_type sub-comm); on Cray MPICH,
             ! freeing the parent while the sub-comm is still in runtime use corrupts the
@@ -1703,11 +1710,14 @@ contains
             !   calling a collective on apu_async_mpi_comm_i while IRECV/ISEND are outstanding
             !   on that same comm corrupts Cray MPICH's internal state and hangs WAITALL.
             write(500+ims_pro,'(a)') '[IFR_S7]'
+            flush(500+ims_pro)
             call MPI_Barrier(apu_async_node_comm_i, ims_err)
             write(500+ims_pro,'(a)') '[IFR_S8]'
+            flush(500+ims_pro)
             ! Step 5: WAITALL for any inter-node peers (l=0 when all I-peers are same-node).
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
             write(500+ims_pro,'(a)') '[IFR_S9]'
+            flush(500+ims_pro)
             ! Step 6: unpack recv buffer → strided b.
             do m = 0, ims_npro_i - 1
                 flat_off = m * nmax_p * nlines_p
@@ -2157,7 +2167,11 @@ contains
             write(500+ims_pro,'(a)') '[IBR_S4]'
             flush(500+ims_pro)
             ! Step 4b: barrier on node-local comm — syncs intra-node GPU writes only.
+            write(500+ims_pro,'(a)') '[IBR_S7]'
+            flush(500+ims_pro)
             call MPI_Barrier(apu_async_node_comm_i, ims_err)
+            write(500+ims_pro,'(a)') '[IBR_S8]'
+            flush(500+ims_pro)
             ! Step 5: WAITALL for any inter-node peers (l=0 when all I-peers are same-node).
             if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
             ! Step 6: flat copy → a. Intra slots from shared window (GPU); inter slots from
