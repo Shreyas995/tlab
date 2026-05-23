@@ -162,6 +162,7 @@ contains
         type(c_ptr) :: win_baseptr
 #ifdef USE_APU
         type(MPI_Comm)  :: apu_async_shmem_comm
+        type(MPI_Comm)  :: ims_comm_x_dup2   ! throwaway dup of ims_comm_x — used only as split_type parent for I-window
         integer, allocatable :: apu_async_shmem_to_dir(:)  ! shmem-rank → dir-rank (Allgather result)
         integer :: apu_async_shmem_size
         integer(MPI_ADDRESS_KIND) :: win_segsize ! byte size of one peer's recv segment
@@ -422,6 +423,10 @@ contains
         end if
         if ((trp_mode_i == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) .and. ims_npro_i > 1) then
             call MPI_Comm_dup(ims_comm_x, apu_async_mpi_comm_i, ims_err)
+            ! Second dup used as split_type parent for the I shared window.
+            ! The window taints ims_comm_x_dup2 (acceptable) but NOT ims_comm_x (dups have
+            ! independent MPI state). FFTW uses ims_comm_x directly and must stay clean.
+            call MPI_Comm_dup(ims_comm_x, ims_comm_x_dup2, ims_err)
         end if
 
         if ((trp_mode_k == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) .and. ims_npro_k > 1) then
@@ -472,73 +477,39 @@ contains
             allocate (apu_async_peer_i(0:ims_npro_i - 1))
             apu_async_peer_i = c_null_ptr
             apu_async_is_local_i = .false.
-            ! Step (1): split_type sub-comm identifies intra-node I-peers AND serves as barrier comm.
-            ! NO window is allocated on any ims_comm_x-derived sub-comm: Win_allocate_shared on
-            ! such a sub-comm taints ims_comm_x and hangs FFTW plan creation. MPI_Comm_split_type
-            ! alone (without a window) does NOT taint the parent comm.
-            call MPI_Comm_split_type(ims_comm_x, MPI_COMM_TYPE_SHARED, ims_pro_i, MPI_INFO_NULL, &
-                                     apu_async_node_comm_i, ims_err)
-            call MPI_Comm_size(apu_async_node_comm_i, apu_async_shmem_size, ims_err)
+            ! Step (1): split_type of ims_comm_x_dup2 — mirrors the K-direction pattern exactly.
+            ! Using ims_comm_x_dup2 (not ims_comm_x directly) protects ims_comm_x from taint:
+            ! MPI_Win_allocate_shared taints only the split_type parent (ims_comm_x_dup2, a
+            ! throwaway dup) and NOT ims_comm_x (dups have independent MPI state). FFTW which
+            ! uses ims_comm_x directly is therefore unaffected.
+            ! The split_type sub-comm gives GPU-registered (SVM coherent) shared memory —
+            ! required for hip_write_with_fence. MPI_COMM_WORLD-derived comms lack this
+            ! registration and can give memory that hip_write_with_fence cannot access.
+            call MPI_Comm_split_type(ims_comm_x_dup2, MPI_COMM_TYPE_SHARED, ims_pro_i, MPI_INFO_NULL, &
+                                     apu_async_shmem_comm, ims_err)
+            call MPI_Comm_size(apu_async_shmem_comm, apu_async_shmem_size, ims_err)
             allocate (apu_async_shmem_to_dir(0:apu_async_shmem_size - 1))
             call MPI_Allgather(ims_pro_i, 1, MPI_INTEGER, apu_async_shmem_to_dir, 1, MPI_INTEGER, &
-                               apu_async_node_comm_i, ims_err)
-            ! Mark intra-node peers from sub-comm membership (NOT from VA NULL-check).
-            ! c_associated() is unreliable: cross-node peers from a full-comm window return
-            ! garbage non-NULL values rather than c_null_ptr.
+                               apu_async_shmem_comm, ims_err)
+            ! Step (2): allocate window on the split_type sub-comm (GPU-registered memory).
+            call MPI_Win_allocate_shared(int(apu_async_size_i, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
+                                         int(c_sizeof(1.0_dp)), MPI_INFO_NULL, apu_async_shmem_comm, win_baseptr, apu_async_win_i, ims_err)
+            if (ims_err /= MPI_SUCCESS) then
+                call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU_ASYNC/FABRIC_DIRECT I recv buffer.')
+                call TLab_Stop(DNS_ERROR_OPTION)
+            end if
+            ! Step (3): query VAs for all intra-XCD peers and mark locality.
             do ip = 0, apu_async_shmem_size - 1
                 apu_async_is_local_i(apu_async_shmem_to_dir(ip)) = .true.
+                call MPI_Win_shared_query(apu_async_win_i, ip, win_query_size, win_disp_unit, &
+                                          apu_async_peer_i(apu_async_shmem_to_dir(ip)), ims_err)
             end do
-            ! Step (2): allocate I-window on a communicator derived from MPI_COMM_WORLD.
-            ! MPI_Win_allocate_shared(ims_comm_x) is a cross-node call — on Cray MPICH it returns
-            ! NULL or garbage VAs for the remote-node half (e.g. node-1 ranks get own_VA=0 →
-            ! GPU write → HSA aperture fault). MPI_Win_allocate_shared on any sub-comm of
-            ! ims_comm_x also taints ims_comm_x → FFTW hangs.
-            ! Fix: MPI_Comm_create_group(MPI_COMM_WORLD) with the same physical intra-node
-            ! members lives outside the ims_comm_x lineage — no taint, and all members are on
-            ! the same node so the shared window returns valid VAs for every rank.
-            block
-                type(MPI_Group) :: world_group, node_i_group, fresh_i_group
-                type(MPI_Comm)  :: win_comm_i
-                integer, allocatable :: world_ranks(:), local_ranks(:)
-                allocate(world_ranks(apu_async_shmem_size))
-                allocate(local_ranks(apu_async_shmem_size))
-                do ip = 0, apu_async_shmem_size - 1
-                    local_ranks(ip + 1) = ip
-                end do
-                call MPI_Comm_group(MPI_COMM_WORLD, world_group, ims_err)
-                call MPI_Comm_group(apu_async_node_comm_i, node_i_group, ims_err)
-                call MPI_Group_translate_ranks(node_i_group, apu_async_shmem_size, &
-                                               local_ranks, world_group, world_ranks, ims_err)
-                call MPI_Group_incl(world_group, apu_async_shmem_size, world_ranks, &
-                                    fresh_i_group, ims_err)
-                call MPI_Comm_create_group(MPI_COMM_WORLD, fresh_i_group, 0, win_comm_i, ims_err)
-                if (ims_err /= MPI_SUCCESS) then
-                    call TLab_Write_ASCII(efile, __FILE__//'. MPI_Comm_create_group failed for APU_ASYNC/FABRIC_DIRECT I win comm.')
-                    call TLab_Stop(DNS_ERROR_OPTION)
-                end if
-                call MPI_Win_allocate_shared(int(apu_async_size_i, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
-                                             int(c_sizeof(1.0_dp)), MPI_INFO_NULL, win_comm_i, win_baseptr, apu_async_win_i, ims_err)
-                if (ims_err /= MPI_SUCCESS) then
-                    call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU_ASYNC/FABRIC_DIRECT I recv buffer.')
-                    call TLab_Stop(DNS_ERROR_OPTION)
-                end if
-                ! Query VAs for all intra-node peers (all valid — win_comm_i is same-node only).
-                ! Shmem-rank ip (0-based) in win_comm_i maps to dir-rank shmem_to_dir(ip).
-                do ip = 0, apu_async_shmem_size - 1
-                    call MPI_Win_shared_query(apu_async_win_i, ip, win_query_size, win_disp_unit, &
-                                              apu_async_peer_i(apu_async_shmem_to_dir(ip)), ims_err)
-                end do
-                call MPI_Comm_free(win_comm_i, ims_err)
-                call MPI_Group_free(world_group, ims_err)
-                call MPI_Group_free(node_i_group, ims_err)
-                call MPI_Group_free(fresh_i_group, ims_err)
-                deallocate(world_ranks, local_ranks)
-            end block
             ! Bug A fix: bind recv_i via own-rank query result (not win_baseptr).
-            ! apu_async_shmem_to_dir maps shmem-ranks to dir-ranks; our entry sets peer_i(ims_pro_i).
             call c_f_pointer(apu_async_peer_i(ims_pro_i), apu_async_recv_i, [apu_async_size_i])
             deallocate (apu_async_shmem_to_dir)
-            ! Debug: log locality + VAs + size sanity (cause 1 and 2 checks)
+            apu_async_node_comm_i = apu_async_shmem_comm  ! keep alive for runtime MPI_Barrier
+            call MPI_Comm_free(ims_comm_x_dup2, ims_err)  ! tainted dup no longer needed
+            ! Debug: log locality + VAs + size sanity
             block
                 integer(MPI_ADDRESS_KIND) :: dbg_va
                 write(500+ims_pro,'(a,i4,a,i12,a,i4,a,i4)') &
@@ -552,7 +523,6 @@ contains
                         '[INIT_FBD_I] PE', ims_pro, ' peer', ip, &
                         ' local=', apu_async_is_local_i(ip), ' VA=', dbg_va
                 end do
-                ! Cause 3: sanity-check window size vs flat_off upper bound
                 write(500+ims_pro,'(a,i4,a,i12,a,i12)') &
                     '[INIT_FBD_I] PE', ims_pro, ' max_flat_off=', &
                     (ims_npro_i-1)*apu_async_size_i/ims_npro_i, &
