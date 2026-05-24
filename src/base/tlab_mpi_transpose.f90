@@ -841,20 +841,20 @@ contains
             nullify (c_wrk_dp, apu_pfptr_k)
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-            ! K-Forward FABRIC_DIRECT: K-intra peers span different XCDs on MI300A
-            ! (global ranks 0,6,12,18 → XCDs 0,1,2,3). Cross-XCD CPU writes to the shared
-            ! window are NOT coherent — each XCD has independent CPU caches and MPI_Win_fence
-            ! only synchronizes MPI RMA ops, not raw pointer writes. GPU writes in separate
-            ! kernels on different XCDs are similarly incoherent. So ALL K-peers go through
-            ! plain MPI ISEND/IRECV; apu_async_recv_k is just used as the IRECV target buffer.
+            ! K-Forward FABRIC_DIRECT: K-intra peers span different XCDs on MI300A.
+            ! Cross-XCD GPU/CPU writes to the shared window are not cache-coherent, so ALL
+            ! K-peers go through plain MPI ISEND/IRECV.
+            ! Using apu_async_recv_k (MPI_Win_allocate_shared memory) as IRECV target fails
+            ! on Cray MPICH — Oz residual ~1.0 (data in wrong positions). Use the second half
+            ! of wrk_mpi_dp (indices size+1..2*size) as the IRECV target instead; first half
+            ! is already in use as the CPU-pack ISEND source.
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
             l = 0
-            ! Post IRECVs for ALL K-peers into our recv buffer.
-            ! Use local K-comm rank m on apu_async_mpi_comm_k (untainted dup of ims_comm_z).
+            ! Post IRECVs into wrk_mpi_dp(size+1..2*size) (IRECV target separate from ISEND source).
             do m = 0, ims_npro_k - 1
                 l = l + 1
-                call MPI_IRECV(apu_async_recv_k(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                call MPI_IRECV(wrk_mpi_dp(size + m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
             end do
             ! Pack ALL K-peers (strided a → flat c_wrk_dp) and post ISENDs.
@@ -871,9 +871,9 @@ contains
                                trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
             end do
             call MPI_WAITALL(l, request, status, ims_err)
-            ! CPU copy recv buffer → b.
+            ! CPU copy wrk_mpi_dp second half → b.
             do i = 1, size
-                b(i) = apu_async_recv_k(i)
+                b(i) = wrk_mpi_dp(size + i)
             end do
             nullify (c_wrk_dp)
 
@@ -965,22 +965,19 @@ contains
                         call MPI_IRECV(b(trp_plan%disp_r(nr) + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, ipr, ims_tag, ims_comm_z, request(l), ims_err)
                     end do
-                    ! Step 2: GPU gather: a (strided) → c_wrk_dp (flat)
+                    ! Step 2: CPU gather: a (strided) → c_wrk_dp (flat)
+                    ! NOTE: must be CPU-only. GPU !$omp target write to c_wrk_dp followed by
+                    ! CPU MPI_ISEND causes cache-coherency failures on cross-node sends on MI300A
+                    ! (GPU L2 not flushed to HBM before MPI reads it over the network fabric).
                     do m = 1, ims_npro_k
                         ns = maps_send_k(m) + 1
                         flat_off = (ns - 1)*nmax_p*nlines_p
                         disp_ns  = trp_plan%disp_s(ns)
-#ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2)
-#endif
                         do i = 0, nmax_p - 1
                             do j = 0, nlines_p - 1
                                 c_wrk_dp(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
                             end do
                         end do
-#ifdef USE_APU
-                        !$omp end target teams distribute parallel do
-#endif
                     end do
                     ! Step 3: post all ISENDs from flat c_wrk_dp
                     do m = 1, ims_npro_k
@@ -1246,16 +1243,17 @@ contains
             nullify (apu_pfptr_k)
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-            ! K-Backward FABRIC_DIRECT: same all-MPI approach as K-Forward (K-intra peers
-            ! are cross-XCD; shared-window CPU/GPU writes are not cache-coherent across XCDs).
+            ! K-Backward FABRIC_DIRECT: same all-MPI approach as K-Forward.
             ! b is already flat per-peer (b(m*chunk + i)), so ISEND directly from b.
+            ! Use c_wrk_dp (first half of wrk_mpi_dp) as IRECV target — not apu_async_recv_k
+            ! (shmem-allocated memory is unreliable as MPI buffer on Cray MPICH).
             size = trp_plan%size3d
+            call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
             l = 0
-            ! Post IRECVs for ALL K-peers into our recv buffer.
-            ! Use local K-comm rank m on apu_async_mpi_comm_k (untainted dup of ims_comm_z).
+            ! Post IRECVs into c_wrk_dp (normal allocate'd staging buffer).
             do m = 0, ims_npro_k - 1
                 l = l + 1
-                call MPI_IRECV(apu_async_recv_k(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
+                call MPI_IRECV(c_wrk_dp(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
             end do
             ! Post ISENDs for ALL K-peers from b (already flat).
@@ -1265,16 +1263,17 @@ contains
                                trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
             end do
             call MPI_WAITALL(l, request, status, ims_err)
-            ! Scatter recv buffer → strided a.
+            ! Scatter c_wrk_dp → strided a.
             do m = 0, ims_npro_k - 1
                 flat_off = m * nmax_p * nlines_p
                 disp_nr  = m * nlines_p
                 do i = 0, nmax_p - 1
                     do j = 0, nlines_p - 1
-                        a(disp_nr + i*npage + j + 1) = apu_async_recv_k(flat_off + i*nlines_p + j + 1)
+                        a(disp_nr + i*npage + j + 1) = c_wrk_dp(flat_off + i*nlines_p + j + 1)
                     end do
                 end do
             end do
+            nullify (c_wrk_dp)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
 #endif
