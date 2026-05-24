@@ -1043,6 +1043,9 @@ contains
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k
         mas      = nmax_p * nlines_p
+        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[KFC_cx_pre] PE ', ims_pro, &
+            ' re=', real(sum(a)), ' im=', aimag(sum(a))
+        flush(500+ims_pro)
 
         ! ==================================================================== !
         ! APU_DIRECT path — fused GPU kernel; same logic as real version but   !
@@ -1125,6 +1128,9 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
+        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[KFC_cx_post] PE ', ims_pro, &
+            ' re=', real(sum(b)), ' im=', aimag(sum(b))
+        flush(500+ims_pro)
         return
     end subroutine TLabMPI_Trp_ExecK_Forward_Complex
 
@@ -1451,6 +1457,9 @@ contains
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k
         mas      = nmax_p * nlines_p
+        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[KBC_cx_pre] PE ', ims_pro, &
+            ' re=', real(sum(b)), ' im=', aimag(sum(b))
+        flush(500+ims_pro)
 
         ! ==================================================================== !
         ! APU_DIRECT path — fused GPU kernels; inverse of K-Forward_Complex.   !
@@ -1492,6 +1501,12 @@ contains
                 trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
                 size = trp_plan%size3d
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
+                ! Flush GPU L2 → HBM: `b` is written by FDM_Int2_Solve_APU + local Y-backward
+                ! transpose (both !$omp target GPU kernels). Without this flush the CPU ISEND
+                ! reads stale HBM values → wrong Poisson solve → wrong 0th-iteration diagnostics.
+#ifdef USE_APU
+                !$omp target update from(b)
+#endif
                 ! ISEND/IRECV in batches; recv into flat c_wrk_cx.
                 ! For FABRIC_DIRECT: ips/ipr are K-ranks (= peer pro_k); global = pro_k*npro_i + ims_pro_i.
                 do j = 1, ims_npro_k, trp_sizBlock_k
@@ -1530,6 +1545,9 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
+        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[KBC_cx_post] PE ', ims_pro, &
+            ' re=', real(sum(a)), ' im=', aimag(sum(a))
+        flush(500+ims_pro)
         return
     end subroutine TLabMPI_Trp_ExecK_Backward_Complex
 
@@ -1661,14 +1679,23 @@ contains
             end do
             write(500+ims_pro,'(a)') '[IFR_S4]'
             flush(500+ims_pro)
-            ! Flush GPU L2 → HBM so CPU MPI_ISEND reads correct values.
-            ! GPU physics kernels write `a`; without this, stale cache data is sent.
-            !$omp target update from(a)
-            ! ISENDs
+            ! CPU pack a → wrk_mpi_dp second half (Fix H revised: same pattern as KFR Fix G).
+            ! !$omp target update from(a) is a no-op on APU unified memory — the array is not
+            ! in the device data environment. CPU reads GPU-written a correctly via hardware
+            ! cache coherency on MI300A; MPI flushes CPU cache to HBM before NIC DMA reads it.
+            do m = 1, ims_npro_i
+                ns    = maps_send_i(m) + 1
+                flat_off = (ns - 1)*nmax_p*nlines_p
+                disp_nr  = trp_plan%disp_s(ns)
+                do i = 1, nmax_p*nlines_p
+                    wrk_mpi_dp(size + flat_off + i) = a(disp_nr + i)
+                end do
+            end do
+            ! ISENDs from second half of wrk_mpi_dp (CPU-written, coherent with NIC DMA)
             do m = 1, ims_npro_i
                 ns = maps_send_i(m) + 1; ips = ns - 1
                 l = l + 1
-                call MPI_ISEND(a(trp_plan%disp_s(ns) + 1), nmax_p*nlines_p, &
+                call MPI_ISEND(wrk_mpi_dp(size + (ns - 1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
             end do
             write(500+ims_pro,'(a)') '[IFR_S8]'
@@ -1774,10 +1801,13 @@ contains
             else
                 ! Double-precision path
                 if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
-                    ! a is already flat; ISEND directly, recv into c_wrk_dp, scatter to strided b.
+                    ! a is flat; CPU pack into wrk_mpi_dp second half before ISEND.
+                    ! Direct ISEND from GPU-written a would send stale HBM on cross-node paths;
+                    ! CPU pack reads a via hardware cache coherency (correct on MI300A), then
+                    ! MPI flushes CPU cache to HBM before NIC DMA.
                     size = trp_plan%size3d
                     call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
-                    ! Step 1: IRECVs
+                    ! Step 1: IRECVs into first half of wrk_mpi_dp
                     l = 0
                     do m = 1, ims_npro_i
                         nr = maps_recv_i(m) + 1; ipr = nr - 1
@@ -1785,16 +1815,25 @@ contains
                         call MPI_IRECV(c_wrk_dp((nr-1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
                     end do
-                    ! Step 2: ISENDs from flat a
+                    ! Step 2: CPU pack a → second half of wrk_mpi_dp
+                    do m = 1, ims_npro_i
+                        ns    = maps_send_i(m) + 1
+                        flat_off = (ns - 1)*nmax_p*nlines_p
+                        disp_nr  = trp_plan%disp_s(ns)
+                        do i = 1, nmax_p*nlines_p
+                            wrk_mpi_dp(size + flat_off + i) = a(disp_nr + i)
+                        end do
+                    end do
+                    ! Step 3: ISENDs from second half (CPU-written, coherent with NIC DMA)
                     do m = 1, ims_npro_i
                         ns = maps_send_i(m) + 1; ips = ns - 1
                         l = l + 1
-                        call MPI_ISEND(a(trp_plan%disp_s(ns) + 1), nmax_p*nlines_p, &
+                        call MPI_ISEND(wrk_mpi_dp(size + (ns - 1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
                     end do
-                    ! Step 3: WAITALL
+                    ! Step 4: WAITALL
                     call MPI_WAITALL(l, request, status, ims_err)
-                    ! Step 4: GPU scatter flat c_wrk_dp → strided b
+                    ! Step 5: GPU scatter flat c_wrk_dp → strided b
                     do m = 1, ims_npro_i
                         nr = maps_recv_i(m) + 1
                         flat_off = (nr - 1)*nmax_p*nlines_p
@@ -1861,6 +1900,9 @@ contains
         nmax_p    = trp_plan%nmax
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i
+        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[IFC_cx_pre] PE ', ims_pro, &
+            ' re=', real(sum(a)), ' im=', aimag(sum(a))
+        flush(500+ims_pro)
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
@@ -1945,6 +1987,9 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
+        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[IFC_cx_post] PE ', ims_pro, &
+            ' re=', real(sum(b)), ' im=', aimag(sum(b))
+        flush(500+ims_pro)
         return
     end subroutine TLabMPI_Trp_ExecI_Forward_Complex
 
@@ -2079,9 +2124,10 @@ contains
             end do
             write(500+ims_pro,'(a)') '[IBR_S4]'
             flush(500+ims_pro)
-            ! Flush GPU L2 → HBM so CPU pack loop reads correct values from `b`.
-            !$omp target update from(b)
-            ! Pack b → c_wrk_dp (strided → flat)
+            ! CPU pack b → c_wrk_dp (strided → flat).
+            ! GPU-written b is readable by CPU via hardware cache coherency on MI300A.
+            ! MPI then flushes CPU cache to HBM before NIC DMA reads c_wrk_dp.
+            ! !$omp target update from(b) is a no-op on APU unified memory — do not use.
             do m = 1, ims_npro_i
                 ns = maps_recv_i(m) + 1
                 flat_off = (ns - 1)*nmax_p*nlines_p
@@ -2194,7 +2240,7 @@ contains
             else
                 ! Double-precision path.
                 if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS) then
-                    ! Pipeline: post IRECVs → GPU strided→flat pack → ISENDs → WAITALL.
+                    ! Pipeline: post IRECVs → CPU strided→flat pack → ISENDs → WAITALL.
                     size = trp_plan%size3d
                     call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
                     ! Step 1: post all IRECVs into flat a recv slots before pack starts.
@@ -2205,22 +2251,18 @@ contains
                         call MPI_IRECV(a(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, &
                                        trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
                     end do
-                    ! Step 2: GPU pack b→c_wrk_dp (strided→flat) while network prepares recv buffers.
+                    ! Step 2: CPU pack b→c_wrk_dp (strided→flat); no !$omp target (Fix G pattern).
+                    ! GPU-written b is readable by CPU via cache coherency on MI300A.
+                    ! !$omp target pack followed by MPI_ISEND sends stale HBM on cross-node paths.
                     do m = 1, ims_npro_i
                         ns = maps_recv_i(m) + 1
                         flat_off = (ns - 1)*nmax_p*nlines_p
                         disp_ns  = trp_plan%disp_r(ns)
-#ifdef USE_APU
-                        !$omp target teams distribute parallel do collapse(2)
-#endif
                         do i = 0, nlines_p - 1
                             do j = 0, nmax_p - 1
                                 c_wrk_dp(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
                             end do
                         end do
-#ifdef USE_APU
-                        !$omp end target teams distribute parallel do
-#endif
                     end do
                     ! Step 3: post all ISENDs from packed flat c_wrk_dp.
                     do m = 1, ims_npro_i
@@ -2281,6 +2323,9 @@ contains
         nmax_p    = trp_plan%nmax
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i
+        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[IBC_cx_pre] PE ', ims_pro, &
+            ' re=', real(sum(b)), ' im=', aimag(sum(b))
+        flush(500+ims_pro)
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
@@ -2361,6 +2406,9 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
+        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[IBC_cx_post] PE ', ims_pro, &
+            ' re=', real(sum(a)), ' im=', aimag(sum(a))
+        flush(500+ims_pro)
         return
     end subroutine TLabMPI_Trp_ExecI_Backward_Complex
 
