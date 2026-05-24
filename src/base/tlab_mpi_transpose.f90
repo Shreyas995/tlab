@@ -1661,6 +1661,9 @@ contains
             end do
             write(500+ims_pro,'(a)') '[IFR_S4]'
             flush(500+ims_pro)
+            ! Flush GPU L2 → HBM so CPU MPI_ISEND reads correct values.
+            ! GPU physics kernels write `a`; without this, stale cache data is sent.
+            !$omp target update from(a)
             ! ISENDs
             do m = 1, ims_npro_i
                 ns = maps_send_i(m) + 1; ips = ns - 1
@@ -2076,6 +2079,8 @@ contains
             end do
             write(500+ims_pro,'(a)') '[IBR_S4]'
             flush(500+ims_pro)
+            ! Flush GPU L2 → HBM so CPU pack loop reads correct values from `b`.
+            !$omp target update from(b)
             ! Pack b → c_wrk_dp (strided → flat)
             do m = 1, ims_npro_i
                 ns = maps_recv_i(m) + 1
