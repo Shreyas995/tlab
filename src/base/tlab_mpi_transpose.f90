@@ -1679,18 +1679,19 @@ contains
             end do
             write(500+ims_pro,'(a)') '[IFR_S4]'
             flush(500+ims_pro)
-            ! CPU pack a → wrk_mpi_dp second half (Fix H revised: same pattern as KFR Fix G).
-            ! !$omp target update from(a) is a no-op on APU unified memory — the array is not
-            ! in the device data environment. CPU reads GPU-written a correctly via hardware
-            ! cache coherency on MI300A; MPI flushes CPU cache to HBM before NIC DMA reads it.
-            do m = 1, ims_npro_i
-                ns    = maps_send_i(m) + 1
-                flat_off = (ns - 1)*nmax_p*nlines_p
-                disp_nr  = trp_plan%disp_s(ns)
-                do i = 1, nmax_p*nlines_p
-                    wrk_mpi_dp(size + flat_off + i) = a(disp_nr + i)
-                end do
+            ! GPU pack a → wrk_mpi_dp second half. map(from:) forces GPU L2 flush of staging
+            ! to HBM at target exit. GPU reads a from GPU L2 (cache hit from physics kernel).
+            ! Since disp_s(ns) = flat_off for IFR, pack is a flat copy of a(1:size).
+#ifdef USE_APU
+            !$omp target teams distribute parallel do &
+            !$omp& map(from:wrk_mpi_dp(size+1:2*size))
+#endif
+            do i = 1, size
+                wrk_mpi_dp(size + i) = a(i)
             end do
+#ifdef USE_APU
+            !$omp end target teams distribute parallel do
+#endif
             ! ISENDs from second half of wrk_mpi_dp (CPU-written, coherent with NIC DMA)
             do m = 1, ims_npro_i
                 ns = maps_send_i(m) + 1; ips = ns - 1
@@ -2124,19 +2125,26 @@ contains
             end do
             write(500+ims_pro,'(a)') '[IBR_S4]'
             flush(500+ims_pro)
-            ! CPU pack b → c_wrk_dp (strided → flat).
-            ! GPU-written b is readable by CPU via hardware cache coherency on MI300A.
-            ! MPI then flushes CPU cache to HBM before NIC DMA reads c_wrk_dp.
-            ! !$omp target update from(b) is a no-op on APU unified memory — do not use.
+            ! GPU pack b (strided) → wrk_mpi_dp first half (flat) per peer chunk.
+            ! map(from:) per chunk forces GPU L2 flush of each packed block to HBM.
+            ! GPU reads b from GPU L2 (cache hit from physics kernel).
+            ! Write directly to wrk_mpi_dp to avoid c_f_pointer alias in map clause.
             do m = 1, ims_npro_i
                 ns = maps_recv_i(m) + 1
                 flat_off = (ns - 1)*nmax_p*nlines_p
                 disp_ns  = trp_plan%disp_r(ns)
+#ifdef USE_APU
+                !$omp target teams distribute parallel do collapse(2) &
+                !$omp& map(from:wrk_mpi_dp(flat_off+1:flat_off+nmax_p*nlines_p))
+#endif
                 do i = 0, nlines_p - 1
                     do j = 0, nmax_p - 1
-                        c_wrk_dp(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
+                        wrk_mpi_dp(flat_off + i*nmax_p + j + 1) = b(disp_ns + i*nmax_full + j + 1)
                     end do
                 end do
+#ifdef USE_APU
+                !$omp end target teams distribute parallel do
+#endif
             end do
             ! ISENDs from packed flat c_wrk_dp
             do m = 1, ims_npro_i
