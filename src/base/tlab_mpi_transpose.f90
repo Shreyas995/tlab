@@ -1703,7 +1703,7 @@ contains
             ! map(from:) in !$omp target is a no-op on APU unified memory (Cray runtime
             ! skips the device→host copy because source == destination physically).
 #ifdef USE_APU
-            call hip_write_with_fence(a(1), wrk_mpi_dp(size + 1), int(size, c_int))
+            call hip_write_with_fence(a(1:size), wrk_mpi_dp(size + 1), int(size, c_int))
 #else
             do i = 1, size
                 wrk_mpi_dp(size + i) = a(i)
