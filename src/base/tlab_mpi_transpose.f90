@@ -1683,7 +1683,8 @@ contains
             ! No shared window for I-direction: MPI_Win_allocate_shared on any I-direction
             ! sub-comm (XCD-local or full I-comm) corrupts CXI cross-XCD intra-node routing,
             ! causing WAITALL hangs (confirmed Hunter runs 2026-05-22/23). Use plain
-            ! ISEND/IRECV on ims_comm_x (never had a window; fully clean) for all 6 I-peers.
+            ! ISEND/IRECV on apu_async_mpi_comm_i (untainted dup of ims_comm_x, taken before
+            ! the K-direction MPI_Win_allocate_shared that taints ims_comm_x on Cray MPICH).
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
             ! IRECVs
@@ -1692,7 +1693,7 @@ contains
                 nr = maps_recv_i(m) + 1; ipr = nr - 1
                 l = l + 1
                 call MPI_IRECV(c_wrk_dp((nr - 1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                               trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
+                               trp_plan%base_type, ipr, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
             end do
             write(500+ims_pro,'(a)') '[IFR_S4]'
             flush(500+ims_pro)
@@ -1714,7 +1715,7 @@ contains
                 ns = maps_send_i(m) + 1; ips = ns - 1
                 l = l + 1
                 call MPI_ISEND(wrk_mpi_dp(size + (ns - 1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                               trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
+                               trp_plan%base_type, ips, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
             end do
             write(500+ims_pro,'(a)') '[IFR_S8]'
             flush(500+ims_pro)
@@ -2130,7 +2131,8 @@ contains
             nullify (c_wrk_dp, apu_pfptr_i)
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
             ! No shared window for I-direction — same reason as IFR.
-            ! Use plain ISEND/IRECV on ims_comm_x for all 6 I-peers.
+            ! Use apu_async_mpi_comm_i (untainted dup of ims_comm_x) — ims_comm_x is tainted
+            ! by the K-direction MPI_Win_allocate_shared on Cray MPICH (confirmed 2026-05-28).
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
             ! IRECVs into a directly (recv layout mirrors disp_s)
@@ -2139,7 +2141,7 @@ contains
                 nr = maps_send_i(m) + 1; ipr = nr - 1
                 l = l + 1
                 call MPI_IRECV(a(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, &
-                               trp_plan%base_type, ipr, ims_tag, ims_comm_x, request(l), ims_err)
+                               trp_plan%base_type, ipr, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
             end do
             write(500+ims_pro,'(a)') '[IBR_S4]'
             flush(500+ims_pro)
@@ -2172,7 +2174,7 @@ contains
                 ns = maps_recv_i(m) + 1; ips = ns - 1
                 l = l + 1
                 call MPI_ISEND(c_wrk_dp((ns - 1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                               trp_plan%base_type, ips, ims_tag, ims_comm_x, request(l), ims_err)
+                               trp_plan%base_type, ips, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
             end do
             write(500+ims_pro,'(a)') '[IBR_S8]'
             flush(500+ims_pro)
