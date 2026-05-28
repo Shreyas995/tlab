@@ -9,7 +9,7 @@ module TLabMPI_Transpose
     use TLab_Memory, only: imax, jmax, kmax, isize_wrk3d
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use TLab_Memory, only: TLab_Allocate_Real
-    use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc, c_null_ptr, c_associated, c_size_t, c_sizeof
+    use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc, c_null_ptr, c_associated, c_size_t, c_sizeof, c_int
     ! c_ptr / c_intptr_t are accessible via mpi_f08 (which re-exports iso_c_binding); re-declaring causes ambiguity.
     use TLabMPI_VARS
     implicit none
@@ -146,6 +146,11 @@ module TLabMPI_Transpose
             integer(c_size_t), value :: sz
             integer(c_int), value    :: flags
         end function
+
+        function hipDeviceSynchronize() bind(C, name='hipDeviceSynchronize') result(ierr)
+            use iso_c_binding
+            integer(c_int) :: ierr
+        end function hipDeviceSynchronize
     end interface
 #endif
 
@@ -1024,6 +1029,7 @@ contains
         integer :: send_to, recv_from, fbd_tag
 #ifdef USE_APU
         complex(dp), pointer :: apu_cx_all(:) => null()   ! complex view of apu_all_k across all peers
+        integer(c_int) :: hip_sync_err
 #endif
         type(MPI_Comm) :: trp_comm_k   ! dup of ims_comm_z; K-comm local rank = K-dir rank
 #ifdef USE_APU
@@ -1089,6 +1095,13 @@ contains
                 trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
                 size = trp_plan%size3d
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
+#ifdef USE_APU
+                ! For multi-node modes: a was written by GPU kernels (Helmholtz/Poisson RHS).
+                ! Flush GPU L2 → HBM so the CPU pack below reads correct data.
+                if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT .or. trp_mode_k == TLAB_MPI_TRP_APU_ASYNC) then
+                    hip_sync_err = hipDeviceSynchronize()
+                end if
+#endif
                 ! Pack: strided a → flat c_wrk_cx
                 do m = 1, ims_npro_k
                     ns = maps_send_k(m) + 1
@@ -1438,6 +1451,7 @@ contains
         integer :: send_to, recv_from, fbd_tag
 #ifdef USE_APU
         complex(dp), pointer :: apu_cx_all(:) => null()
+        integer(c_int) :: hip_sync_err
 #endif
         type(MPI_Comm) :: trp_comm_k   ! dup of ims_comm_z; K-comm local rank = K-dir rank
 #ifdef USE_APU
@@ -1501,11 +1515,14 @@ contains
                 trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
                 size = trp_plan%size3d
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
-                ! Flush GPU L2 → HBM: `b` is written by FDM_Int2_Solve_APU + local Y-backward
-                ! transpose (both !$omp target GPU kernels). Without this flush the CPU ISEND
-                ! reads stale HBM values → wrong Poisson solve → wrong 0th-iteration diagnostics.
 #ifdef USE_APU
-                !$omp target update from(b)
+                ! b was written by FDM_Int2_Solve_APU + local Y-backward transpose (GPU kernels).
+                ! Flush GPU L2 → HBM so CPU ISENDs send correct data.
+                ! !$omp target update from(b) is a no-op on APU unified memory (arrays not in
+                ! device data environment). Use hipDeviceSynchronize() for the actual flush.
+                if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT .or. trp_mode_k == TLAB_MPI_TRP_APU_ASYNC) then
+                    hip_sync_err = hipDeviceSynchronize()
+                end if
 #endif
                 ! ISEND/IRECV in batches; recv into flat c_wrk_cx.
                 ! For FABRIC_DIRECT: ips/ipr are K-ranks (= peer pro_k); global = pro_k*npro_i + ims_pro_i.
@@ -1679,18 +1696,18 @@ contains
             end do
             write(500+ims_pro,'(a)') '[IFR_S4]'
             flush(500+ims_pro)
-            ! GPU pack a → wrk_mpi_dp second half. map(from:) forces GPU L2 flush of staging
-            ! to HBM at target exit. GPU reads a from GPU L2 (cache hit from physics kernel).
-            ! Since disp_s(ns) = flat_off for IFR, pack is a flat copy of a(1:size).
+            ! Pack a(1:size) → wrk_mpi_dp(size+1:2*size) and flush GPU L2 → HBM.
+            ! hip_write_with_fence: HIP kernel reads a from GPU L2, writes to staging,
+            ! then issues __threadfence_system() (buffer_wbl2 sc0:1 sc1:1 on GFX94) +
+            ! hipDeviceSynchronize() to guarantee all writes reach HBM before CPU ISENDs.
+            ! map(from:) in !$omp target is a no-op on APU unified memory (Cray runtime
+            ! skips the device→host copy because source == destination physically).
 #ifdef USE_APU
-            !$omp target teams distribute parallel do &
-            !$omp& map(from:wrk_mpi_dp(size+1:2*size))
-#endif
+            call hip_write_with_fence(a(1), wrk_mpi_dp(size + 1), int(size, c_int))
+#else
             do i = 1, size
                 wrk_mpi_dp(size + i) = a(i)
             end do
-#ifdef USE_APU
-            !$omp end target teams distribute parallel do
 #endif
             ! ISENDs from second half of wrk_mpi_dp (CPU-written, coherent with NIC DMA)
             do m = 1, ims_npro_i
@@ -2007,6 +2024,7 @@ contains
 #ifdef USE_APU
         real(dp), pointer, contiguous :: apu_pfptr_i(:) => null()   ! scratch pointer for APU_ASYNC/FABRIC_DIRECT per-peer writes
         real(dp), pointer, contiguous :: c_wrk_dp_recv(:) => null() ! clean recv buffer (NOT shared-window-aliased) for MPI IRECVs
+        integer(c_int) :: hip_sync_err
 #endif
 
         ! #######################################################################
@@ -2126,16 +2144,15 @@ contains
             write(500+ims_pro,'(a)') '[IBR_S4]'
             flush(500+ims_pro)
             ! GPU pack b (strided) → wrk_mpi_dp first half (flat) per peer chunk.
-            ! map(from:) per chunk forces GPU L2 flush of each packed block to HBM.
             ! GPU reads b from GPU L2 (cache hit from physics kernel).
-            ! Write directly to wrk_mpi_dp to avoid c_f_pointer alias in map clause.
+            ! map(from:) is a no-op on APU unified memory; instead, call hipDeviceSynchronize()
+            ! once after all packs to guarantee GPU L2 → HBM flush before CPU ISENDs.
             do m = 1, ims_npro_i
                 ns = maps_recv_i(m) + 1
                 flat_off = (ns - 1)*nmax_p*nlines_p
                 disp_ns  = trp_plan%disp_r(ns)
 #ifdef USE_APU
-                !$omp target teams distribute parallel do collapse(2) &
-                !$omp& map(from:wrk_mpi_dp(flat_off+1:flat_off+nmax_p*nlines_p))
+                !$omp target teams distribute parallel do collapse(2)
 #endif
                 do i = 0, nlines_p - 1
                     do j = 0, nmax_p - 1
@@ -2146,6 +2163,10 @@ contains
                 !$omp end target teams distribute parallel do
 #endif
             end do
+#ifdef USE_APU
+            ! Flush GPU L2 → HBM after all strided packs so CPU ISENDs read correct data.
+            hip_sync_err = hipDeviceSynchronize()
+#endif
             ! ISENDs from packed flat c_wrk_dp
             do m = 1, ims_npro_i
                 ns = maps_recv_i(m) + 1; ips = ns - 1
