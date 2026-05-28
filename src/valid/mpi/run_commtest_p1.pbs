@@ -1,0 +1,27 @@
+#!/bin/bash
+#PBS -N commtest_p1
+#PBS -l select=2:node_type=mi300a:mpiprocs=24
+#PBS -l walltime=00:02:00
+
+# Phase 1: dup(ims_comm_x), hipDevSync AFTER IRECVs  [current broken code]
+# Expected: hang — job will be killed at 2 min walltime
+# Output files: fort.100 to fort.147 (one per rank)
+# Diagnosis: check which ranks printed [S4] but not [Ssync] -> stuck in hipDevSync
+#            check which ranks printed [S8] but not [S9]    -> stuck in WAITALL
+
+ulimit -c unlimited
+export HSA_XNACK=1
+export MPICH_GPU_SUPPORT_ENABLED=1
+export OMP_NUM_THREADS=1
+
+cd /zhome/academic/HLRS/xub/xkodeshp/Curta_data/1152x432x1152_debug
+
+hipcc -c hip_write_fence.hip -o hip_write_fence.o
+ftn -DUSE_APU vmpi_commtest_p1.f90 hip_write_fence.o -lamdhip64 -o vmpi_commtest_p1.x
+
+mpirun -np 48 --ppn 24 \
+ --cpu-bind list:0:1:2:3:4:5:24:25:26:27:28:29:48:49:50:51:52:53:72:73:74:75:76:77 \
+ --gpu-bind list:0:0:0:0:0:0:1:1:1:1:1:1:2:2:2:2:2:2:3:3:3:3:3:3 \
+ ./vmpi_commtest_p1.x > output_p1.log 2>&1
+
+echo "Phase 1 done (or timed out)"

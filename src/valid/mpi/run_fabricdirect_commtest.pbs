@@ -1,0 +1,47 @@
+#!/bin/bash
+#PBS -N fab_commtest
+#PBS -l select=2:node_type=mi300a:mpiprocs=24
+#PBS -l walltime=00:05:00
+#PBS -j oe
+
+# ---------------------------------------------------------------
+# USAGE: submit with -v PHASE=<1|2|3|4>
+#
+#   qsub -v PHASE=1 run_fabricdirect_commtest.pbs   # current code — will hang
+#   qsub -v PHASE=2 run_fabricdirect_commtest.pbs   # dup(ims_comm_x), sync before IRECVs
+#   qsub -v PHASE=3 run_fabricdirect_commtest.pbs   # MPI_Comm_split, sync after IRECVs
+#   qsub -v PHASE=4 run_fabricdirect_commtest.pbs   # MPI_Comm_split, sync before (proposed fix)
+#
+# If PHASE is not set, all 4 phases run sequentially — ONLY do this if Phase 1
+# is known not to hang (i.e., after confirming the fix works).
+#
+# Each phase is independent: a hang in one phase does NOT affect other jobs.
+# Phase 1 is expected to hang (it reproduces the current bug); its job will
+# be killed at walltime (5 min). Phases 2-4 should complete quickly (~30s).
+# ---------------------------------------------------------------
+
+PHASE=${PHASE:-0}   # 0 = run all phases (only safe after fix is confirmed)
+
+ulimit -c unlimited
+export HSA_XNACK=1
+export MPICH_GPU_SUPPORT_ENABLED=1
+export OMP_NUM_THREADS=1
+
+cd $PBS_O_WORKDIR
+
+# Build once (idempotent)
+if [ ! -f vmpi_fabricdirect_commtest.x ]; then
+    hipcc -c hip_write_fence.hip -o hip_write_fence.o
+    ftn -DUSE_APU vmpi_fabricdirect_commtest.f90 hip_write_fence.o -lamdhip64 \
+        -o vmpi_fabricdirect_commtest.x
+fi
+
+echo "Running phase=${PHASE}  decomp=8x6  chunk=500"
+
+mpirun -np 48 --ppn 24 \
+    --cpu-bind list:0:1:2:3:4:5:24:25:26:27:28:29:48:49:50:51:52:53:72:73:74:75:76:77 \
+    --gpu-bind list:0:0:0:0:0:0:1:1:1:1:1:1:2:2:2:2:2:2:3:3:3:3:3:3 \
+    ./vmpi_fabricdirect_commtest.x 8 6 500 ${PHASE} \
+    2>&1 | tee commtest_phase${PHASE}.log
+
+echo "Job done (or timed out)"

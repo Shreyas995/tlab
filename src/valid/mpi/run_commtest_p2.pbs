@@ -1,0 +1,26 @@
+#!/bin/bash
+#PBS -N commtest_p2
+#PBS -l select=2:node_type=mi300a:mpiprocs=24
+#PBS -l walltime=00:02:00
+
+# Phase 2: dup(ims_comm_x), hipDevSync BEFORE IRECVs
+# Expected: may fix the hang — if all ranks reach [S9]+[RESULT] PASS,
+#           the sync ORDER alone is sufficient (communicator not the issue)
+# Output files: fort.200 to fort.247 (one per rank)
+
+ulimit -c unlimited
+export HSA_XNACK=1
+export MPICH_GPU_SUPPORT_ENABLED=1
+export OMP_NUM_THREADS=1
+
+cd /zhome/academic/HLRS/xub/xkodeshp/Curta_data/1152x432x1152_debug
+
+hipcc -c hip_write_fence.hip -o hip_write_fence.o
+ftn -DUSE_APU vmpi_commtest_p2.f90 hip_write_fence.o -lamdhip64 -o vmpi_commtest_p2.x
+
+mpirun -np 48 --ppn 24 \
+ --cpu-bind list:0:1:2:3:4:5:24:25:26:27:28:29:48:49:50:51:52:53:72:73:74:75:76:77 \
+ --gpu-bind list:0:0:0:0:0:0:1:1:1:1:1:1:2:2:2:2:2:2:3:3:3:3:3:3 \
+ ./vmpi_commtest_p2.x > output_p2.log 2>&1
+
+echo "Phase 2 done (or timed out)"
