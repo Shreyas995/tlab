@@ -17,7 +17,7 @@ export OMP_NUM_THREADS=1
 cd /zhome/academic/HLRS/xub/xkodeshp/Curta_data/1152x432x1152_debug
 
 hipcc -c hip_write_fence.hip -o hip_write_fence.o
-ftn -DUSE_APU vmpi_commtest_p3.f90 hip_write_fence.o -lamdhip64 -o vmpi_commtest_p3.x
+ftn -eZ -DUSE_APU vmpi_commtest_p3.f90 hip_write_fence.o -lamdhip64 -o vmpi_commtest_p3.x
 
 mpirun -np 48 --ppn 24 \
  --cpu-bind list:0:1:2:3:4:5:24:25:26:27:28:29:48:49:50:51:52:53:72:73:74:75:76:77 \
