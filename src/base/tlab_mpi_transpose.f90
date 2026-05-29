@@ -420,16 +420,20 @@ contains
         ! is allocated only over that sub-communicator. Ranks absent from it are inter-node
         ! peers, handled via standard ISEND/IRECV (APU_ASYNC) or one-sided MPI_Put (FABRIC_DIRECT,
         ! which additionally exposes the recv buffer as an RMA window over the full transpose comm).
-        ! Take BOTH MPI_Comm_dup's FIRST, before ANY MPI_Win_allocate_shared.
-        ! On Cray MPICH, allocating an MPI_Win_allocate_shared window on a MPI_Comm_split_type
-        ! sub-comm taints the parent directional comm for two-sided traffic. A dup taken BEFORE
-        ! any shared-window allocation lies outside the tainted lineage and stays clean.
-        ! Both dups are taken together here so neither inherits the other direction's taint.
+        ! Create fresh MPI_Comm_split communicators for two-sided MPI traffic.
+        ! On Cray MPICH, MPI_Win_allocate_shared on a MPI_Comm_split_type sub-comm taints the
+        ! parent Cartesian comm AND any dup of it (even a dup taken before allocation) for
+        ! two-sided traffic — confirmed by standalone commtest on Hunter (2026-05-29):
+        ! dup(ims_comm_x) delivered wrong data for all 48 ranks regardless of dup timing;
+        ! MPI_Comm_split(MPI_COMM_WORLD, ...) passed all 48 ranks cleanly.
+        ! MPI_Comm_split uses MPI_COMM_WORLD lineage only — no Cartesian taint possible.
+        ! color=ims_pro_k groups all same-K-row ranks (= I-direction peers, local rank = ims_pro_i).
+        ! color=ims_pro_i groups all same-I-column ranks (= K-direction peers, local rank = ims_pro_k).
         if ((trp_mode_k == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) .and. ims_npro_k > 1) then
-            call MPI_Comm_dup(ims_comm_z, apu_async_mpi_comm_k, ims_err)
+            call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_i, ims_pro_k, apu_async_mpi_comm_k, ims_err)
         end if
         if ((trp_mode_i == TLAB_MPI_TRP_APU_ASYNC .or. trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) .and. ims_npro_i > 1) then
-            call MPI_Comm_dup(ims_comm_x, apu_async_mpi_comm_i, ims_err)
+            call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_k, ims_pro_i, apu_async_mpi_comm_i, ims_err)
             ! Second dup: split_type parent for the I shared window. Only needed for APU_ASYNC;
             ! FABRIC_DIRECT uses no I shared window — allocating MPI_Win_allocate_shared on any
             ! I-direction sub-comm corrupts CXI cross-XCD intra-node routing on Hunter MI300A,
