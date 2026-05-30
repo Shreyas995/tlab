@@ -1854,8 +1854,12 @@ contains
         ! I-Forward (complex): flat I-space chunks in a → strided X-space layout in b.
         ! a(m*chunk + i) where chunk = nmax_p*nlines_p, m = peer index, i = local element.
         ! b(m*nmax_p + i*nmax_full + j + 1): strided with full-width stride nmax_full = nmax_p*npro.
+        ! b is assumed-size (*): the caller passes a single column (e.g. c_out(:,1)) of a
+        ! contiguous [nmax_full, nlines] array, and this routine indexes it linearly across all
+        ! nlines. Assumed-shape b(:) would capture only nmax_full elements, making every write
+        ! with i>=1 a formal out-of-bounds access (harmless at -O0, miscompiled/aborted at -O2).
         complex(wp), intent(in) :: a(:)
-        complex(wp), intent(out) :: b(:)
+        complex(wp), intent(out) :: b(*)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_nr
         integer :: send_to, recv_from, fbd_tag   ! FABRIC_DIRECT: global rank + distinct tag
@@ -2276,7 +2280,10 @@ contains
         ! I-Backward (complex): inverse of I-Forward. Reverses strided X-space (b) → flat I-space (a).
         ! b(m*nmax_p + i*nmax_full + j + 1): strided X-space, nmax_full = nmax_p*npro.
         ! a: flat output, chunks of nmax_p*nlines_p per peer (mirrors forward input layout).
-        complex(wp), intent(in) :: b(:)
+        ! b is assumed-size (*): the caller passes a single column (e.g. wrk1(:,1)) of a
+        ! contiguous [nmax_full, nlines] array, read linearly across all nlines here. Assumed-shape
+        ! b(:) would capture only nmax_full elements -> formal out-of-bounds read for i>=1.
+        complex(wp), intent(in) :: b(*)
         complex(wp), intent(out) :: a(:)
         type(tmpi_transpose_dt), intent(in) :: trp_plan
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_ns
