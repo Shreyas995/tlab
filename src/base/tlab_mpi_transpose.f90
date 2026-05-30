@@ -418,6 +418,21 @@ contains
             do ip = 0, ims_npro_i - 1
                 call MPI_Win_shared_query(apu_win_i, ip, win_query_size, win_disp_unit, apu_peer_cptr_i(ip), ims_err)
             end do
+            ! DIAGNOSTIC: dump each peer segment address + delta from peer 0 to check contiguity.
+            ! Contiguous (info key honored)  -> delta(ip) == ip * apu_size_i * 8 bytes.
+            ! Non-contiguous (Cray ignored)  -> delta jumps by 2x, or is non-monotonic/per-XCD.
+            block
+                integer(MPI_ADDRESS_KIND) :: dbg_va0, dbg_vam
+                integer :: ip2
+                dbg_va0 = transfer(apu_peer_cptr_i(0), dbg_va0)
+                do ip2 = 0, ims_npro_i - 1
+                    dbg_vam = transfer(apu_peer_cptr_i(ip2), dbg_vam)
+                    write(500+ims_pro,'(a,i4,a,i3,a,i20,a,i20,a,i20)') '[INIT_APU_I] PE', ims_pro, &
+                        ' peer', ip2, ' VA=', dbg_vam, ' delta=', dbg_vam - dbg_va0, &
+                        ' expect=', int(ip2,MPI_ADDRESS_KIND)*int(apu_size_i,MPI_ADDRESS_KIND)*8_MPI_ADDRESS_KIND
+                end do
+                flush(500+ims_pro)
+            end block
             ! apu_all_i spans all peers' segments as one contiguous block. Validity now relies on
             ! alloc_shared_noncontig=false (win_info_contig) forcing Cray MPICH to lay the segments
             ! out back-to-back; otherwise the per-XCD/guard-region layout breaks this span on multi-node.
@@ -1583,7 +1598,13 @@ contains
         if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
             ! -- Push: a is flat; one fused kernel writes our chunk to ALL peers simultaneously.
             size = trp_plan%size3d
+            write(500+ims_pro,'(a,i4,a,i12,a,i6,a,i6,a,i6,a,i14,a,i14)') '[IFR_APU_0] PE', ims_pro, &
+                ' size=', size, ' npro_i=', ims_npro_i, ' nmax_p=', nmax_p, ' nlines_p=', nlines_p, &
+                ' max_write_idx=', (ims_npro_i-1)*apu_stride_i + ims_pro_i*nmax_p*nlines_p + nmax_p*nlines_p, &
+                ' span=', apu_stride_i*ims_npro_i
+            flush(500+ims_pro)
             call MPI_Win_fence(0, apu_win_i, ims_err)
+            write(500+ims_pro,'(a)') '[IFR_APU_1] post fence1'; flush(500+ims_pro)
             !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_i - 1
                 do i = 1, nmax_p * nlines_p
@@ -1592,7 +1613,9 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            write(500+ims_pro,'(a)') '[IFR_APU_2] post push kernel'; flush(500+ims_pro)
             call MPI_Win_fence(0, apu_win_i, ims_err)   ! barrier: recv buffer fully populated
+            write(500+ims_pro,'(a)') '[IFR_APU_3] post fence2'; flush(500+ims_pro)
             ! -- Unpack: recv buffer holds sorted flat chunks; scatter to strided b in one fused kernel.
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
@@ -1605,6 +1628,7 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            write(500+ims_pro,'(a)') '[IFR_APU_4] post unpack kernel'; flush(500+ims_pro)
 
         else if (trp_mode_i == TLAB_MPI_TRP_APU_ASYNC) then
             ! Hybrid I-forward: intra-node peers via direct writes; inter-node via MPI.
