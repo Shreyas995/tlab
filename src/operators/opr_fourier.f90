@@ -229,6 +229,7 @@ contains
 #ifdef USE_MPI
         integer(wi) i, iold, inew, ip, isize_line
         complex(wp), pointer :: wrk1(:, :) => null()
+        complex(wp), pointer :: wrk1_1d(:) => null()   ! full-size rank-1 view for the transpose
         real(wp), pointer :: r_out(:) => null()
 #endif
 
@@ -237,6 +238,7 @@ contains
 #ifdef USE_MPI
         if (ims_npro_i > 1) then
             call c_f_pointer(c_loc(wrk3d), wrk1, shape=[(nx/2 + 1)*ims_npro_i, tmpi_plan_dx%nlines])
+            call c_f_pointer(c_loc(wrk3d), wrk1_1d, shape=[(nx/2 + 1)*ims_npro_i*tmpi_plan_dx%nlines])
             call c_f_pointer(c_loc(out), r_out, shape=[isize_txc_field])
 
             call TLabMPI_Trp_ExecI_Forward(in(:), r_out(:), tmpi_plan_dx)
@@ -259,9 +261,12 @@ contains
                 end do
             end if
 
-            call TLabMPI_Trp_ExecI_Backward(wrk1(:, 1), out(:), tmpi_plan_fftx)
+            ! Pass the full [nmax_full*nlines] rank-1 view (wrk1_1d aliases the same wrk3d memory
+            ! as wrk1): the transpose indexes b linearly across all nlines. A single column
+            ! wrk1(:,1) would be a too-small assumed-shape actual -> out-of-bounds at -O2.
+            call TLabMPI_Trp_ExecI_Backward(wrk1_1d, out(:), tmpi_plan_fftx)
 
-            nullify (wrk1, r_out)
+            nullify (wrk1, wrk1_1d, r_out)
 
         else
 #endif
@@ -287,6 +292,7 @@ contains
 #ifdef USE_MPI
         integer(wi) i, ip, iold, inew, isize_line
         real(wp), pointer :: r_in(:) => null()
+        complex(wp), pointer :: c_out_1d(:) => null()   ! full-size rank-1 view for the transpose
 #endif
 
         !########################################################################
@@ -294,8 +300,12 @@ contains
         if (ims_npro_i > 1) then
             call c_f_pointer(c_loc(in), r_in, shape=[isize_txc_field])
             call c_f_pointer(c_loc(out), c_out, shape=[(nx/2 + 1)*ims_npro_i, tmpi_plan_dx%nlines])
+            call c_f_pointer(c_loc(out), c_out_1d, shape=[(nx/2 + 1)*ims_npro_i*tmpi_plan_dx%nlines])
 
-            call TLabMPI_Trp_ExecI_Forward(in(:), c_out(:, 1), tmpi_plan_fftx)
+            ! Pass the full [nmax_full*nlines] rank-1 view (c_out_1d aliases the same out memory
+            ! as c_out): the transpose writes b linearly across all nlines. A single column
+            ! c_out(:,1) would be a too-small assumed-shape actual -> out-of-bounds at -O2.
+            call TLabMPI_Trp_ExecI_Forward(in(:), c_out_1d, tmpi_plan_fftx)
 
             if (fft_reordering_i) then      ! reorganize a (FFTW make a stride in a already before)
                 isize_line = nx/2 + 1
@@ -317,7 +327,7 @@ contains
 
             call TLabMPI_Trp_ExecI_Backward(r_in(:), out(:), tmpi_plan_dx) !tmpi_plan_fftx1)
 
-            nullify (r_in, c_out)
+            nullify (r_in, c_out, c_out_1d)
 
         else
 #endif
