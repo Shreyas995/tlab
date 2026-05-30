@@ -491,22 +491,10 @@ contains
             ! Debug: log locality + VAs + size sanity
             block
                 integer(MPI_ADDRESS_KIND) :: dbg_va
-                write(500+ims_pro,'(a,i4,a,i12,a,i4,a,i4)') &
-                    '[INIT_FBD_I] PE', ims_pro, ' size=', apu_async_size_i, &
-                    ' npro_i=', ims_npro_i, ' pro_i=', ims_pro_i
                 dbg_va = transfer(c_loc(apu_async_recv_i(1)), dbg_va)
-                write(500+ims_pro,'(a,i4,a,i22)') '[INIT_FBD_I] PE', ims_pro, ' own_VA=', dbg_va
                 do ip = 0, ims_npro_i - 1
                     dbg_va = transfer(apu_async_peer_i(ip), dbg_va)
-                    write(500+ims_pro,'(a,i4,a,i4,a,l1,a,i22)') &
-                        '[INIT_FBD_I] PE', ims_pro, ' peer', ip, &
-                        ' local=', apu_async_is_local_i(ip), ' VA=', dbg_va
                 end do
-                write(500+ims_pro,'(a,i4,a,i12,a,i12)') &
-                    '[INIT_FBD_I] PE', ims_pro, ' max_flat_off=', &
-                    (ims_npro_i-1)*apu_async_size_i/ims_npro_i, &
-                    ' size=', apu_async_size_i
-                flush(500+ims_pro)
             end block
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: I APU_ASYNC recv buffer setup complete.')
         end if
@@ -749,8 +737,6 @@ contains
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k   ! total Z-lines across all K ranks
         mas      = nmax_p * nlines_p       ! elements per peer chunk
-
-        write(500+ims_pro,'(a,i4,a,g20.6)') '[KFR_pre] PE', ims_pro, ' sum(a)=', sum(a); flush(500+ims_pro)
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between peer recv buffers.            !
@@ -1008,8 +994,6 @@ contains
         end if   ! end APU/CPU dispatch
 #endif
 
-        write(500+ims_pro,'(a,i4,a,g20.6)') '[KFR_post] PE', ims_pro, ' sum(b)=', sum(b); flush(500+ims_pro)
-
 #ifdef PROFILE_ON
         time_loc_2 = MPI_WTIME()
         ims_time_trans = ims_time_trans + (time_loc_2 - time_loc_1)
@@ -1053,9 +1037,6 @@ contains
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k
         mas      = nmax_p * nlines_p
-        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[KFC_cx_pre] PE ', ims_pro, &
-            ' re=', real(sum(a)), ' im=', aimag(sum(a))
-        flush(500+ims_pro)
 
         ! ==================================================================== !
         ! APU_DIRECT path — fused GPU kernel; same logic as real version but   !
@@ -1145,9 +1126,6 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
-        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[KFC_cx_post] PE ', ims_pro, &
-            ' re=', real(sum(b)), ' im=', aimag(sum(b))
-        flush(500+ims_pro)
         return
     end subroutine TLabMPI_Trp_ExecK_Forward_Complex
 
@@ -1177,9 +1155,6 @@ contains
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k
         mas      = nmax_p * nlines_p
-
-        write(500+ims_pro,'(a,i4,a,g20.6)') '[KBR_pre] PE', ims_pro, ' sum(b)=', sum(b); flush(500+ims_pro)
-
         ! ==================================================================== !
         ! APU paths — GPU direct writes; inverse of K-Forward.                  !
         ! b is flat (r*chunk layout); each rank pushes its chunk to all peers.  !
@@ -1432,8 +1407,6 @@ contains
         end if   ! end APU/CPU dispatch
 #endif
 
-        write(500+ims_pro,'(a,i4,a,g20.6)') '[KBR_post] PE', ims_pro, ' sum(a)=', sum(a); flush(500+ims_pro)
-
 #ifdef PROFILE_ON
         time_loc_2 = MPI_WTIME()
         ims_time_trans = ims_time_trans + (time_loc_2 - time_loc_1)
@@ -1475,9 +1448,6 @@ contains
         nlines_p = trp_plan%nlines
         npage    = nlines_p * ims_npro_k
         mas      = nmax_p * nlines_p
-        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[KBC_cx_pre] PE ', ims_pro, &
-            ' re=', real(sum(b)), ' im=', aimag(sum(b))
-        flush(500+ims_pro)
 
         ! ==================================================================== !
         ! APU_DIRECT path — fused GPU kernels; inverse of K-Forward_Complex.   !
@@ -1566,9 +1536,6 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
-        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[KBC_cx_post] PE ', ims_pro, &
-            ' re=', real(sum(a)), ' im=', aimag(sum(a))
-        flush(500+ims_pro)
         return
     end subroutine TLabMPI_Trp_ExecK_Backward_Complex
 
@@ -1593,8 +1560,6 @@ contains
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i   ! total X-elements per line (stride in b)
         mas       = nmax_p * nlines_p
-
-        write(500+ims_pro,'(a,i4,a,g20.6)') '[IFR_pre] PE', ims_pro, ' sum(a)=', sum(a); flush(500+ims_pro)
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
@@ -1699,8 +1664,6 @@ contains
                 call MPI_IRECV(c_wrk_dp((nr - 1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                trp_plan%base_type, ipr, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
             end do
-            write(500+ims_pro,'(a)') '[IFR_S4]'
-            flush(500+ims_pro)
             ! Pack a(1:size) → wrk_mpi_dp(size+1:2*size) and flush GPU L2 → HBM.
             ! hip_write_with_fence: HIP kernel reads a from GPU L2, writes to staging,
             ! then issues __threadfence_system() (buffer_wbl2 sc0:1 sc1:1 on GFX94) +
@@ -1721,11 +1684,9 @@ contains
                 call MPI_ISEND(wrk_mpi_dp(size + (ns - 1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                trp_plan%base_type, ips, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
             end do
-            write(500+ims_pro,'(a)') '[IFR_S8]'
-            flush(500+ims_pro)
+
             call MPI_WAITALL(l, request, status, ims_err)
-            write(500+ims_pro,'(a)') '[IFR_S9]'
-            flush(500+ims_pro)
+
             ! Scatter c_wrk_dp → strided b
             do m = 1, ims_npro_i
                 nr = maps_recv_i(m) + 1
@@ -1884,8 +1845,6 @@ contains
         end if   ! end APU/CPU dispatch
 #endif
 
-        write(500+ims_pro,'(a,i4,a,g20.6)') '[IFR_post] PE', ims_pro, ' sum(b)=', sum(b); flush(500+ims_pro)
-
         return
     end subroutine TLabMPI_Trp_ExecI_Forward_Real
 
@@ -1923,9 +1882,6 @@ contains
         nmax_p    = trp_plan%nmax
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i
-        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[IFC_cx_pre] PE ', ims_pro, &
-            ' re=', real(sum(a)), ' im=', aimag(sum(a))
-        flush(500+ims_pro)
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
@@ -2010,9 +1966,6 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
-        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[IFC_cx_post] PE ', ims_pro, &
-            ' re=', real(sum(b)), ' im=', aimag(sum(b))
-        flush(500+ims_pro)
         return
     end subroutine TLabMPI_Trp_ExecI_Forward_Complex
 
@@ -2037,8 +1990,6 @@ contains
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i
         mas       = nmax_p * nlines_p
-
-        write(500+ims_pro,'(a,i4,a,g20.6)') '[IBR_pre] PE', ims_pro, ' sum(b)=', sum(b); flush(500+ims_pro)
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
@@ -2147,8 +2098,7 @@ contains
                 call MPI_IRECV(a(trp_plan%disp_s(nr) + 1), nmax_p*nlines_p, &
                                trp_plan%base_type, ipr, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
             end do
-            write(500+ims_pro,'(a)') '[IBR_S4]'
-            flush(500+ims_pro)
+
             ! GPU pack b (strided) → wrk_mpi_dp first half (flat) per peer chunk.
             ! GPU reads b from GPU L2 (cache hit from physics kernel).
             ! map(from:) is a no-op on APU unified memory; instead, call hipDeviceSynchronize()
@@ -2180,11 +2130,9 @@ contains
                 call MPI_ISEND(c_wrk_dp((ns - 1)*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
                                trp_plan%base_type, ips, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
             end do
-            write(500+ims_pro,'(a)') '[IBR_S8]'
-            flush(500+ims_pro)
+
             call MPI_WAITALL(l, request, status, ims_err)
-            write(500+ims_pro,'(a)') '[IBR_S9]'
-            flush(500+ims_pro)
+
             nullify (c_wrk_dp)
         else   ! CPU paths
 #endif
@@ -2319,8 +2267,6 @@ contains
         end if   ! end APU/CPU dispatch
 #endif
 
-        write(500+ims_pro,'(a,i4,a,g20.6)') '[IBR_post] PE', ims_pro, ' sum(a)=', sum(a); flush(500+ims_pro)
-
         return
     end subroutine TLabMPI_Trp_ExecI_Backward_Real
 
@@ -2358,9 +2304,6 @@ contains
         nmax_p    = trp_plan%nmax
         nlines_p  = trp_plan%nlines
         nmax_full = nmax_p * ims_npro_i
-        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[IBC_cx_pre] PE ', ims_pro, &
-            ' re=', real(sum(b)), ' im=', aimag(sum(b))
-        flush(500+ims_pro)
 
         ! ==================================================================== !
         ! APU paths — GPU direct writes between shared-memory windows.         !
@@ -2441,9 +2384,7 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
-        write(500+ims_pro,'(a,i4,a,1pe14.6,a,1pe14.6)') '[IBC_cx_post] PE ', ims_pro, &
-            ' re=', real(sum(a)), ' im=', aimag(sum(a))
-        flush(500+ims_pro)
+
         return
     end subroutine TLabMPI_Trp_ExecI_Backward_Complex
 

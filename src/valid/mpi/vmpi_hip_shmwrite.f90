@@ -420,12 +420,6 @@ program vmpi_hip_shmwrite
             actual   = recv_i(m * chunk + j)
             if (abs(actual - expected) > 1.0d-6) then
                 errors_i = errors_i + 1
-                if (errors_i <= 5) then
-                    write(500+ims_pro,'(a,i4,a,i3,a,i5,a,g20.12,a,g20.12)') &
-                        '[I-ERR] PE', ims_pro, ' peer_dir=', m, ' j=', j, &
-                        ' expected=', expected, ' got=', actual
-                    flush(500+ims_pro)
-                end if
             end if
         end do
     end do
@@ -512,9 +506,6 @@ program vmpi_hip_shmwrite
     call MPI_Reduce(total_errors, total_errors_global, 1, MPI_INTEGER, MPI_SUM, 0, MPI_COMM_WORLD, ims_err)
 
     ! Per-rank summary to fort.500+rank
-    write(500+ims_pro,'(a,i4,a,i5,a,i5)') &
-        '[RESULT] PE', ims_pro, ' errors_i=', errors_i, ' errors_k=', errors_k
-    flush(500+ims_pro)
 
     if (ims_pro == 0) then
         write(*,'(a)') '============================================'

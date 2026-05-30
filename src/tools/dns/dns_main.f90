@@ -240,7 +240,6 @@ program DNS
     call DNS_LOGS_INITIALIZE()
 
     call DNS_LOGS()
-    call TLab_Stop(0)   ! DEBUG: stop after iteration 0 dns.out line
     if (dns_obs_log /= OBS_TYPE_NONE) then
         call DNS_OBS_INITIALIZE()
         call DNS_OBS()
