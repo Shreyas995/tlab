@@ -173,6 +173,7 @@ contains
         integer, allocatable :: apu_async_shmem_to_dir(:)  ! shmem-rank → dir-rank (Allgather result)
         integer :: apu_async_shmem_size
         integer(MPI_ADDRESS_KIND) :: win_segsize ! byte size of one peer's recv segment
+        type(MPI_Info)  :: win_info_contig   ! forces contiguous shared-window segments (alloc_shared_noncontig=false)
 #endif
         ! -----------------------------------------------------------------------
         integer(wi) ip, npage, dummy
@@ -369,6 +370,13 @@ contains
         end if
 
 #ifdef USE_APU
+        ! Force CONTIGUOUS shared-window segments. APU_DIRECT treats all peer segments as one
+        ! contiguous span (apu_all_X(m*stride + ...)). Cray MPICH defaults to a non-contiguous
+        ! layout on multi-node (per-XCD VA blocks / 2x-segsize guard regions), which breaks that
+        ! span -> GPU SIGSEGV. alloc_shared_noncontig=false requests one back-to-back block.
+        call MPI_Info_create(win_info_contig, ims_err)
+        call MPI_Info_set(win_info_contig, 'alloc_shared_noncontig', 'false', ims_err)
+
         ! APU direct mode: allocate per-rank shared-memory MPI windows so every rank in the
         ! communicator gets a pointer into every other rank's recv buffer segment.
         ! MPI_Win_allocate_shared maps all segments into the calling process's address space
@@ -379,7 +387,7 @@ contains
             ! Buffer sized for complex FFT plans: (imax/2+1)*jmax*kmax cx = (imax+2)*jmax*kmax dp.
             apu_size_k = int(imax + 2, wi)*int(jmax, wi)*int(kmax, wi)
             call MPI_Win_allocate_shared(int(apu_size_k, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
-                                         int(c_sizeof(1.0_dp)), MPI_INFO_NULL, ims_comm_z, win_baseptr, apu_win_k, ims_err)
+                                         int(c_sizeof(1.0_dp)), win_info_contig, ims_comm_z, win_baseptr, apu_win_k, ims_err)
             if (ims_err /= MPI_SUCCESS) then
                 call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU K recv buffer.')
                 call TLab_Stop(DNS_ERROR_ALLOC)
@@ -399,7 +407,7 @@ contains
             ! Buffer sized for complex FFT plans: (imax/2+1)*jmax*kmax cx = (imax+2)*jmax*kmax dp.
             apu_size_i = int(imax + 2, wi)*int(jmax, wi)*int(kmax, wi)
             call MPI_Win_allocate_shared(int(apu_size_i, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND), &
-                                         int(c_sizeof(1.0_dp)), MPI_INFO_NULL, ims_comm_x, win_baseptr, apu_win_i, ims_err)
+                                         int(c_sizeof(1.0_dp)), win_info_contig, ims_comm_x, win_baseptr, apu_win_i, ims_err)
             if (ims_err /= MPI_SUCCESS) then
                 call TLab_Write_ASCII(efile, __FILE__//'. MPI_Win_allocate_shared failed for APU I recv buffer.')
                 call TLab_Stop(DNS_ERROR_ALLOC)
@@ -410,11 +418,15 @@ contains
             do ip = 0, ims_npro_i - 1
                 call MPI_Win_shared_query(apu_win_i, ip, win_query_size, win_disp_unit, apu_peer_cptr_i(ip), ims_err)
             end do
-            ! apu_all_i spans all peers' contiguous segments (MPI-3 shared windows are always contiguous).
+            ! apu_all_i spans all peers' segments as one contiguous block. Validity now relies on
+            ! alloc_shared_noncontig=false (win_info_contig) forcing Cray MPICH to lay the segments
+            ! out back-to-back; otherwise the per-XCD/guard-region layout breaks this span on multi-node.
             apu_stride_i = apu_size_i
             call c_f_pointer(apu_peer_cptr_i(0), apu_all_i, [apu_stride_i*ims_npro_i])
             call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated I APU direct recv buffer.')
         end if
+        ! win_info_contig has been copied into any windows that used it; safe to free now.
+        call MPI_Info_free(win_info_contig, ims_err)
         ! APU_ASYNC / FABRIC_DIRECT: node-local shared windows using MPI_COMM_TYPE_SHARED sub-communicators.
         ! Each rank splits ims_comm_z/x into a node-local communicator; the shared window
         ! is allocated only over that sub-communicator. Ranks absent from it are inter-node
