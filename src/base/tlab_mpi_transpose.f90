@@ -42,6 +42,18 @@ module TLabMPI_Transpose
     integer, parameter :: TLAB_MPI_TRP_APU_ASYNC  = 5    ! APU: intra-node direct writes + inter-node MPI ISEND/IRECV
     integer, parameter :: TLAB_MPI_TRP_FABRIC_DIRECT = 6 ! APU: intra-node direct writes + inter-node one-sided MPI_Put (RMA)
 
+    ! --- DEBUG (apuasync-vs-apudirect divergence hunt) ---------------------------
+    ! Per-transpose-routine call counters. Both modes run the SAME decomposition and
+    ! the SAME call order, so call N of routine R is directly comparable between the
+    ! two runs for the same world rank. A transpose is a pure permutation: for the
+    ! same input checksum the output checksum MUST match. The first (rank,routine,call)
+    ! whose sout diverges (or whose sin already diverges → bug was upstream) localizes
+    ! the bug. Taps read raw memory with NO added flush, so a missing-flush bug is
+    ! witnessed, not masked. Remove this block + the trp_tap_* helpers + the call sites
+    ! once the bug is found.
+    integer :: trp_call_kfr = 0, trp_call_kbr = 0, trp_call_ifr = 0, trp_call_ibr = 0
+    integer :: trp_call_kfc = 0, trp_call_kbc = 0, trp_call_ifc = 0, trp_call_ibc = 0
+
 #ifdef USE_APU
     ! APU direct mode state: shared-memory MPI windows, one per direction.
     ! Each rank allocates its recv buffer as a shared segment so all ranks
@@ -155,6 +167,32 @@ module TLabMPI_Transpose
 #endif
 
 contains
+
+    ! ######################################################################
+    ! DEBUG taps (apuasync-vs-apudirect divergence hunt). Remove when done.
+    ! Write one line per transpose call: tag, world rank, (pro_i,pro_k),
+    ! call index, input sum, output sum. Unit 500+ims_pro = fort.<500+rank>.
+    ! No flush of GPU L2 here — we want to witness raw memory state.
+    ! ######################################################################
+    subroutine trp_tap_real(tag, ncall, a, b)
+        character(len=*), intent(in) :: tag
+        integer, intent(in) :: ncall
+        real(wp), intent(in) :: a(:), b(:)
+        write (500 + ims_pro, '(a,a,i6,a,i4,a,i4,a,i6,a,es24.16,a,es24.16)') &
+            '[TRP ', tag, ims_pro, '] pi=', ims_pro_i, ' pk=', ims_pro_k, &
+            ' n=', ncall, ' sin=', sum(a), ' sout=', sum(b)
+        flush (500 + ims_pro)
+    end subroutine trp_tap_real
+
+    subroutine trp_tap_cplx(tag, ncall, a, b)
+        character(len=*), intent(in) :: tag
+        integer, intent(in) :: ncall
+        complex(wp), intent(in) :: a(:), b(:)
+        write (500 + ims_pro, '(a,a,i6,a,i4,a,i4,a,i6,a,es24.16,a,es24.16)') &
+            '[TRP ', tag, ims_pro, '] pi=', ims_pro_i, ' pk=', ims_pro_k, &
+            ' n=', ncall, ' sin=', sum(abs(a)), ' sout=', sum(abs(b))
+        flush (500 + ims_pro)
+    end subroutine trp_tap_cplx
 
     ! ######################################################################
     ! ######################################################################
@@ -1026,6 +1064,8 @@ contains
         ims_time_trans = ims_time_trans + (time_loc_2 - time_loc_1)
 #endif
 
+        trp_call_kfr = trp_call_kfr + 1
+        call trp_tap_real('KFR', trp_call_kfr, a(1:trp_plan%size3d), b(1:trp_plan%size3d))
         return
     end subroutine TLabMPI_Trp_ExecK_Forward_Real
 
@@ -1153,6 +1193,8 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
+        trp_call_kfc = trp_call_kfc + 1
+        call trp_tap_cplx('KFC', trp_call_kfc, a(1:trp_plan%size3d), b(1:trp_plan%size3d))
         return
     end subroutine TLabMPI_Trp_ExecK_Forward_Complex
 
@@ -1439,6 +1481,8 @@ contains
         ims_time_trans = ims_time_trans + (time_loc_2 - time_loc_1)
 #endif
 
+        trp_call_kbr = trp_call_kbr + 1
+        call trp_tap_real('KBR', trp_call_kbr, b(1:trp_plan%size3d), a(1:trp_plan%size3d))
         return
     end subroutine TLabMPI_Trp_ExecK_Backward_Real
 
@@ -1563,6 +1607,8 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
+        trp_call_kbc = trp_call_kbc + 1
+        call trp_tap_cplx('KBC', trp_call_kbc, b(1:trp_plan%size3d), a(1:trp_plan%size3d))
         return
     end subroutine TLabMPI_Trp_ExecK_Backward_Complex
 
@@ -1881,6 +1927,8 @@ contains
         end if   ! end APU/CPU dispatch
 #endif
 
+        trp_call_ifr = trp_call_ifr + 1
+        call trp_tap_real('IFR', trp_call_ifr, a(1:trp_plan%size3d), b(1:trp_plan%size3d))
         return
     end subroutine TLabMPI_Trp_ExecI_Forward_Real
 
@@ -2006,6 +2054,8 @@ contains
 #ifdef USE_APU
         end if   ! end APU/CPU dispatch
 #endif
+        trp_call_ifc = trp_call_ifc + 1
+        call trp_tap_cplx('IFC', trp_call_ifc, a(1:trp_plan%size3d), b(1:trp_plan%size3d))
         return
     end subroutine TLabMPI_Trp_ExecI_Forward_Complex
 
@@ -2307,6 +2357,8 @@ contains
         end if   ! end APU/CPU dispatch
 #endif
 
+        trp_call_ibr = trp_call_ibr + 1
+        call trp_tap_real('IBR', trp_call_ibr, b(1:trp_plan%size3d), a(1:trp_plan%size3d))
         return
     end subroutine TLabMPI_Trp_ExecI_Backward_Real
 
@@ -2428,6 +2480,8 @@ contains
         end if   ! end APU/CPU dispatch
 #endif
 
+        trp_call_ibc = trp_call_ibc + 1
+        call trp_tap_cplx('IBC', trp_call_ibc, b(1:trp_plan%size3d), a(1:trp_plan%size3d))
         return
     end subroutine TLabMPI_Trp_ExecI_Backward_Complex
 
