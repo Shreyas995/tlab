@@ -790,6 +790,7 @@ contains
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_ns, mas
 #ifdef USE_APU
         real(dp), pointer, contiguous :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
+        integer(c_int) :: hip_sync_err
 #endif
 #ifdef PROFILE_ON
         real(wp) :: time_loc_1, time_loc_2
@@ -858,6 +859,13 @@ contains
             call MPI_Barrier(apu_async_node_comm_k, ims_err)
             ! Step 3: inter-node — GPU-pack strided chunk into flat staging, then ISEND.
             !   Done BEFORE intra-node GPU writes so network transfer overlaps with GPU work.
+            !   CRITICAL (MI300A): the GPU !$omp target packs write c_wrk_dp in GPU L2, which is
+            !   NOT coherent with the CPU-side MPI_ISEND network read. Without a flush the NIC
+            !   reads stale HBM and inter-node peers receive garbage (confirmed: apuasync KFR n=2
+            !   sout diverged from the apudirect reference, 2026-06-01). To preserve speed we pack
+            !   ALL inter-node peers first (kernels queue back-to-back), do ONE hipDeviceSynchronize
+            !   (single L2->HBM flush, ~tens of us vs ms-scale 47 MB transfers), THEN post all
+            !   ISENDs — so the per-peer pack/send overlap and the later intra-node overlap are kept.
             do m = 0, ims_npro_k - 1
                 if (.not. apu_async_is_local_k(m)) then
                     flat_off = m * nmax_p * nlines_p
@@ -869,6 +877,12 @@ contains
                         end do
                     end do
                     !$omp end target teams distribute parallel do
+                end if
+            end do
+            hip_sync_err = hipDeviceSynchronize()   ! one flush: GPU L2 -> HBM before any NIC read
+            do m = 0, ims_npro_k - 1
+                if (.not. apu_async_is_local_k(m)) then
+                    flat_off = m * nmax_p * nlines_p
                     l = l + 1
                     call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_k, request(l), ims_err)
@@ -1212,6 +1226,7 @@ contains
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_nr, mas
 #ifdef USE_APU
         real(dp), pointer, contiguous :: apu_pfptr_k(:) => null()   ! scratch pointer for APU_ASYNC per-peer writes
+        integer(c_int) :: hip_sync_err
 #endif
 #ifdef PROFILE_ON
         real(wp) :: time_loc_1, time_loc_2
@@ -1273,6 +1288,11 @@ contains
             call MPI_Barrier(apu_async_node_comm_k, ims_err)
             ! Step 3: inter-node — ISEND b[m*chunk] directly (flat, no packing needed).
             !   Done BEFORE GPU writes so network transfer overlaps with GPU work.
+            !   CRITICAL (MI300A): b is GPU-resident (written by caller's GPU kernels). Its L2 is
+            !   NOT coherent with the CPU MPI_ISEND network read — flush once before sending,
+            !   else inter-node K-peers receive stale data (confirmed: KBR n=1 diverged on ranks
+            !   with inter-node K-peers, 2026-06-01). One sync per call, negligible vs the transfer.
+            if (any(.not. apu_async_is_local_k(0:ims_npro_k - 1))) hip_sync_err = hipDeviceSynchronize()
             do m = 0, ims_npro_k - 1
                 if (.not. apu_async_is_local_k(m)) then
                     l = l + 1
@@ -1627,6 +1647,7 @@ contains
 #ifdef USE_APU
         real(dp), pointer, contiguous :: apu_pfptr_i(:) => null()   ! scratch pointer for APU_ASYNC/FABRIC_DIRECT per-peer writes
         real(dp), pointer, contiguous :: c_wrk_dp_recv(:) => null() ! clean recv buffer (NOT shared-window-aliased) for MPI IRECVs
+        integer(c_int) :: hip_sync_err
 #endif
 
         nmax_p    = trp_plan%nmax
@@ -1693,6 +1714,10 @@ contains
             call MPI_Barrier(apu_async_node_comm_i, ims_err)
             ! Step 3: inter-node — ISEND a[m*chunk] (already flat, no packing needed).
             !   Done BEFORE GPU intra writes so network transfer overlaps with GPU work.
+            !   CRITICAL (MI300A): a is GPU-resident (caller's GPU kernels). Flush its L2 to HBM
+            !   once before the CPU MPI_ISEND network read, else inter-node I-peers get stale data
+            !   (same bug class as KBR). One sync per call, negligible vs the transfer.
+            if (any(.not. apu_async_is_local_i(0:ims_npro_i - 1))) hip_sync_err = hipDeviceSynchronize()
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
                     l = l + 1
@@ -2132,6 +2157,10 @@ contains
             call MPI_Barrier(apu_async_node_comm_i, ims_err)
             ! Step 3: inter-node — GPU pack strided b[m] → flat c_wrk_dp then ISEND.
             !   Done BEFORE GPU intra writes so network transfer overlaps with GPU work.
+            !   CRITICAL (MI300A): GPU L2 writes to c_wrk_dp are NOT coherent with the CPU-side
+            !   MPI_ISEND network read (same bug class as KFR, confirmed 2026-06-01). Pack ALL
+            !   inter-node peers, do ONE hipDeviceSynchronize (L2->HBM flush), THEN post all
+            !   ISENDs — keeps the GPU-pack/network overlap while guaranteeing coherency.
             do m = 0, ims_npro_i - 1
                 if (.not. apu_async_is_local_i(m)) then
                     flat_off = m * nmax_p * nlines_p
@@ -2143,6 +2172,12 @@ contains
                         end do
                     end do
                     !$omp end target teams distribute parallel do
+                end if
+            end do
+            hip_sync_err = hipDeviceSynchronize()   ! one flush: GPU L2 -> HBM before any NIC read
+            do m = 0, ims_npro_i - 1
+                if (.not. apu_async_is_local_i(m)) then
+                    flat_off = m * nmax_p * nlines_p
                     l = l + 1
                     call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
                                    trp_plan%base_type, m, ims_tag, apu_async_mpi_comm_i, request(l), ims_err)
