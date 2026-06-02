@@ -1,0 +1,52 @@
+#!/bin/bash
+#PBS -N gpuaware
+#PBS -l select=2:node_type=mi300a:mpiprocs=24
+#PBS -l walltime=00:15:00
+#
+# Option 2 (GPU-aware MPI / GPUDirect RDMA) Phase-0 validation — all 5 tests in one go.
+# Copy vmpi_gpuaware.f90 + Makefile.gpuaware + this script into your run dir and `qsub` it.
+# Then copy back this job's stdout (the [RESULT] blocks) and fort.300..347.
+#
+# What each test answers:
+#   M1  gate     : does GPU-aware Isend deliver a GPU buffer correctly INTER-NODE?
+#   M2  no-flush : is the hipDeviceSynchronize flush required for correctness?
+#   M3  device   : does it need omp_target_alloc, or is unified (plain allocate) enough?
+#   M4  strided  : can we Isend a strided MPI_TYPE_VECTOR of a GPU buffer (skip the pack)?
+#   M5  bandwidth: CPU-pack baseline vs GPU-pack GPU-aware, inter-node peers, ~47 MB/peer.
+
+ulimit -c unlimited
+export HSA_XNACK=1
+export MPICH_GPU_SUPPORT_ENABLED=1
+export OMP_NUM_THREADS=1
+# Helpful if M1 fails — makes MPICH say which path it took:
+# export MPICH_OFI_NIC_VERBOSE=1
+# export MPICH_GPU_IPC_ENABLED=1
+
+cd "$PBS_O_WORKDIR" || exit 1
+
+# Enables GPU-aware MPI (GTL) + omp offload. Adjust the module name if Hunter differs.
+module load craype-accel-amd-gfx942 2>/dev/null || echo "WARN: craype-accel-amd-gfx942 not found — adjust module name; GPU-aware MPI may be off"
+
+make -f Makefile.gpuaware clean
+make -f Makefile.gpuaware || { echo "BUILD FAILED"; exit 1; }
+
+PIN="--cpu-bind list:0:1:2:3:4:5:24:25:26:27:28:29:48:49:50:51:52:53:72:73:74:75:76:77 --gpu-bind list:0:0:0:0:0:0:1:1:1:1:1:1:2:2:2:2:2:2:3:3:3:3:3:3"
+
+run () {  # $1=mode $2=nmax_p $3=nlines_p $4=niter $5=human label
+  echo
+  echo "######################## mode $1 : $5 ########################"
+  timeout 150 mpirun -np 48 --ppn 24 $PIN ./vmpi_gpuaware.x "$1" "$2" "$3" "$4"
+  rc=$?
+  echo ">>> mode $1 exit=$rc  (124 = TIMEOUT/HANG)"
+}
+
+# correctness (small/fast: ~4 MB/peer, 5 iters)
+run 1 128 4096  5   "GATE   PACK unified + flush"
+run 2 128 4096  5   "       PACK unified NO flush"
+run 3 128 4096  5   "       PACK device-allocated send buffer"
+run 4 128 4096  5   "       STRIDED MPI_TYPE_VECTOR direct (no pack)"
+# bandwidth (production-size ~47 MB/peer, inter-node peers only, 20 iters)
+run 5 144 40960 20  "BANDWIDTH  CPU-pack vs GPU-aware"
+
+echo
+echo "ALL DONE — copy this stdout (the [RESULT] blocks + exit codes) and fort.300..347 back."

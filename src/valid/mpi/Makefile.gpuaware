@@ -1,0 +1,27 @@
+# Makefile.gpuaware
+# Standalone build for the GPU-aware MPI (Option 2) validation harness on Hunter.
+#
+# IMPORTANT: GPU-aware MPI on Cray needs the accelerator module loaded so the ftn
+# wrapper links the GPU transport layer (libmpi_gtl_hsa) and enables omp offload:
+#     module load craype-accel-amd-gfx942      # (the PBS script does this)
+# If the gate test (M1) FAILS with all bytes wrong, a missing GTL/module is suspect #1.
+#
+# Build:   make -f Makefile.gpuaware
+# Run:     qsub run_gpuaware.pbs            (runs all 5 modes)
+# Clean:   make -f Makefile.gpuaware clean
+
+FC      = ftn
+FFLAGS  = -fopenmp
+LIBS    = -lamdhip64
+TARGET  = vmpi_gpuaware.x
+SRC     = vmpi_gpuaware.f90
+
+all: $(TARGET)
+
+$(TARGET): $(SRC)
+	$(FC) $(FFLAGS) $(SRC) $(LIBS) -o $(TARGET)
+
+clean:
+	rm -f $(TARGET) *.mod fort.3[0-9][0-9]
+
+.PHONY: all clean
