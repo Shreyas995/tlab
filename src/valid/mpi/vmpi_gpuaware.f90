@@ -281,9 +281,10 @@ program vmpi_gpuaware
     case (2); call run_test('M2 PACK unified NOflush', METH_PACK,   .false., .false., .false., nmax_p, nlines_p, niter)
     case (3); call run_test('M3 PACK device flush',   METH_PACK,    .true.,  .true.,  .false., nmax_p, nlines_p, niter)
     case (4); call run_test('M4 STRIDED type flush',  METH_STRIDED, .false., .true.,  .false., nmax_p, nlines_p, niter)
-    case (5)                                                        ! bandwidth: inter-node peers, prod size
-        call run_test('M5a CPU-pack baseline', METH_CPUPACK, .false., .true., .true., nmax_p, nlines_p, niter)
-        call run_test('M5b GPU-pack GPU-aware', METH_PACK,   .false., .true., .true., nmax_p, nlines_p, niter)
+    case (5)                                                        ! bandwidth 3-way: inter-node peers, prod size
+        call run_test('M5a CPU-pack (current path)  ', METH_CPUPACK, .false., .true.,  .true., nmax_p, nlines_p, niter)
+        call run_test('M5b GPU-pack unified no-flush ', METH_PACK,    .false., .false., .true., nmax_p, nlines_p, niter)
+        call run_test('M5c GPU-pack device  no-flush ', METH_PACK,    .true.,  .false., .true., nmax_p, nlines_p, niter)
     case default
         if (ims_rank == 0) write(*,*) 'unknown mode ', mode
     end select
