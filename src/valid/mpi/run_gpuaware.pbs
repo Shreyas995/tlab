@@ -24,8 +24,9 @@ export OMP_NUM_THREADS=1
 
 cd "$PBS_O_WORKDIR" || exit 1
 
-# Enables GPU-aware MPI (GTL) + omp offload. Adjust the module name if Hunter differs.
-module load craype-accel-amd-gfx942 2>/dev/null || echo "WARN: craype-accel-amd-gfx942 not found — adjust module name; GPU-aware MPI may be off"
+# NO explicit module load: use the default .bashrc environment, exactly like the working
+# production run (crashlog/dns_simulation_2_24.pbs). An explicit `module load craype-accel-amd-gfx942`
+# here churned the toolchain (reloaded cce) and broke MPI predefined datatypes ("Invalid datatype").
 
 # Guard against building a stale copy (the #1 cause of a repeated failure).
 echo "=== source being built: $(ls -l vmpi_gpuaware.f90) ==="
@@ -43,7 +44,7 @@ PIN="--cpu-bind list:0:1:2:3:4:5:24:25:26:27:28:29:48:49:50:51:52:53:72:73:74:75
 run () {  # $1=mode $2=nmax_p $3=nlines_p $4=niter $5=human label
   echo
   echo "######################## mode $1 : $5 ########################"
-  timeout 150 mpirun -np 48 --ppn 24 $PIN ./vmpi_gpuaware.x "$1" "$2" "$3" "$4"
+  timeout 40 mpirun -np 48 --ppn 24 $PIN ./vmpi_gpuaware.x "$1" "$2" "$3" "$4"
   rc=$?
   echo ">>> mode $1 exit=$rc  (124 = TIMEOUT/HANG)"
 }

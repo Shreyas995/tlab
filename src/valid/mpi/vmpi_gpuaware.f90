@@ -77,6 +77,19 @@ contains
         peer_node = (pk*NPRO_I + ims_pro_i) / RANKS_PER_NODE
     end function
 
+    subroutine report_env()
+        ! Confirm the !$omp target regions actually run on the GPU (not a host fallback),
+        ! so an M1 PASS cannot be a false positive from host-resident buffers.
+        logical :: on_host
+        on_host = .true.
+        !$omp target map(tofrom: on_host)
+        on_host = omp_is_initial_device()
+        !$omp end target
+        if (ims_rank == 0) &
+            write(*,'(a,i0,a,l1,a)') '[ENV] omp_get_num_devices=', omp_get_num_devices(), &
+                '   target_on_host=', on_host, '   (target_on_host=F means real GPU offload)'
+    end subroutine report_env
+
     subroutine run_test(label, method, alloc_dev, do_flush, inter_only, nmax_p, nlines_p, niter)
         character(*), intent(in) :: label
         integer, intent(in) :: method, nmax_p, nlines_p, niter
@@ -252,6 +265,7 @@ program vmpi_gpuaware
         call MPI_Abort(MPI_COMM_WORLD, 1, ierr)
     end if
     call setup_topology()
+    call report_env()
 
     mode = 1; nmax_p = 128; nlines_p = 4096; niter = 5          ! defaults (correctness size)
     nargs = command_argument_count()
