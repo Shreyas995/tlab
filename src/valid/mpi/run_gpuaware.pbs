@@ -27,6 +27,14 @@ cd "$PBS_O_WORKDIR" || exit 1
 # Enables GPU-aware MPI (GTL) + omp offload. Adjust the module name if Hunter differs.
 module load craype-accel-amd-gfx942 2>/dev/null || echo "WARN: craype-accel-amd-gfx942 not found — adjust module name; GPU-aware MPI may be off"
 
+# Guard against building a stale copy (the #1 cause of a repeated failure).
+echo "=== source being built: $(ls -l vmpi_gpuaware.f90) ==="
+if grep -q "MPI_REAL8" vmpi_gpuaware.f90; then
+    echo "FATAL: vmpi_gpuaware.f90 still contains MPI_REAL8 -> STALE copy. Re-upload the fixed file."
+    exit 1
+fi
+echo "datatype in use: $(grep -m1 -o 'MPI_DOUBLE_PRECISION' vmpi_gpuaware.f90)"
+
 make -f Makefile.gpuaware clean
 make -f Makefile.gpuaware || { echo "BUILD FAILED"; exit 1; }
 
