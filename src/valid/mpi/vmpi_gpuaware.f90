@@ -30,7 +30,9 @@
 !   5  BANDWIDTH: CPU-pack baseline vs GPU-pack GPU-aware, inter-node peers, production size.
 ! ============================================================================
 module gpuaware_mod
-    use mpi_f08
+    use mpi          ! NOT mpi_f08: under OpenMP offload, Cray miscompiles mpi_f08's predefined
+                     ! type(MPI_Datatype) constants -> "Invalid datatype". use mpi gives integer
+                     ! handles (compile-time literals), which are robust. Matches GPU_aware_mpi_example.f90.
     use iso_c_binding
     use omp_lib
     implicit none
@@ -50,12 +52,12 @@ module gpuaware_mod
     end interface
 
     integer :: ims_rank, ims_nprocs, ims_pro_i, ims_pro_k, my_node
-    type(MPI_Comm) :: fabric_comm_k
+    integer :: fabric_comm_k
 
 contains
 
     subroutine setup_topology()
-        type(MPI_Comm) :: comm_xz
+        integer :: comm_xz
         integer :: dims(2), coord(2), ierr
         logical :: period(2)
         dims(1) = NPRO_K; dims(2) = NPRO_I; period = .true.
@@ -102,8 +104,8 @@ contains
         real(dp), allocatable, target :: a(:), recvbuf(:)
         real(dp), pointer :: sendbuf(:) => null()
         type(c_ptr) :: sptr
-        type(MPI_Request), allocatable :: req(:)
-        type(MPI_Datatype) :: vtype
+        integer, allocatable :: req(:)
+        integer :: vtype
         real(dp) :: t0, t1, exp_val
         logical :: is_inter
 

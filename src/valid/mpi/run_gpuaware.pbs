@@ -30,11 +30,11 @@ cd "$PBS_O_WORKDIR" || exit 1
 
 # Guard against building a stale copy (the #1 cause of a repeated failure).
 echo "=== source being built: $(ls -l vmpi_gpuaware.f90) ==="
-if grep -q "MPI_REAL8" vmpi_gpuaware.f90; then
-    echo "FATAL: vmpi_gpuaware.f90 still contains MPI_REAL8 -> STALE copy. Re-upload the fixed file."
+if grep -qE "use mpi_f08|MPI_REAL8" vmpi_gpuaware.f90; then
+    echo "FATAL: vmpi_gpuaware.f90 still uses mpi_f08 or MPI_REAL8 -> STALE copy. Re-upload the fixed file."
     exit 1
 fi
-echo "datatype in use: $(grep -m1 -o 'MPI_DOUBLE_PRECISION' vmpi_gpuaware.f90)"
+echo "MPI interface in use: $(grep -m1 -oE 'use mpi[a-z_08]*' vmpi_gpuaware.f90)"
 
 make -f Makefile.gpuaware clean
 make -f Makefile.gpuaware || { echo "BUILD FAILED"; exit 1; }
