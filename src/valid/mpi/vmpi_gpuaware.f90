@@ -110,7 +110,7 @@ contains
             allocate(sendbuf(total))
         end if
         if (method == METH_STRIDED) then
-            call MPI_Type_vector(nmax_p, nlines_p, npage, MPI_REAL8, vtype, ierr)
+            call MPI_Type_vector(nmax_p, nlines_p, npage, MPI_DOUBLE_PRECISION, vtype, ierr)
             call MPI_Type_commit(vtype, ierr)
         end if
 
@@ -129,7 +129,7 @@ contains
                 if (pk == ims_pro_k) cycle
                 if (inter_only .and. peer_node(pk) == my_node) cycle
                 nreq = nreq + 1
-                call MPI_Irecv(recvbuf(pk*mas + 1), mas, MPI_REAL8, pk, 0, fabric_comm_k, req(nreq), ierr)
+                call MPI_Irecv(recvbuf(pk*mas + 1), mas, MPI_DOUBLE_PRECISION, pk, 0, fabric_comm_k, req(nreq), ierr)
             end do
 
             select case (method)
@@ -150,7 +150,7 @@ contains
                     if (pk == ims_pro_k) cycle
                     if (inter_only .and. peer_node(pk) == my_node) cycle
                     nreq = nreq + 1
-                    call MPI_Isend(sendbuf(pk*mas + 1), mas, MPI_REAL8, pk, 0, fabric_comm_k, req(nreq), ierr)
+                    call MPI_Isend(sendbuf(pk*mas + 1), mas, MPI_DOUBLE_PRECISION, pk, 0, fabric_comm_k, req(nreq), ierr)
                 end do
 
             case (METH_STRIDED)                            ! send strided GPU `a` directly, no pack
@@ -173,7 +173,7 @@ contains
                         end do
                     end do
                     nreq = nreq + 1
-                    call MPI_Isend(sendbuf(pk*mas + 1), mas, MPI_REAL8, pk, 0, fabric_comm_k, req(nreq), ierr)
+                    call MPI_Isend(sendbuf(pk*mas + 1), mas, MPI_DOUBLE_PRECISION, pk, 0, fabric_comm_k, req(nreq), ierr)
                 end do
             end select
 
