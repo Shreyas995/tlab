@@ -100,9 +100,10 @@ contains
         funit = 300 + ims_rank
 
         allocate(a(total), recvbuf(total), req(2*NPRO_K))
+        c_dev = omp_get_default_device()    ! defined unconditionally so the cleanup branch is clean
+        sptr  = c_null_ptr
         if (alloc_dev) then
             nbytes = int(total, c_size_t) * 8_c_size_t
-            c_dev  = omp_get_default_device()
             sptr   = omp_target_alloc(nbytes, c_dev)
             call c_f_pointer(sptr, sendbuf, [total])
         else
