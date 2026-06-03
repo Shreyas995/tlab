@@ -283,21 +283,21 @@ program vmpi_gpuaware
     case (4); call run_test('M4 STRIDED type flush',  METH_STRIDED, .false., .true.,  .false., nmax_p, nlines_p, niter)
     case (5)   ! BANDWIDTH SWEEP, inter-node peers only: CPU-pack vs GPU-pack(device, no-flush).
                ! Find the message-size crossover where GPU-aware overtakes CPU-pack.
-        block
-            integer, parameter :: NSW = 5
-            integer :: sweep_nl(NSW), sweep_it(NSW), isw
-            ! nmax_p fixed at 128; mas = 128*nlines -> per-peer = 1, 4, 16, 64, 128 MiB.
-            ! Capped at 128 MB: at 24 ranks/node, 3 buffers x (mas*NPRO_K)*8 must fit 128 GB
-            ! (256 MB/peer would OOM). Args 2-4 (nmax_p/nlines_p/niter) are ignored in mode 5.
-            sweep_nl = [1024, 4096, 16384, 65536, 131072]
-            sweep_it = [20,   20,   20,    10,    5]
-            if (ims_rank == 0) write(*,'(a)') &
-                '### M5 BANDWIDTH SWEEP: per-peer 1->128 MB; each size = CPU-pack then GPU-aware ###'
-            do isw = 1, NSW
-                call run_test('M5 CPU-pack ', METH_CPUPACK, .false., .true.,  .true., 128, sweep_nl(isw), sweep_it(isw))
-                call run_test('M5 GPU-aware', METH_PACK,    .true.,  .false., .true., 128, sweep_nl(isw), sweep_it(isw))
-            end do
-        end block
+        ! Unrolled with literal args: a block-local array + constructor (sweep_nl=[...]) came out
+        ! ALL ZEROS at runtime under Cray -fopenmp + requires unified_shared_memory (mas=0, niter=0).
+        ! nmax_p=128 fixed; per-peer MB = nlines/1024.  Capped at 128 MB (256 MB OOMs at 24 ranks/node).
+        if (ims_rank == 0) write(*,'(a)') &
+            '### M5 BANDWIDTH SWEEP: per-peer 1->128 MB; each size = CPU-pack then GPU-aware ###'
+        call run_test('M5 CPU-pack    1MB', METH_CPUPACK, .false., .true.,  .true., 128,   1024, 20)
+        call run_test('M5 GPU-aware   1MB', METH_PACK,    .true.,  .false., .true., 128,   1024, 20)
+        call run_test('M5 CPU-pack    4MB', METH_CPUPACK, .false., .true.,  .true., 128,   4096, 20)
+        call run_test('M5 GPU-aware   4MB', METH_PACK,    .true.,  .false., .true., 128,   4096, 20)
+        call run_test('M5 CPU-pack   16MB', METH_CPUPACK, .false., .true.,  .true., 128,  16384, 20)
+        call run_test('M5 GPU-aware  16MB', METH_PACK,    .true.,  .false., .true., 128,  16384, 20)
+        call run_test('M5 CPU-pack   64MB', METH_CPUPACK, .false., .true.,  .true., 128,  65536, 10)
+        call run_test('M5 GPU-aware  64MB', METH_PACK,    .true.,  .false., .true., 128,  65536, 10)
+        call run_test('M5 CPU-pack  128MB', METH_CPUPACK, .false., .true.,  .true., 128, 131072,  5)
+        call run_test('M5 GPU-aware 128MB', METH_PACK,    .true.,  .false., .true., 128, 131072,  5)
     case default
         if (ims_rank == 0) write(*,*) 'unknown mode ', mode
     end select
