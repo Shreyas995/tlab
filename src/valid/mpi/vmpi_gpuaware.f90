@@ -281,10 +281,23 @@ program vmpi_gpuaware
     case (2); call run_test('M2 PACK unified NOflush', METH_PACK,   .false., .false., .false., nmax_p, nlines_p, niter)
     case (3); call run_test('M3 PACK device flush',   METH_PACK,    .true.,  .true.,  .false., nmax_p, nlines_p, niter)
     case (4); call run_test('M4 STRIDED type flush',  METH_STRIDED, .false., .true.,  .false., nmax_p, nlines_p, niter)
-    case (5)                                                        ! bandwidth 3-way: inter-node peers, prod size
-        call run_test('M5a CPU-pack (current path)  ', METH_CPUPACK, .false., .true.,  .true., nmax_p, nlines_p, niter)
-        call run_test('M5b GPU-pack unified no-flush ', METH_PACK,    .false., .false., .true., nmax_p, nlines_p, niter)
-        call run_test('M5c GPU-pack device  no-flush ', METH_PACK,    .true.,  .false., .true., nmax_p, nlines_p, niter)
+    case (5)   ! BANDWIDTH SWEEP, inter-node peers only: CPU-pack vs GPU-pack(device, no-flush).
+               ! Find the message-size crossover where GPU-aware overtakes CPU-pack.
+        block
+            integer, parameter :: NSW = 5
+            integer :: sweep_nl(NSW), sweep_it(NSW), isw
+            ! nmax_p fixed at 128; mas = 128*nlines -> per-peer = 1, 4, 16, 64, 128 MiB.
+            ! Capped at 128 MB: at 24 ranks/node, 3 buffers x (mas*NPRO_K)*8 must fit 128 GB
+            ! (256 MB/peer would OOM). Args 2-4 (nmax_p/nlines_p/niter) are ignored in mode 5.
+            sweep_nl = [1024, 4096, 16384, 65536, 131072]
+            sweep_it = [20,   20,   20,    10,    5]
+            if (ims_rank == 0) write(*,'(a)') &
+                '### M5 BANDWIDTH SWEEP: per-peer 1->128 MB; each size = CPU-pack then GPU-aware ###'
+            do isw = 1, NSW
+                call run_test('M5 CPU-pack ', METH_CPUPACK, .false., .true.,  .true., 128, sweep_nl(isw), sweep_it(isw))
+                call run_test('M5 GPU-aware', METH_PACK,    .true.,  .false., .true., 128, sweep_nl(isw), sweep_it(isw))
+            end do
+        end block
     case default
         if (ims_rank == 0) write(*,*) 'unknown mode ', mode
     end select
