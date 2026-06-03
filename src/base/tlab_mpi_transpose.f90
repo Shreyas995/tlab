@@ -62,6 +62,17 @@ module TLabMPI_Transpose
     ! Cartesian-lineage comms for two-sided traffic on Cray MPICH. Pack/unpack and the staging
     ! buffer (wrk_mpi_dp) are CPU-side; GPU-written sources are flushed with hipDeviceSynchronize.
     type(MPI_Comm) :: fabric_mpi_comm_k, fabric_mpi_comm_i   ! FABRIC_DIRECT two-sided comm (MPI_COMM_WORLD split)
+    ! OPTION 1 (intra-node shared-window K): serve the intra-node K-peers via node-local shared-window
+    ! GPU writes (the apudirect mechanism on a true NODE comm) and keep MPI only for inter-node K-peers.
+    ! Validated standalone by src/valid/mpi/vmpi_nodewin.f90 (node window contiguous + cross-XCD coherent).
+    type(MPI_Comm) :: node_comm_k                          ! NODE comm (split by hostname hash)
+    type(MPI_Win)  :: node_win_k                           ! node-local shared recv window (real K)
+    integer        :: node_size_k = 0
+    logical        :: use_node_win_k = .false.             ! true iff the node window came up contiguous
+    real(dp), pointer :: node_recv_fptr_k(:) => null()     ! our own node-window segment
+    real(dp), pointer :: node_all_k(:) => null()           ! fused span over the whole node window
+    logical, allocatable :: is_intra_k(:)                  ! K-peer m on our node?
+    integer, allocatable :: node_lrank_k(:)                ! K-peer m -> node-comm local rank
 #endif
 
     integer(wi) :: trp_sizBlock_i, trp_sizBlock_k                   ! explicit send/recv: group sizes of send/recv messages
@@ -391,7 +402,69 @@ contains
         ! color=ims_pro_i groups same-I-column ranks (K-direction peers, local rank = ims_pro_k).
         if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT .and. ims_npro_k > 1) then
             call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_i, ims_pro_k, fabric_mpi_comm_k, ims_err)
-            call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: K FABRIC_DIRECT comm ready (plain two-sided MPI).')
+            ! Option 1: NODE-local shared window for the intra-node K-peers (apudirect mechanism on a
+            ! true NODE comm built by hostname — MPI_Comm_split_type splits per-XCD on MI300A, not per
+            ! node). If the window does not come up contiguous (e.g. alongside apu_win_i), use_node_win_k
+            ! stays .false. and the exec falls back to the all-MPI path. Validated: src/valid/mpi/vmpi_nodewin.f90.
+            block
+                character(len=MPI_MAX_PROCESSOR_NAME) :: hname
+                integer :: hlen, hh, ic, mpk, my_lrank, ncontig
+                integer :: peer_world(0:ims_npro_k - 1)
+                type(MPI_Group) :: world_grp, node_grp
+                type(MPI_Info)  :: node_info
+                type(c_ptr)     :: seg_cptr
+                integer(MPI_ADDRESS_KIND) :: va0, va, segb
+                call MPI_Get_processor_name(hname, hlen, ims_err)
+                hh = 0
+                do ic = 1, hlen
+                    hh = mod(hh*31 + ichar(hname(ic:ic)), 1000000007)
+                end do
+                call MPI_Comm_split(MPI_COMM_WORLD, hh, ims_pro, node_comm_k, ims_err)
+                call MPI_Comm_rank(node_comm_k, my_lrank, ims_err)
+                call MPI_Comm_size(node_comm_k, node_size_k, ims_err)
+                apu_size_k = int(imax + 2, wi)*int(jmax, wi)*int(kmax, wi)        ! real-K recv buffer per rank
+                segb = int(apu_size_k, MPI_ADDRESS_KIND)*int(c_sizeof(1.0_dp), MPI_ADDRESS_KIND)
+                call MPI_Info_create(node_info, ims_err)
+                call MPI_Info_set(node_info, 'alloc_shared_noncontig', 'false', ims_err)
+                call MPI_Win_allocate_shared(segb, int(c_sizeof(1.0_dp)), node_info, node_comm_k, &
+                                             win_baseptr, node_win_k, ims_err)
+                call MPI_Info_free(node_info, ims_err)
+                if (ims_err /= MPI_SUCCESS) then
+                    call TLab_Write_ASCII(efile, __FILE__//'. node K MPI_Win_allocate_shared failed.')
+                    call TLab_Stop(DNS_ERROR_ALLOC)
+                end if
+                ! own segment + fused span over the whole node window, then a contiguity check.
+                call MPI_Win_shared_query(node_win_k, my_lrank, win_query_size, win_disp_unit, seg_cptr, ims_err)
+                call c_f_pointer(seg_cptr, node_recv_fptr_k, [apu_size_k])
+                call MPI_Win_shared_query(node_win_k, 0, win_query_size, win_disp_unit, win_baseptr, ims_err)
+                call c_f_pointer(win_baseptr, node_all_k, [int(apu_size_k, 8)*int(node_size_k, 8)])
+                va0 = transfer(win_baseptr, va0)
+                ncontig = 0
+                do ic = 0, node_size_k - 1
+                    call MPI_Win_shared_query(node_win_k, ic, win_query_size, win_disp_unit, seg_cptr, ims_err)
+                    va = transfer(seg_cptr, va)
+                    if (va - va0 /= int(ic, MPI_ADDRESS_KIND)*segb) ncontig = ncontig + 1
+                end do
+                use_node_win_k = (ncontig == 0)
+                ! classify K-peers: world rank = m*npro_i + pro_i; node-comm local rank via translate.
+                allocate (is_intra_k(0:ims_npro_k - 1), node_lrank_k(0:ims_npro_k - 1))
+                do mpk = 0, ims_npro_k - 1
+                    peer_world(mpk) = mpk*ims_npro_i + ims_pro_i
+                end do
+                call MPI_Comm_group(MPI_COMM_WORLD, world_grp, ims_err)
+                call MPI_Comm_group(node_comm_k, node_grp, ims_err)
+                call MPI_Group_translate_ranks(world_grp, ims_npro_k, peer_world, node_grp, node_lrank_k, ims_err)
+                call MPI_Group_free(world_grp, ims_err)
+                call MPI_Group_free(node_grp, ims_err)
+                do mpk = 0, ims_npro_k - 1
+                    is_intra_k(mpk) = (node_lrank_k(mpk) /= MPI_UNDEFINED)
+                end do
+            end block
+            if (use_node_win_k) then
+                call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: K FABRIC_DIRECT + node-local intra-window ready.')
+            else
+                call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: K FABRIC_DIRECT (node window non-contiguous; all-MPI fallback).')
+            end if
         end if
         if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT .and. ims_npro_i > 1) then
             call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_k, ims_pro_i, fabric_mpi_comm_i, ims_err)
@@ -617,40 +690,93 @@ contains
             !$omp end target teams distribute parallel do
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-            ! K-Forward FABRIC_DIRECT: K-intra peers span different XCDs on MI300A.
-            ! Cross-XCD GPU/CPU writes to the shared window are not cache-coherent, so ALL
-            ! K-peers go through plain MPI ISEND/IRECV.
-            ! Shared-window memory is unreliable as an MPI IRECV target on Cray MPICH
-            ! (Oz residual ~1.0, data in wrong positions). Use the second half of
-            ! wrk_mpi_dp (indices size+1..2*size) as the IRECV target instead; the first
-            ! half is already in use as the CPU-pack ISEND source.
+            ! K-Forward FABRIC_DIRECT. Option 1 (use_node_win_k): the 4 intra-node K-peers go via
+            ! node-local shared-window GPU writes (apudirect mechanism) + MPI_Win_fence; the 4 inter-node
+            ! peers via two-sided MPI. Else: all-MPI fallback (the original path). IRECV target is plain
+            ! heap (wrk_mpi_dp second half) — shared-window memory is unreliable as an IRECV target.
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
-            l = 0
-            ! Post IRECVs into wrk_mpi_dp(size+1..2*size) (IRECV target separate from ISEND source).
-            do m = 0, ims_npro_k - 1
-                l = l + 1
-                call MPI_IRECV(wrk_mpi_dp(size + m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                               trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
-            end do
-            ! Pack ALL K-peers (strided a → flat c_wrk_dp) and post ISENDs.
-            do m = 0, ims_npro_k - 1
-                flat_off = m * nmax_p * nlines_p
-                disp_ns  = m * nlines_p
-                do i = 0, nmax_p - 1
-                    do j = 0, nlines_p - 1
-                        c_wrk_dp(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
-                    end do
+            if (use_node_win_k) then
+                ! 1. IRECV inter-node peers into wrk_mpi_dp second half.
+                l = 0
+                do m = 0, ims_npro_k - 1
+                    if (is_intra_k(m)) cycle
+                    l = l + 1
+                    call MPI_IRECV(wrk_mpi_dp(size + m*mas + 1), mas, &
+                                   trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
                 end do
-                l = l + 1
-                call MPI_ISEND(c_wrk_dp(flat_off + 1), nmax_p*nlines_p, &
-                               trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
-            end do
-            call MPI_WAITALL(l, request, status, ims_err)
-            ! CPU copy wrk_mpi_dp second half → b.
-            do i = 1, size
-                b(i) = wrk_mpi_dp(size + i)
-            end do
+                ! 2. open node-window epoch.
+                call MPI_Win_fence(0, node_win_k, ims_err)
+                ! 3. intra-node peers: cross-XCD GPU write of our chunk into peer m's segment at our slot.
+                do m = 0, ims_npro_k - 1
+                    if (.not. is_intra_k(m)) cycle
+                    !$omp target teams distribute parallel do collapse(2)
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            node_all_k(int(node_lrank_k(m),8)*int(apu_size_k,8) + ims_pro_k*mas + i*nlines_p + j + 1) = &
+                                a(m*nlines_p + i*npage + j + 1)
+                        end do
+                    end do
+                    !$omp end target teams distribute parallel do
+                end do
+                ! 4. inter-node peers: CPU pack a -> c_wrk_dp, ISEND (overlaps the window writes).
+                do m = 0, ims_npro_k - 1
+                    if (is_intra_k(m)) cycle
+                    flat_off = m * mas
+                    disp_ns  = m * nlines_p
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            c_wrk_dp(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
+                        end do
+                    end do
+                    l = l + 1
+                    call MPI_ISEND(c_wrk_dp(flat_off + 1), mas, &
+                                   trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
+                end do
+                ! 5. close epoch (intra writes committed) then wait for inter MPI.
+                call MPI_Win_fence(0, node_win_k, ims_err)
+                if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+                ! 6. assemble b per slot m: intra from our node segment, inter from wrk_mpi_dp.
+                do m = 0, ims_npro_k - 1
+                    if (is_intra_k(m)) then
+                        !$omp target teams distribute parallel do
+                        do i = 1, mas
+                            b(m*mas + i) = node_recv_fptr_k(m*mas + i)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do
+                        do i = 1, mas
+                            b(m*mas + i) = wrk_mpi_dp(size + m*mas + i)
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end do
+            else
+                ! Fallback: all K-peers via two-sided MPI (original fabricdirect path).
+                l = 0
+                do m = 0, ims_npro_k - 1
+                    l = l + 1
+                    call MPI_IRECV(wrk_mpi_dp(size + m*mas + 1), mas, &
+                                   trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
+                end do
+                do m = 0, ims_npro_k - 1
+                    flat_off = m * mas
+                    disp_ns  = m * nlines_p
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            c_wrk_dp(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
+                        end do
+                    end do
+                    l = l + 1
+                    call MPI_ISEND(c_wrk_dp(flat_off + 1), mas, &
+                                   trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
+                end do
+                call MPI_WAITALL(l, request, status, ims_err)
+                do i = 1, size
+                    b(i) = wrk_mpi_dp(size + i)
+                end do
+            end if
             nullify (c_wrk_dp)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
@@ -965,36 +1091,85 @@ contains
             !$omp end target teams distribute parallel do
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-            ! K-Backward FABRIC_DIRECT: same all-MPI approach as K-Forward.
-            ! b is already flat per-peer (b(m*chunk + i)), so ISEND directly from b.
-            ! Use c_wrk_dp (first half of wrk_mpi_dp, plain heap) as IRECV target —
-            ! shared-window memory is unreliable as an MPI buffer on Cray MPICH.
+            ! K-Backward FABRIC_DIRECT. Option 1: intra-node peers via node-window GPU push + fence;
+            ! inter-node peers via two-sided MPI. b is flat per-peer; a is strided. IRECV target = heap.
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
-            l = 0
-            ! Post IRECVs into c_wrk_dp (normal allocate'd staging buffer).
-            do m = 0, ims_npro_k - 1
-                l = l + 1
-                call MPI_IRECV(c_wrk_dp(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                               trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
-            end do
-            ! Post ISENDs for ALL K-peers from b (already flat).
-            do m = 0, ims_npro_k - 1
-                l = l + 1
-                call MPI_ISEND(b(m*nmax_p*nlines_p + 1), nmax_p*nlines_p, &
-                               trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
-            end do
-            call MPI_WAITALL(l, request, status, ims_err)
-            ! Scatter c_wrk_dp → strided a.
-            do m = 0, ims_npro_k - 1
-                flat_off = m * nmax_p * nlines_p
-                disp_nr  = m * nlines_p
-                do i = 0, nmax_p - 1
-                    do j = 0, nlines_p - 1
-                        a(disp_nr + i*npage + j + 1) = c_wrk_dp(flat_off + i*nlines_p + j + 1)
+            if (use_node_win_k) then
+                ! 1. IRECV inter peers into c_wrk_dp(m*mas).
+                l = 0
+                do m = 0, ims_npro_k - 1
+                    if (is_intra_k(m)) cycle
+                    l = l + 1
+                    call MPI_IRECV(c_wrk_dp(m*mas + 1), mas, &
+                                   trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
+                end do
+                ! 2. open node-window epoch.
+                call MPI_Win_fence(0, node_win_k, ims_err)
+                ! 3. intra peers: GPU push b[m*chunk] into peer m's segment at our slot.
+                do m = 0, ims_npro_k - 1
+                    if (.not. is_intra_k(m)) cycle
+                    !$omp target teams distribute parallel do
+                    do i = 1, mas
+                        node_all_k(int(node_lrank_k(m),8)*int(apu_size_k,8) + ims_pro_k*mas + i) = b(m*mas + i)
+                    end do
+                    !$omp end target teams distribute parallel do
+                end do
+                ! 4. inter peers: ISEND b[m*chunk] directly (b is flat).
+                do m = 0, ims_npro_k - 1
+                    if (is_intra_k(m)) cycle
+                    l = l + 1
+                    call MPI_ISEND(b(m*mas + 1), mas, &
+                                   trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
+                end do
+                ! 5. close epoch then wait.
+                call MPI_Win_fence(0, node_win_k, ims_err)
+                if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+                ! 6. scatter to strided a per slot: intra from our node segment, inter from c_wrk_dp.
+                do m = 0, ims_npro_k - 1
+                    disp_nr = m * nlines_p
+                    if (is_intra_k(m)) then
+                        !$omp target teams distribute parallel do collapse(2)
+                        do i = 0, nmax_p - 1
+                            do j = 0, nlines_p - 1
+                                a(disp_nr + i*npage + j + 1) = node_recv_fptr_k(m*mas + i*nlines_p + j + 1)
+                            end do
+                        end do
+                        !$omp end target teams distribute parallel do
+                    else
+                        !$omp target teams distribute parallel do collapse(2)
+                        do i = 0, nmax_p - 1
+                            do j = 0, nlines_p - 1
+                                a(disp_nr + i*npage + j + 1) = c_wrk_dp(m*mas + i*nlines_p + j + 1)
+                            end do
+                        end do
+                        !$omp end target teams distribute parallel do
+                    end if
+                end do
+            else
+                ! Fallback: all K-peers via two-sided MPI (original fabricdirect path).
+                l = 0
+                do m = 0, ims_npro_k - 1
+                    l = l + 1
+                    call MPI_IRECV(c_wrk_dp(m*mas + 1), mas, &
+                                   trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
+                end do
+                do m = 0, ims_npro_k - 1
+                    l = l + 1
+                    call MPI_ISEND(b(m*mas + 1), mas, &
+                                   trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
+                end do
+                call MPI_WAITALL(l, request, status, ims_err)
+                do m = 0, ims_npro_k - 1
+                    flat_off = m * mas
+                    disp_nr  = m * nlines_p
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            a(disp_nr + i*npage + j + 1) = c_wrk_dp(flat_off + i*nlines_p + j + 1)
+                        end do
                     end do
                 end do
-            end do
+            end if
             nullify (c_wrk_dp)
 
         else   ! CPU paths: ASYNCHRONOUS, SENDRECV, ALLTOALL
