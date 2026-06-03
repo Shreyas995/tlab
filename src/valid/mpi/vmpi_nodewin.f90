@@ -49,16 +49,18 @@ program vmpi_nodewin
     use nodewin_mod
     implicit none
     !$omp requires unified_shared_memory
-    integer :: ierr, comm_xz, node_comm, node_rank, node_sz
+    integer :: ierr, comm_xz, node_comm, node_rank, node_sz, fabric_comm_k, nreq
     integer :: dims(2), coord(2), lp, dk, sk, i, j, funit, disp_unit, win, win_info
     integer :: nmax_p, nlines_p, niter, chunk, npage, segsize, it, wd, ws
-    integer :: n_err, g_err, n_peers, my_noncontig, g_noncontig
+    integer :: n_err, g_err, n_intra, n_inter, my_noncontig, g_noncontig
     logical :: period(2)
     integer(MPI_ADDRESS_KIND) :: segbytes, qsize, va0, va
     integer(8) :: base
     type(c_ptr) :: baseptr
     real(dp), pointer :: my_recv(:) => null(), all_win(:) => null()
     real(dp), allocatable, target :: a(:)
+    real(dp), allocatable :: inter_recv(:), c_send(:)      ! inter-node MPI recv / pack-send buffers
+    integer, allocatable :: req(:)
     type(c_ptr), allocatable :: peer_cptr(:)
     real(dp) :: t0, t1, exp_val
 
@@ -81,6 +83,9 @@ program vmpi_nodewin
     call MPI_Comm_split(MPI_COMM_WORLD, my_node, ims_rank, node_comm, ierr)
     call MPI_Comm_rank(node_comm, node_rank, ierr)
     call MPI_Comm_size(node_comm, node_sz, ierr)
+    ! K-comm for the INTER-node MPI leg (same split fabricdirect uses): color=pro_i, key=pro_k.
+    ! local rank in fabric_comm_k = ims_pro_k; K-peer dk = local rank dk.
+    call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_i, ims_pro_k, fabric_comm_k, ierr)
 
     nmax_p = 64; nlines_p = 1024; niter = 10           ! small = correctness; per-seg ~4 MB
     chunk = nmax_p*nlines_p; npage = nlines_p*NPRO_K; segsize = NPRO_K*chunk
@@ -110,10 +115,14 @@ program vmpi_nodewin
 
     ! ONE fused pointer over the whole contiguous node window (peer lp at offset lp*segsize).
     call c_f_pointer(peer_cptr(0), all_win, [int(segsize,8)*int(node_sz,8)])
-    allocate(a(segsize))
-    n_peers = 0
+    allocate(a(segsize), inter_recv(segsize), c_send(segsize), req(2*NPRO_K))
+    n_intra = 0; n_inter = 0
     do dk = 0, NPRO_K - 1
-        if ((dk*NPRO_I + ims_pro_i)/RANKS_PER_NODE == my_node) n_peers = n_peers + 1
+        if ((dk*NPRO_I + ims_pro_i)/RANKS_PER_NODE == my_node) then
+            n_intra = n_intra + 1
+        else
+            n_inter = n_inter + 1
+        end if
     end do
 
     n_err = 0
@@ -127,11 +136,21 @@ program vmpi_nodewin
                 a(i) = real(ims_rank, dp)*ENC + real(i, dp)
             end do
             !$omp end target teams distribute parallel do
+            ! THE MIX (exact Option-1 K-Forward pattern): inter-node K-peers via MPI, intra via window.
+            ! 1. post IRECVs for INTER-node K-peers into inter_recv slot dk.
+            nreq = 0
+            do dk = 0, NPRO_K - 1
+                if ((dk*NPRO_I + ims_pro_i)/RANKS_PER_NODE == my_node) cycle   ! intra -> window
+                nreq = nreq + 1
+                call MPI_Irecv(inter_recv(dk*chunk + 1), chunk, MPI_DOUBLE_PRECISION, dk, 0, fabric_comm_k, req(nreq), ierr)
+            end do
+            ! 2. open window epoch.
             call MPI_Win_fence(0, win, ierr)
-            do dk = 0, NPRO_K - 1                       ! dest K-peer dk
+            ! 3. INTRA-node peers: cross-XCD GPU write into peer dk's segment at our slot.
+            do dk = 0, NPRO_K - 1
                 wd = dk*NPRO_I + ims_pro_i
-                if (wd/RANKS_PER_NODE /= my_node) cycle  ! intra-node peers only
-                lp = mod(wd, RANKS_PER_NODE)             ! dest's node-local rank
+                if (wd/RANKS_PER_NODE /= my_node) cycle
+                lp = mod(wd, RANKS_PER_NODE)
                 base = int(lp,8)*int(segsize,8)
                 !$omp target teams distribute parallel do collapse(2)
                 do i = 0, nmax_p - 1
@@ -141,25 +160,41 @@ program vmpi_nodewin
                 end do
                 !$omp end target teams distribute parallel do
             end do
+            ! 4. INTER-node peers: CPU pack a -> c_send, ISEND (overlaps with the window writes).
+            do dk = 0, NPRO_K - 1
+                if ((dk*NPRO_I + ims_pro_i)/RANKS_PER_NODE == my_node) cycle
+                do i = 0, nmax_p - 1
+                    do j = 0, nlines_p - 1
+                        c_send(dk*chunk + i*nlines_p + j + 1) = a(dk*nlines_p + i*npage + j + 1)
+                    end do
+                end do
+                nreq = nreq + 1
+                call MPI_Isend(c_send(dk*chunk + 1), chunk, MPI_DOUBLE_PRECISION, dk, 0, fabric_comm_k, req(nreq), ierr)
+            end do
+            ! 5. close epoch (intra writes committed) then wait for inter MPI.
             call MPI_Win_fence(0, win, ierr)
+            if (nreq > 0) call MPI_Waitall(nreq, req, MPI_STATUSES_IGNORE, ierr)
         end do
         call MPI_Barrier(MPI_COMM_WORLD, ierr)
         t1 = MPI_Wtime()
 
-        ! Q2/Q3: verify my segment, slot sk (each intra-node K-peer sender), is correct.
+        ! verify ALL 8 K-peers: intra from my window segment, inter from the MPI recv buffer.
         do sk = 0, NPRO_K - 1
             ws = sk*NPRO_I + ims_pro_i
-            if (ws/RANKS_PER_NODE /= my_node) cycle
             do i = 0, nmax_p - 1
                 do j = 0, nlines_p - 1
                     exp_val = real(ws, dp)*ENC + real(ims_pro_k*nlines_p + i*npage + j + 1, dp)
-                    if (my_recv(sk*chunk + i*nlines_p + j + 1) /= exp_val) n_err = n_err + 1
+                    if (ws/RANKS_PER_NODE == my_node) then           ! intra -> window segment
+                        if (my_recv(sk*chunk + i*nlines_p + j + 1) /= exp_val) n_err = n_err + 1
+                    else                                              ! inter -> MPI recv buffer
+                        if (inter_recv(sk*chunk + i*nlines_p + j + 1) /= exp_val) n_err = n_err + 1
+                    end if
                 end do
             end do
         end do
     end if
-    write(funit,'(a,i3,a,i2,a,i2,a,i2,a,i3,a,i12,a,i6)') '[VERIFY] rank', ims_rank, ' node', my_node, &
-        ' pro_i', ims_pro_i, ' pro_k', ims_pro_k, ' intraKpeers', n_peers, ' errors', n_err, &
+    write(funit,'(a,i3,a,i2,a,i2,a,i2,a,i2,a,i2,a,i12,a,i6)') '[VERIFY] rank', ims_rank, ' node', my_node, &
+        ' pro_i', ims_pro_i, ' pro_k', ims_pro_k, ' intra', n_intra, ' inter', n_inter, ' errors', n_err, &
         ' noncontig', my_noncontig
     flush(funit)
     call MPI_Reduce(n_err, g_err, 1, MPI_INTEGER, MPI_SUM, 0, MPI_COMM_WORLD, ierr)
@@ -168,9 +203,10 @@ program vmpi_nodewin
         write(*,'(a)') '=================================================================='
         write(*,'(a,i0,a)') '[Q1 contiguity]  ranks with NON-contiguous window = ', g_noncontig, &
             '   (0 = every node window is one contiguous cross-XCD mapping)'
-        write(*,'(a,i0)')   '[Q2/Q3 correct]  global errors = ', g_err
+        write(*,'(a,i0,a)') '[correctness]    global errors = ', g_err, &
+            '   (all 8 K-peers: intra via window + inter via MPI, mixed in one transpose)'
         if (g_noncontig == 0 .and. g_err == 0) then
-            write(*,'(a)') '   ==> PASS: node-local cross-XCD shared-window GPU writes work on 2 nodes'
+            write(*,'(a)') '   ==> PASS: the window + two-sided MPI MIX is safe on 2 nodes (no hang, correct)'
         else
             write(*,'(a)') '   ==> FAIL (see fort.300..347 [INIT]/[VERIFY])'
         end if
@@ -180,6 +216,6 @@ program vmpi_nodewin
     end if
 
     call MPI_Win_free(win, ierr)
-    deallocate(a, peer_cptr)
+    deallocate(a, inter_recv, c_send, req, peer_cptr)
     call MPI_Finalize(ierr)
 end program vmpi_nodewin
