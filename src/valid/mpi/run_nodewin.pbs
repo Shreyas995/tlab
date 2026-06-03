@@ -1,0 +1,32 @@
+#!/bin/bash
+#PBS -N nodewin
+#PBS -l select=2:node_type=mi300a:mpiprocs=24
+#PBS -l walltime=00:05:00
+#
+# Option 1 validation: node-local shared-window GPU writes for the K-transpose intra-node peers.
+# Copy vmpi_nodewin.f90 + Makefile.nodewin + this script into your run dir and `qsub` it.
+# Reads back: this stdout (the [Q1]/[Q2/Q3]/PASS lines) + fort.300..347 ([INIT]/[VERIFY] per rank).
+
+ulimit -c unlimited
+export HSA_XNACK=1
+export MPICH_GPU_SUPPORT_ENABLED=1
+export OMP_NUM_THREADS=1
+
+cd "$PBS_O_WORKDIR" || exit 1
+# NO module load: inherit the .bashrc HLRS/APU/2026.1 env (an explicit craype-accel load breaks MPI datatypes).
+
+echo "=== source being built: $(ls -l vmpi_nodewin.f90) ==="
+if grep -q "use mpi_f08" vmpi_nodewin.f90; then
+    echo "FATAL: vmpi_nodewin.f90 uses mpi_f08 -> STALE copy (must be 'use mpi'). Re-upload the fixed file."
+    exit 1
+fi
+
+make -f Makefile.nodewin clean
+make -f Makefile.nodewin || { echo "BUILD FAILED"; exit 1; }
+
+PIN="--cpu-bind list:0:1:2:3:4:5:24:25:26:27:28:29:48:49:50:51:52:53:72:73:74:75:76:77 --gpu-bind list:0:0:0:0:0:0:1:1:1:1:1:1:2:2:2:2:2:2:3:3:3:3:3:3"
+
+echo "######## node-local shared-window K intra-node validation ########"
+timeout 120 mpirun -np 48 --ppn 24 $PIN ./vmpi_nodewin.x
+echo ">>> exit=$?  (124 = TIMEOUT/HANG)"
+echo "DONE -- copy this stdout + fort.300..347 back."

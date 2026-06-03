@@ -1,0 +1,15 @@
+# Makefile.nodewin -- Option 1 node-local shared-window validation harness.
+# Env comes from .bashrc (HLRS/APU/2026.1) inside the PBS job. Do NOT load craype-accel here.
+# Build:  make -f Makefile.nodewin      Run: qsub run_nodewin.pbs      Clean: make -f Makefile.nodewin clean
+FC      = ftn
+FFLAGS  = -fopenmp
+LIBS    = -lamdhip64
+TARGET  = vmpi_nodewin.x
+SRC     = vmpi_nodewin.f90
+
+all: $(TARGET)
+$(TARGET): $(SRC)
+	$(FC) $(FFLAGS) $(SRC) $(LIBS) -o $(TARGET)
+clean:
+	rm -f $(TARGET) *.mod fort.3[0-9][0-9]
+.PHONY: all clean
