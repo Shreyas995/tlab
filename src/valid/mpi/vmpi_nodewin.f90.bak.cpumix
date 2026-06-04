@@ -1,19 +1,16 @@
 ! vmpi_nodewin.f90
 ! ============================================================================
-! Node-window + GPU-aware-MPI COMBINATION validation (Option-2 de-risk). On a 2-node job, one
-! K-transpose runs the intra-node peers via node-local shared-window GPU writes (+ MPI_Win_fence)
-! AND the inter-node peers via GPU-aware MPI_Isend of a GPU-resident buffer (no flush) -- the exact
-! production fabricdirect-K pattern once Option 2 lands. The window mechanism alone passed earlier
-! (CPU-pack inter leg; backup: vmpi_nodewin.f90.bak.cpumix); this version swaps the inter leg to
-! GPU-aware MPI to prove the two coexist (the one untested interaction before editing production).
+! Option 1 validation: node-local shared-window GPU writes for the K-transpose
+! INTRA-NODE peers, on a 2-node job. This is the apudirect mechanism applied to
+! a 24-rank NODE-local sub-comm of a multi-node job -- what fabricdirect-K *should*
+! do for its intra-node K-peers (it currently routes ALL K-peers through MPI).
 !
-! It answers:
+! It answers three questions:
 !   Q1  Does MPI_Win_allocate_shared on a 24-rank NODE comm (split by node, with the
 !       contiguous-segment info key) give one contiguous cross-XCD mapping?  -> [INIT] delta==expect
 !   Q2  Can a GPU kernel write ACROSS XCDs into a peer's segment coherently under
 !       MPI_Win_fence?  (the 4 intra-node K-peers sit in 4 different XCDs)
-!   Q3  Do BOTH legs deliver correctly when GPU-aware inter-node MPI_Isend runs alongside the
-!       shared-window writes + fence in the same transpose?  -> [VERIFY] errors==0
+!   Q3  Does the K intra-node leg deliver correctly?  -> [VERIFY] errors==0
 !
 ! Gotchas applied (see CLAUDE.md "Hunter harness/build gotchas"):
 !   - use mpi (NOT mpi_f08): mpi_f08 predefined datatype constants miscompile under -fopenmp offload.
@@ -163,19 +160,14 @@ program vmpi_nodewin
                 end do
                 !$omp end target teams distribute parallel do
             end do
-            ! 4. INTER-node peers: GPU pack a -> c_send, then GPU-AWARE ISEND of the GPU-resident c_send
-            !    (NO hipDeviceSynchronize flush; MPICH orders the GPU stream — vmpi_gpuaware M2). This is the
-            !    production Option-2 path, tested here COEXISTING with the node-window writes + MPI_Win_fence
-            !    (the one previously-untested interaction before porting Option 2 into the K transpose).
+            ! 4. INTER-node peers: CPU pack a -> c_send, ISEND (overlaps with the window writes).
             do dk = 0, NPRO_K - 1
                 if ((dk*NPRO_I + ims_pro_i)/RANKS_PER_NODE == my_node) cycle
-                !$omp target teams distribute parallel do collapse(2)
                 do i = 0, nmax_p - 1
                     do j = 0, nlines_p - 1
                         c_send(dk*chunk + i*nlines_p + j + 1) = a(dk*nlines_p + i*npage + j + 1)
                     end do
                 end do
-                !$omp end target teams distribute parallel do
                 nreq = nreq + 1
                 call MPI_Isend(c_send(dk*chunk + 1), chunk, MPI_DOUBLE_PRECISION, dk, 0, fabric_comm_k, req(nreq), ierr)
             end do
@@ -212,9 +204,9 @@ program vmpi_nodewin
         write(*,'(a,i0,a)') '[Q1 contiguity]  ranks with NON-contiguous window = ', g_noncontig, &
             '   (0 = every node window is one contiguous cross-XCD mapping)'
         write(*,'(a,i0,a)') '[correctness]    global errors = ', g_err, &
-            '   (all 8 K-peers: intra via window + inter via GPU-AWARE MPI, mixed in one transpose)'
+            '   (all 8 K-peers: intra via window + inter via MPI, mixed in one transpose)'
         if (g_noncontig == 0 .and. g_err == 0) then
-            write(*,'(a)') '   ==> PASS: node-window + GPU-aware MPI coexist safely on 2 nodes (no hang, correct)'
+            write(*,'(a)') '   ==> PASS: the window + two-sided MPI MIX is safe on 2 nodes (no hang, correct)'
         else
             write(*,'(a)') '   ==> FAIL (see fort.300..347 [INIT]/[VERIFY])'
         end if
