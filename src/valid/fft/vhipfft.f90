@@ -84,14 +84,13 @@ program VHIPFFT
     ! FFTW3 constants (define locally so the harness is self-contained — no fftw3.f03 include needed).
     integer, parameter :: FFTW_FORWARD = -1, FFTW_BACKWARD = +1, FFTW_ESTIMATE = 64
 
-    integer :: nx, ny, nz, nxc, nlines_z, nlines_x, i
+    integer :: nx, ny, nz, nxc, nlines_z, nlines_x
     integer(8) :: pf, pb                                  ! FFTW (F77) plan handles
     complex(c_double_complex), allocatable, target :: cz0(:), czf_ref(:), czf_hip(:), czb(:)
     real(c_double),            allocatable, target :: rx0(:), rxb_ref(:), rxb_hip(:)
     complex(c_double_complex), allocatable, target :: cxf_ref(:), cxf_hip(:)
     integer :: n1(1), ie1(1), oe1(1)
     logical :: on_dev, all_ok
-    real(c_double) :: dz, dx
 #ifdef USE_HIPFFT
     type(c_ptr) :: hplan
     integer(c_int) :: ierr
@@ -155,16 +154,15 @@ program VHIPFFT
     allocate (cxf_ref(nxc*nlines_x), cxf_hip(nxc*nlines_x))
     call fill_real(rx0, nx*nlines_x)
 
-    ! FFTW reference: r2c forward then c2r backward(/nx) roundtrip.
+    ! FFTW r2c forward (out-of-place, preserves rx0) -> cxf_ref.
+    ! NB: the c2r EXECUTE below DESTROYS its complex input (documented FFTW behaviour), so every
+    ! comparison against cxf_ref must happen BEFORE the c2r runs. (FFTW_ESTIMATE planning is non-destructive.)
     call dfftw_plan_many_dft_r2c(pf, 1, nx, nlines_x, rx0, nx, 1, nx, cxf_ref, nxc, 1, nxc, FFTW_ESTIMATE)
-    call dfftw_plan_many_dft_c2r(pb, 1, nx, nlines_x, cxf_ref, nxc, 1, nxc, rxb_ref, nx, 1, nx, FFTW_ESTIMATE)
     call dfftw_execute_dft_r2c(pf, rx0, cxf_ref)
-    call dfftw_execute_dft_c2r(pb, cxf_ref, rxb_ref)
-    rxb_ref = rxb_ref/real(nx, c_double)
-    call dfftw_destroy_plan(pf); call dfftw_destroy_plan(pb)
-    call report_real('X FFTW roundtrip (r2c->c2r/nx vs input)', rabsmax(rxb_ref - rx0), rabsmax(rx0), all_ok)
+    call dfftw_destroy_plan(pf)
 
 #ifdef USE_HIPFFT
+    ! hipFFT D2Z forward + compare to the still-pristine FFTW r2c result.
     n1(1) = nx; ie1(1) = nx; oe1(1) = nxc
     ierr = hipfftPlanMany(hplan, 1, n1, ie1, 1, nx, oe1, 1, nxc, HIPFFT_D2Z, nlines_x)
     call chk(ierr, 'hipfftPlanMany D2Z')
@@ -173,8 +171,17 @@ program VHIPFFT
     ierr = hipDeviceSynchronize()
     ierr = hipfftDestroy(hplan)
     call report_real('X hipFFT-r2c vs FFTW-r2c', cabsmax(cxf_hip - cxf_ref), cabsmax(cxf_ref), all_ok)
+#endif
 
-    ! c2r roundtrip of the hipFFT forward result -> should recover rx0 after /nx.
+    ! FFTW c2r roundtrip (DESTROYS cxf_ref — fine, the forward comparison is done) -> rxb_ref.
+    call dfftw_plan_many_dft_c2r(pb, 1, nx, nlines_x, cxf_ref, nxc, 1, nxc, rxb_ref, nx, 1, nx, FFTW_ESTIMATE)
+    call dfftw_execute_dft_c2r(pb, cxf_ref, rxb_ref)
+    rxb_ref = rxb_ref/real(nx, c_double)
+    call dfftw_destroy_plan(pb)
+    call report_real('X FFTW roundtrip (r2c->c2r/nx vs input)', rabsmax(rxb_ref - rx0), rabsmax(rx0), all_ok)
+
+#ifdef USE_HIPFFT
+    ! hipFFT Z2D roundtrip of the hipFFT forward result (cxf_hip still intact) -> recover rx0 after /nx.
     n1(1) = nx; ie1(1) = nxc; oe1(1) = nx
     ierr = hipfftPlanMany(hplan, 1, n1, ie1, 1, nxc, oe1, 1, nx, HIPFFT_Z2D, nlines_x)
     call chk(ierr, 'hipfftPlanMany Z2D')

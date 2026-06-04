@@ -1,7 +1,7 @@
 #!/bin/bash
 #PBS -N vhipfft
 #PBS -l select=1:node_type=mi300a:mpiprocs=1
-#PBS -l walltime=00:10:00
+#PBS -l walltime=00:05:00
 #
 # hipFFT-vs-FFTW bring-up (Phase 0). Single rank, one APU — no MPI.
 # Copy vhipfft.f90 + Makefile.hipfft + this script into a run dir and `qsub` it.
