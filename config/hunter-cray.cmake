@@ -53,9 +53,17 @@ if ( NOT CMAKE_BUILD_TYPE )
   set(CMAKE_BUILD_TYPE RELEASE)  
 endif() 
 
-add_definitions(-DNO_ASSUMED_RANKS -DUSE_FFTW -DUSE_NETCDF) # -DHLRS_HAWK -DUSE_BLAS -DUSE_MKL)
-set(FFTW_LIB "-lfftw3")
-set(NCDF_LIB "-lnetcdff") 
+# FFT backend: FFTW (default; CPU + the GPU bit-reference) or hipFFT (GPU X/Z FFTs). Mutually exclusive
+# for the OPR_Fourier module (opr_fourier.f90 vs opr_fourier_hipfft.f90). hipFFT still links FFTW because
+# the Y direction (used only by OPR_Fourier_F/B) stays on CPU FFTW. Select hipFFT with -DHIPFFT=TRUE.
+if (HIPFFT)
+  add_definitions(-DNO_ASSUMED_RANKS -DUSE_HIPFFT -DUSE_NETCDF)
+  set(FFTW_LIB "-lhipfft -lamdhip64 -lfftw3")
+else ()
+  add_definitions(-DNO_ASSUMED_RANKS -DUSE_FFTW -DUSE_NETCDF) # -DHLRS_HAWK -DUSE_BLAS -DUSE_MKL)
+  set(FFTW_LIB "-lfftw3")
+endif ()
+set(NCDF_LIB "-lnetcdff")
 set(LIBS     "${NCDF_LIB} ${FFTW_LIB} -lm")
 
 set(GNU_SED  "gsed")
