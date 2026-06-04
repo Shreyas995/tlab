@@ -1,9 +1,50 @@
 #include "dns_error.h"
 
-! FFTW backend of OPR_Fourier. The hipFFT backend lives in opr_fourier_hipfft.f90 (module same name).
-! Exactly one compiles: USE_FFTW (default, CPU + GPU bit-reference) XOR USE_HIPFFT (GPU FFTs).
-#ifdef USE_FFTW
+! hipFFT backend of OPR_Fourier: X and Z FFTs run on the GPU (hipFFT), keeping Poisson data GPU-resident
+! across the TLabMPI_Trp transpose calls (no CPU round-trip). The Y direction (used only by the secondary
+! OPR_Fourier_F/B) stays on CPU FFTW. Compiles only under USE_HIPFFT; opr_fourier.f90 (FFTW backend, same
+! module name OPR_Fourier) compiles under USE_FFTW. Exactly one is built. hipFFT validated standalone by
+! src/valid/fft/vhipfft.f90 (Z2Z / D2Z / Z2D match FFTW to machine precision).
+#ifdef USE_HIPFFT
+
+module hipfft_if
+    use, intrinsic :: iso_c_binding
+    implicit none
+    ! hipfftType enum (cuFFT-compatible) + directions. Verified on Hunter by vhipfft.f90.
+    integer(c_int), parameter :: HIPFFT_D2Z = int(z'6a', c_int)   ! double real -> double complex (r2c)
+    integer(c_int), parameter :: HIPFFT_Z2D = int(z'6c', c_int)   ! double complex -> double real (c2r)
+    integer(c_int), parameter :: HIPFFT_Z2Z = int(z'69', c_int)   ! double complex c2c
+    integer(c_int), parameter :: HIPFFT_FORWARD = -1, HIPFFT_BACKWARD = 1
+    interface
+        integer(c_int) function hipfftPlanMany(plan, rank, n, inembed, istride, idist, &
+                                               onembed, ostride, odist, ttype, batch) bind(C, name="hipfftPlanMany")
+            import :: c_int, c_ptr
+            type(c_ptr)           :: plan                 ! hipfftHandle* (opaque handle written here)
+            integer(c_int), value :: rank
+            integer(c_int)        :: n(*), inembed(*), onembed(*)
+            integer(c_int), value :: istride, idist, ostride, odist, ttype, batch
+        end function
+        integer(c_int) function hipfftExecZ2Z(plan, idata, odata, direction) bind(C, name="hipfftExecZ2Z")
+            import :: c_int, c_ptr
+            type(c_ptr), value    :: plan, idata, odata
+            integer(c_int), value :: direction
+        end function
+        integer(c_int) function hipfftExecD2Z(plan, idata, odata) bind(C, name="hipfftExecD2Z")
+            import :: c_int, c_ptr
+            type(c_ptr), value :: plan, idata, odata
+        end function
+        integer(c_int) function hipfftExecZ2D(plan, idata, odata) bind(C, name="hipfftExecZ2D")
+            import :: c_int, c_ptr
+            type(c_ptr), value :: plan, idata, odata
+        end function
+        integer(c_int) function hipDeviceSynchronize() bind(C, name="hipDeviceSynchronize")
+            import :: c_int
+        end function
+    end interface
+end module hipfft_if
+
 module OPR_Fourier
+    use hipfft_if
     use TLab_Constants, only: wp, wi, pi_wp, efile
     use TLab_Memory, only: isize_txc_field, isize_txc_dimz, isize_field
     use TLab_Memory, only: imax, jmax, kmax
@@ -50,6 +91,7 @@ module OPR_Fourier
     logical :: fft_reordering_i = .false.
 
     integer(wi) k
+    integer(c_int) :: hip_ierr                  ! hipFFT exec status (discarded; host is single-threaded)
     complex(wp), pointer :: c_tmp1(:, :) => null(), c_in(:, :) => null(), c_out(:, :) => null(), c_in1(:, :) => null()
     complex(wp), pointer :: c_tmp2(:) => null()
 
@@ -62,17 +104,15 @@ contains
 #endif
         use TLab_Arrays, only: txc
 
-#ifdef USE_FFTW
 #include "fftw3.f03"
-#endif
         ! -----------------------------------------------------OPR_Fourier_Initialize------------------
         integer(wi) stride, isize_disp, nlines
+        integer(c_int) :: ierr                 ! hipFFT plan-create status
+        integer :: n1(1), ie1(1), oe1(1)       ! rank-1 hipfftPlanMany dim/embed arrays
 
         ! #######################################################################
-#ifndef USE_FFTW
-        call TLab_Write_ASCII(efile, __FILE__//'. FFTW needed for POISSON solver.')
-        call TLab_Stop(DNS_ERROR_UNDEVELOP)
-#endif
+        ! hipFFT backend: the X and Z plans below are GPU (hipfftPlanMany); the Y plans stay CPU FFTW
+        ! (Y is used only by the secondary OPR_Fourier_F/B). FFTW is still linked for that.
 
 
         if (mod(imax, 2) /= 0) then
@@ -102,27 +142,11 @@ contains
 #endif
 
             stride = nlines
-#ifdef _DEBUG
-            call dfftw_plan_many_dft(fft_plan_fz, 1, size_fft_z, nlines, &
-                                     txc(:, 1), size_fft_z, stride, 1, &
-                                     wrk3d, size_fft_z, stride, 1, &
-                                     FFTW_FORWARD, FFTW_ESTIMATE)
-
-            call dfftw_plan_many_dft(fft_plan_bz, 1, size_fft_z, nlines, &
-                                     txc(:, 1), size_fft_z, stride, 1, &
-                                     wrk3d, size_fft_z, stride, 1, &
-                                     FFTW_BACKWARD, FFTW_ESTIMATE)
-#else
-            call dfftw_plan_many_dft(fft_plan_fz, 1, size_fft_z, nlines, &
-                                     txc(:, 1), size_fft_z, stride, 1, &
-                                     wrk3d, size_fft_z, stride, 1, &
-                                     FFTW_FORWARD, FFTW_MEASURE)
-
-            call dfftw_plan_many_dft(fft_plan_bz, 1, size_fft_z, nlines, &
-                                     txc(:, 1), size_fft_z, stride, 1, &
-                                     wrk3d, size_fft_z, stride, 1, &
-                                     FFTW_BACKWARD, FFTW_MEASURE)
-#endif
+            ! hipFFT Z complex-to-complex (Z2Z): identical plan for both directions; the sign is passed at
+            ! exec time to hipfftExecZ2Z. Strides match the FFTW many-plan (interleaved: istride=ostride=stride).
+            n1(1) = size_fft_z; ie1(1) = size_fft_z; oe1(1) = size_fft_z
+            ierr = hipfftPlanMany(fft_plan_fz, 1, n1, ie1, stride, 1, oe1, stride, 1, HIPFFT_Z2Z, nlines)
+            ierr = hipfftPlanMany(fft_plan_bz, 1, n1, ie1, stride, 1, oe1, stride, 1, HIPFFT_Z2Z, nlines)
         end if
 
         ! -----------------------------------------------------------------------
@@ -154,25 +178,13 @@ contains
 #ifdef USE_MPI
             end if
 #endif
-#ifdef _DEBUG
-            call dfftw_plan_many_dft_r2c(fft_plan_fx, 1, size_fft_x, nlines, &
-                                         txc(:, 1), size_fft_x, 1, size_fft_x, &
-                                         wrk3d, size_fft_x/2 + 1, 1, isize_disp, &
-                                         FFTW_ESTIMATE)
-            call dfftw_plan_many_dft_c2r(fft_plan_bx, 1, size_fft_x, nlines, &
-                                         txc(:, 1), size_fft_x/2 + 1, 1, isize_disp, &
-                                         wrk3d, size_fft_x, 1, size_fft_x, &
-                                         FFTW_ESTIMATE)
-#else
-            call dfftw_plan_many_dft_r2c(fft_plan_fx, 1, size_fft_x, nlines, &
-                                         txc(:, 1), size_fft_x, 1, size_fft_x, &
-                                         wrk3d, size_fft_x/2 + 1, 1, isize_disp, &
-                                         FFTW_MEASURE)
-            call dfftw_plan_many_dft_c2r(fft_plan_bx, 1, size_fft_x, nlines, &
-                                         txc(:, 1), size_fft_x/2 + 1, 1, isize_disp, &
-                                         wrk3d, size_fft_x, 1, size_fft_x, &
-                                         FFTW_MEASURE)
-#endif
+            ! hipFFT X real-to-complex (D2Z) forward, complex-to-real (Z2D) backward. Advanced-layout strides
+            ! match the FFTW many-plan: contiguous (istride=1); output dist isize_disp leaves the Nyquist gap
+            ! that fft_reordering_i fills (MPI case). D2Z/Z2D carry no direction argument.
+            n1(1) = size_fft_x; ie1(1) = size_fft_x;       oe1(1) = size_fft_x/2 + 1
+            ierr = hipfftPlanMany(fft_plan_fx, 1, n1, ie1, 1, size_fft_x, oe1, 1, isize_disp, HIPFFT_D2Z, nlines)
+            n1(1) = size_fft_x; ie1(1) = size_fft_x/2 + 1; oe1(1) = size_fft_x
+            ierr = hipfftPlanMany(fft_plan_bx, 1, n1, ie1, 1, isize_disp, oe1, 1, size_fft_x, HIPFFT_Z2D, nlines)
 
         end if
 
@@ -226,7 +238,7 @@ contains
         real(wp), intent(in) :: in(nx*ny*nz)
         complex(wp), intent(out) :: out(isize_txc_field)
 
-        target out
+        target in, out
 
         ! -----------------------------------------------------------------------
 #ifdef USE_MPI
@@ -246,7 +258,9 @@ contains
 
             call TLabMPI_Trp_ExecI_Forward(in(:), r_out(:), tmpi_plan_dx)
 
-            call dfftw_execute_dft_r2c(fft_plan_fx, r_out, wrk1)
+            ! hipFFT X r2c on the GPU (r_out is GPU-resident from the transpose); sync before the CPU reorder.
+            hip_ierr = hipfftExecD2Z(fft_plan_fx, c_loc(r_out), c_loc(wrk1))
+            hip_ierr = hipDeviceSynchronize()
 
             if (fft_reordering_i) then      ! reorganize a (FFTW make a stride in a already before)
                 isize_line = nx/2 + 1
@@ -273,7 +287,8 @@ contains
 
         else
 #endif
-            call dfftw_execute_dft_r2c(fft_plan_fx, in, out)
+            hip_ierr = hipfftExecD2Z(fft_plan_fx, c_loc(in), c_loc(out))
+            hip_ierr = hipDeviceSynchronize()
 
 #ifdef USE_MPI
         end if
@@ -326,7 +341,10 @@ contains
                 end do
             end if
 
-            call dfftw_execute_dft_c2r(fft_plan_bx, c_out, r_in)
+            ! hipFFT X c2r on the GPU (c_out is the CPU-reordered spectrum; APU CPU->GPU is coherent);
+            ! sync so the GPU-written r_in is in HBM before the transpose reads it.
+            hip_ierr = hipfftExecZ2D(fft_plan_bx, c_loc(c_out), c_loc(r_in))
+            hip_ierr = hipDeviceSynchronize()
 
             call TLabMPI_Trp_ExecI_Backward(r_in(:), out(:), tmpi_plan_dx) !tmpi_plan_fftx1)
 
@@ -334,7 +352,8 @@ contains
 
         else
 #endif
-            call dfftw_execute_dft_c2r(fft_plan_bx, in, out)
+            hip_ierr = hipfftExecZ2D(fft_plan_bx, c_loc(in), c_loc(out))
+            hip_ierr = hipDeviceSynchronize()
 
 #ifdef USE_MPI
         end if
@@ -367,7 +386,9 @@ contains
         end if
 #endif
 
-        call dfftw_execute_dft(fft_plan_fz, p_org, p_dst)
+        ! hipFFT Z c2c forward on the GPU; sync before the CPU spectral reshuffle below.
+        hip_ierr = hipfftExecZ2Z(fft_plan_fz, c_loc(p_org), c_loc(p_dst), HIPFFT_FORWARD)
+        hip_ierr = hipDeviceSynchronize()
 
         if (fft_reordering_k) then                    ! re-shuffle spectra in z
             do k = 1, size_fft_z/2
@@ -434,7 +455,9 @@ contains
             end do
         end if
 
-        call dfftw_execute_dft(fft_plan_bz, p_org, p_dst)
+        ! hipFFT Z c2c backward on the GPU (p_org is the CPU-reshuffled spectrum); sync before the transpose.
+        hip_ierr = hipfftExecZ2Z(fft_plan_bz, c_loc(p_org), c_loc(p_dst), HIPFFT_BACKWARD)
+        hip_ierr = hipDeviceSynchronize()
 
 #ifdef USE_MPI
         if (ims_npro_k > 1) then
