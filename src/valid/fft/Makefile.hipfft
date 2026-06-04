@@ -1,0 +1,29 @@
+# Makefile.hipfft
+# Standalone build for the hipFFT-vs-FFTW bring-up harness (Phase 0 of the GPU-FFT roadmap step).
+#
+# No MPI (the production FFTs are per-rank/local). Offload toolchain comes from the .bashrc
+# HLRS/APU/2026.1 module in the PBS job — do NOT module-load craype-accel (CLAUDE.md gotcha).
+# -eZ runs the Cray cpp so the #ifdef USE_HIPFFT path is compiled; the hipFFT module + calls then
+# link against -lhipfft (+ -lamdhip64 for hipDeviceSynchronize) and -lfftw3 for the reference.
+#
+# Build:   make -f Makefile.hipfft
+# Run:     qsub run_hipfft.pbs
+# Clean:   make -f Makefile.hipfft clean
+#
+# To build FFTW-only (no GPU, e.g. a structure check), drop -DUSE_HIPFFT and -lhipfft -lamdhip64.
+
+FC      = ftn
+FFLAGS  = -fopenmp -eZ -DUSE_HIPFFT
+LIBS    = -lhipfft -lamdhip64 -lfftw3
+TARGET  = vhipfft.x
+SRC     = vhipfft.f90
+
+all: $(TARGET)
+
+$(TARGET): $(SRC)
+	$(FC) $(FFLAGS) $(SRC) $(LIBS) -o $(TARGET)
+
+clean:
+	rm -f $(TARGET) *.mod
+
+.PHONY: all clean

@@ -1,0 +1,31 @@
+#!/bin/bash
+#PBS -N vhipfft
+#PBS -l select=1:node_type=mi300a:mpiprocs=1
+#PBS -l walltime=00:10:00
+#
+# hipFFT-vs-FFTW bring-up (Phase 0). Single rank, one APU — no MPI.
+# Copy vhipfft.f90 + Makefile.hipfft + this script into a run dir and `qsub` it.
+# Reads back: this stdout (the [ENV] probe + per-stage max|diff|/PASS lines + OVERALL).
+
+ulimit -c unlimited
+export HSA_XNACK=1
+export MPICH_GPU_SUPPORT_ENABLED=1
+export OMP_NUM_THREADS=1
+
+cd "$PBS_O_WORKDIR" || exit 1
+# NO `module load craype-accel-amd-gfx942`: inherit the .bashrc HLRS/APU/2026.1 env
+# (offload toolchain). An explicit accel-module reload breaks the Cray toolchain (CLAUDE.md gotcha).
+
+echo "=== source: $(ls -l vhipfft.f90) ==="
+make -f Makefile.hipfft clean
+make -f Makefile.hipfft || { echo "BUILD FAILED"; exit 1; }
+
+echo "######## hipFFT vs FFTW — small dims (quick correctness) ########"
+mpirun -np 1 --cpu-bind list:0 --gpu-bind list:0 ./vhipfft.x 32 16 32
+echo ">>> exit=$?"
+
+echo "######## hipFFT vs FFTW — Case94 dims (production-relevant) ########"
+mpirun -np 1 --cpu-bind list:0 --gpu-bind list:0 ./vhipfft.x 384 192 384
+echo ">>> exit=$?"
+
+echo "DONE -- copy this stdout back."
