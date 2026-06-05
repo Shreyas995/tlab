@@ -149,20 +149,21 @@ program vmpi_nodewin
             end do
             ! 2. open window epoch.
             call MPI_Win_fence(0, win, ierr)
-            ! 3. INTRA-node peers: cross-XCD GPU write into peer dk's segment at our slot.
+            ! 3. INTRA-node peers: ONE fused cross-XCD GPU write over ALL peers (apudirect-style collapse(3)
+            !    over dk,i,j); inter peers are skipped by the in-kernel mask. The base offset is inlined into
+            !    the index (no shared scalars), exactly the production fusion pattern being de-risked here.
+            !$omp target teams distribute parallel do collapse(3)
             do dk = 0, NPRO_K - 1
-                wd = dk*NPRO_I + ims_pro_i
-                if (wd/RANKS_PER_NODE /= my_node) cycle
-                lp = mod(wd, RANKS_PER_NODE)
-                base = int(lp,8)*int(segsize,8)
-                !$omp target teams distribute parallel do collapse(2)
                 do i = 0, nmax_p - 1
                     do j = 0, nlines_p - 1
-                        all_win(base + ims_pro_k*chunk + i*nlines_p + j + 1) = a(dk*nlines_p + i*npage + j + 1)
+                        if ((dk*NPRO_I + ims_pro_i)/RANKS_PER_NODE == my_node) then
+                            all_win(int(mod(dk*NPRO_I + ims_pro_i, RANKS_PER_NODE),8)*int(segsize,8) &
+                                    + ims_pro_k*chunk + i*nlines_p + j + 1) = a(dk*nlines_p + i*npage + j + 1)
+                        end if
                     end do
                 end do
-                !$omp end target teams distribute parallel do
             end do
+            !$omp end target teams distribute parallel do
             ! 4. INTER-node peers: GPU pack a -> c_send, then GPU-AWARE ISEND of the GPU-resident c_send
             !    (NO hipDeviceSynchronize flush; MPICH orders the GPU stream — vmpi_gpuaware M2). This is the
             !    production Option-2 path, tested here COEXISTING with the node-window writes + MPI_Win_fence
