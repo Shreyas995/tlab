@@ -794,16 +794,19 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 end do
-                ! 4. inter-node peers: CPU pack a -> c_wrk_dp, ISEND (overlaps the window writes).
+                ! 4. inter-node peers (Option 2 = GPU-aware MPI): GPU pack a -> c_wrk_dp on the device, then
+                !    ISEND the GPU-resident buffer directly (overlaps the window writes; no flush). Frees the CPU pack.
                 do m = 0, ims_npro_k - 1
                     if (is_intra_k(m)) cycle
                     flat_off = m * mas
                     disp_ns  = m * nlines_p
+                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
                             c_wrk_dp(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
                         end do
                     end do
+                    !$omp end target teams distribute parallel do
                     l = l + 1
                     call MPI_ISEND(c_wrk_dp(flat_off + 1), mas, &
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
@@ -999,7 +1002,6 @@ contains
         integer :: send_to, recv_from, fbd_tag
 #ifdef USE_APU
         complex(dp), pointer :: apu_cx_all(:) => null()   ! complex view of apu_all_k across all peers
-        integer(c_int) :: hip_sync_err
 #endif
         type(MPI_Comm) :: trp_comm_k   ! fabric_mpi_comm_k (MPI_COMM_WORLD split) or ims_comm_z
 #ifdef USE_APU
@@ -1062,7 +1064,9 @@ contains
             ! apu_size_k/2 complex units per segment. Else: all-MPI complex fallback (original path).
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
-            hip_sync_err = hipDeviceSynchronize()   ! flush GPU-written a (Poisson RHS) for the CPU inter pack
+            ! Option 2: the inter-node leg is GPU-aware (GPU pack + ISEND of the GPU buffer), so no
+            ! hipDeviceSynchronize is needed (MPICH_GPU_SUPPORT orders the GPU stream — vmpi_gpuaware M2,
+            ! vmpi_nodewin window+GPU-aware PASS). Frees the CPU pack the old flush+CPU-pack path required.
             if (use_node_win_k) then
                 ! 1. IRECV inter-node peers directly into b's slots (disp_r(m+1) = m*mas on fabric comm).
                 l = 0
@@ -1086,16 +1090,19 @@ contains
                     end do
                     !$omp end target teams distribute parallel do
                 end do
-                ! 4. inter-node peers: CPU pack a -> c_wrk_cx, ISEND (overlaps the window writes).
+                ! 4. inter-node peers (Option 2 = GPU-aware MPI): GPU pack a -> c_wrk_cx on the device, then
+                !    ISEND the GPU-resident buffer directly (overlaps the window writes; no flush).
                 do m = 0, ims_npro_k - 1
                     if (is_intra_k(m)) cycle
                     flat_off = m * mas
                     disp_ns  = m * nlines_p
+                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
                             c_wrk_cx(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
                         end do
                     end do
+                    !$omp end target teams distribute parallel do
                     l = l + 1
                     call MPI_ISEND(c_wrk_cx(flat_off + 1), mas, &
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
@@ -1481,7 +1488,6 @@ contains
         integer :: send_to, recv_from, fbd_tag
 #ifdef USE_APU
         complex(dp), pointer :: apu_cx_all(:) => null()
-        integer(c_int) :: hip_sync_err
 #endif
         type(MPI_Comm) :: trp_comm_k   ! fabric_mpi_comm_k (MPI_COMM_WORLD split) or ims_comm_z
 #ifdef USE_APU
@@ -1543,7 +1549,9 @@ contains
             ! precedents). Else: all-MPI complex fallback (original path).
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
-            hip_sync_err = hipDeviceSynchronize()   ! flush GPU-written b (FDM Y-solve) for the CPU inter ISEND
+            ! Option 2: the inter-node leg ISENDs b directly via GPU-aware MPI (b is GPU-resident), so no
+            ! hipDeviceSynchronize is needed (the real-K-backward leg already ISENDs b this way without a flush;
+            ! MPICH_GPU_SUPPORT orders the GPU stream — vmpi_gpuaware M2, vmpi_nodewin window+GPU-aware PASS).
             if (use_node_win_k) then
                 ! 1. IRECV inter-node peers into flat c_wrk_cx slots (m*mas).
                 l = 0
