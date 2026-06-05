@@ -389,6 +389,14 @@ program TRANSFIELDS
             call TLab_Stop(DNS_ERROR_UNDEVELOP)
         end if
 
+        ! When cropping only one side, the opposite boundary index is left at its
+        ! reset value of 0 (see subdomain=0 above). Default it to the full source
+        ! extent so TRANS_CROP and the boundary extrapolation below stay in bounds.
+        if (flag_crop) then
+            if (subdomain(3) == 0) subdomain(3) = 1
+            if (subdomain(4) == 0) subdomain(4) = g(2)%size
+        end if
+
         ! Reallocating memory space because jmax_aux can be larger than jmax, jmax_dst
         isize_wrk1d = max(isize_wrk1d, jmax_aux)
 
