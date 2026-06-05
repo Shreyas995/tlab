@@ -1080,47 +1080,54 @@ contains
                 end do
                 ! 2. open node-window epoch.
                 call MPI_Win_fence(0, node_win_k, ims_err)
-                ! 3. intra-node peers: cross-XCD GPU write of our chunk into peer m's complex segment at our slot.
+                ! 3. intra-node peers: ONE fused cross-XCD GPU write over all K-peers (inter masked out) —
+                !    collapse(3) over (m,i,j); one kernel instead of one per intra peer.
+                !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_k - 1
-                    if (.not. is_intra_k(m)) cycle
-                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
-                            node_cx_all_k(int(node_lrank_k(m),8)*int(apu_size_k/2,8) + ims_pro_k*mas + i*nlines_p + j + 1) = &
-                                a(m*nlines_p + i*npage + j + 1)
+                            if (is_intra_k(m)) then
+                                node_cx_all_k(int(node_lrank_k(m),8)*int(apu_size_k/2,8) + ims_pro_k*mas + i*nlines_p + j + 1) = &
+                                    a(m*nlines_p + i*npage + j + 1)
+                            end if
                         end do
                     end do
-                    !$omp end target teams distribute parallel do
                 end do
-                ! 4. inter-node peers (Option 2 = GPU-aware MPI): GPU pack a -> c_wrk_cx on the device, then
-                !    ISEND the GPU-resident buffer directly (overlaps the window writes; no flush).
+                !$omp end target teams distribute parallel do
+                ! 4. inter-node peers (Option 2 = GPU-aware MPI): ONE fused GPU pack of all inter peers
+                !    a -> c_wrk_cx (intra masked out), then ISEND each GPU-resident slot (no flush; MPICH
+                !    orders the stream). m*mas / m*nlines_p inlined — no per-peer scalars in the kernel.
+                !$omp target teams distribute parallel do collapse(3)
+                do m = 0, ims_npro_k - 1
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            if (.not. is_intra_k(m)) then
+                                c_wrk_cx(m*mas + i*nlines_p + j + 1) = a(m*nlines_p + i*npage + j + 1)
+                            end if
+                        end do
+                    end do
+                end do
+                !$omp end target teams distribute parallel do
                 do m = 0, ims_npro_k - 1
                     if (is_intra_k(m)) cycle
-                    flat_off = m * mas
-                    disp_ns  = m * nlines_p
-                    !$omp target teams distribute parallel do collapse(2)
-                    do i = 0, nmax_p - 1
-                        do j = 0, nlines_p - 1
-                            c_wrk_cx(flat_off + i*nlines_p + j + 1) = a(disp_ns + i*npage + j + 1)
-                        end do
-                    end do
-                    !$omp end target teams distribute parallel do
                     l = l + 1
-                    call MPI_ISEND(c_wrk_cx(flat_off + 1), mas, &
+                    call MPI_ISEND(c_wrk_cx(m*mas + 1), mas, &
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
                 end do
                 ! 5. close epoch (intra writes committed) then wait for inter MPI.
                 call MPI_Win_fence(0, node_win_k, ims_err)
                 if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-                ! 6. assemble intra slots of b from our node segment (GPU); inter slots already in b via IRECV.
+                ! 6. assemble intra slots of b in ONE fused kernel (inter slots already in b via IRECV) —
+                !    collapse(2) over (m,i), masked is_intra; was a kernel per intra peer.
+                !$omp target teams distribute parallel do collapse(2)
                 do m = 0, ims_npro_k - 1
-                    if (.not. is_intra_k(m)) cycle
-                    !$omp target teams distribute parallel do
                     do i = 1, mas
-                        b(m*mas + i) = node_cx_recv_fptr_k(m*mas + i)
+                        if (is_intra_k(m)) then
+                            b(m*mas + i) = node_cx_recv_fptr_k(m*mas + i)
+                        end if
                     end do
-                    !$omp end target teams distribute parallel do
                 end do
+                !$omp end target teams distribute parallel do
             else
                 ! Fallback: all K-peers via two-sided MPI (original complex fabricdirect path).
                 do m = 1, ims_npro_k
@@ -1269,15 +1276,17 @@ contains
                 end do
                 ! 2. open node-window epoch.
                 call MPI_Win_fence(0, node_win_k, ims_err)
-                ! 3. intra peers: GPU push b[m*chunk] into peer m's segment at our slot.
+                ! 3. intra peers: ONE fused GPU push of b into each peer's segment (inter masked out) —
+                !    collapse(2) over (m,i); one kernel instead of one per intra peer.
+                !$omp target teams distribute parallel do collapse(2)
                 do m = 0, ims_npro_k - 1
-                    if (.not. is_intra_k(m)) cycle
-                    !$omp target teams distribute parallel do
                     do i = 1, mas
-                        node_all_k(int(node_lrank_k(m),8)*int(apu_size_k,8) + ims_pro_k*mas + i) = b(m*mas + i)
+                        if (is_intra_k(m)) then
+                            node_all_k(int(node_lrank_k(m),8)*int(apu_size_k,8) + ims_pro_k*mas + i) = b(m*mas + i)
+                        end if
                     end do
-                    !$omp end target teams distribute parallel do
                 end do
+                !$omp end target teams distribute parallel do
                 ! 4. inter peers: ISEND b[m*chunk] directly (b is flat).
                 do m = 0, ims_npro_k - 1
                     if (is_intra_k(m)) cycle
@@ -1288,27 +1297,21 @@ contains
                 ! 5. close epoch then wait.
                 call MPI_Win_fence(0, node_win_k, ims_err)
                 if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-                ! 6. scatter to strided a per slot: intra from our node segment, inter from c_wrk_dp.
+                ! 6. scatter to strided a in ONE fused kernel: intra from our node segment, inter from
+                !    c_wrk_dp — collapse(3) over (m,i,j), branch inside (was a kernel per peer).
+                !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_k - 1
-                    disp_nr = m * nlines_p
-                    if (is_intra_k(m)) then
-                        !$omp target teams distribute parallel do collapse(2)
-                        do i = 0, nmax_p - 1
-                            do j = 0, nlines_p - 1
-                                a(disp_nr + i*npage + j + 1) = node_recv_fptr_k(m*mas + i*nlines_p + j + 1)
-                            end do
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            if (is_intra_k(m)) then
+                                a(m*nlines_p + i*npage + j + 1) = node_recv_fptr_k(m*mas + i*nlines_p + j + 1)
+                            else
+                                a(m*nlines_p + i*npage + j + 1) = c_wrk_dp(m*mas + i*nlines_p + j + 1)
+                            end if
                         end do
-                        !$omp end target teams distribute parallel do
-                    else
-                        !$omp target teams distribute parallel do collapse(2)
-                        do i = 0, nmax_p - 1
-                            do j = 0, nlines_p - 1
-                                a(disp_nr + i*npage + j + 1) = c_wrk_dp(m*mas + i*nlines_p + j + 1)
-                            end do
-                        end do
-                        !$omp end target teams distribute parallel do
-                    end if
+                    end do
                 end do
+                !$omp end target teams distribute parallel do
             else
                 ! Fallback: all K-peers via two-sided MPI (original fabricdirect path).
                 l = 0
@@ -1565,16 +1568,18 @@ contains
                 end do
                 ! 2. open node-window epoch.
                 call MPI_Win_fence(0, node_win_k, ims_err)
-                ! 3. intra-node peers: GPU push our b[m*mas] chunk into peer m's complex segment at our slot.
+                ! 3. intra-node peers: ONE fused GPU push of b into each peer's complex segment (inter
+                !    masked out) — collapse(2) over (m,i); one kernel instead of one per intra peer.
+                !$omp target teams distribute parallel do collapse(2)
                 do m = 0, ims_npro_k - 1
-                    if (.not. is_intra_k(m)) cycle
-                    !$omp target teams distribute parallel do
                     do i = 1, mas
-                        node_cx_all_k(int(node_lrank_k(m),8)*int(apu_size_k/2,8) + ims_pro_k*mas + i) = &
-                            b(m*mas + i)
+                        if (is_intra_k(m)) then
+                            node_cx_all_k(int(node_lrank_k(m),8)*int(apu_size_k/2,8) + ims_pro_k*mas + i) = &
+                                b(m*mas + i)
+                        end if
                     end do
-                    !$omp end target teams distribute parallel do
                 end do
+                !$omp end target teams distribute parallel do
                 ! 4. inter-node peers: ISEND our b[m*mas] chunk (overlaps the window writes).
                 do m = 0, ims_npro_k - 1
                     if (is_intra_k(m)) cycle
@@ -1585,17 +1590,19 @@ contains
                 ! 5. close epoch (intra writes committed) then wait for inter MPI.
                 call MPI_Win_fence(0, node_win_k, ims_err)
                 if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
-                ! 6a. intra peers: GPU unpack our recv segment → strided a.
+                ! 6a. intra peers: ONE fused GPU unpack of our recv segment → strided a (inter masked out) —
+                !     collapse(3) over (m,i,j); one kernel instead of one per intra peer. (6b inter stays CPU.)
+                !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_k - 1
-                    if (.not. is_intra_k(m)) cycle
-                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
-                            a(m*nlines_p + i*npage + j + 1) = node_cx_recv_fptr_k(m*mas + i*nlines_p + j + 1)
+                            if (is_intra_k(m)) then
+                                a(m*nlines_p + i*npage + j + 1) = node_cx_recv_fptr_k(m*mas + i*nlines_p + j + 1)
+                            end if
                         end do
                     end do
-                    !$omp end target teams distribute parallel do
                 end do
+                !$omp end target teams distribute parallel do
                 ! 6b. inter peers: CPU scatter flat c_wrk_cx → strided a.
                 do m = 0, ims_npro_k - 1
                     if (is_intra_k(m)) cycle
@@ -1741,13 +1748,14 @@ contains
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
                 ! Option 1: all I-peers intra-node -> node-window GPU writes (apudirect-I pattern), no MPI.
                 call MPI_Win_fence(0, node_win_i, ims_err)
+                ! ONE fused GPU write over all I-peers (all intra-node) — collapse(2) over (m,i).
+                !$omp target teams distribute parallel do collapse(2)
                 do m = 0, ims_npro_i - 1
-                    !$omp target teams distribute parallel do
                     do i = 1, mas
                         node_all_i(int(node_lrank_i(m),8)*int(apu_size_i,8) + ims_pro_i*mas + i) = a(m*mas + i)
                     end do
-                    !$omp end target teams distribute parallel do
                 end do
+                !$omp end target teams distribute parallel do
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
@@ -2026,13 +2034,14 @@ contains
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
                 call MPI_Win_fence(0, node_win_i, ims_err)
+                ! ONE fused GPU write over all I-peers (all intra-node) — collapse(2) over (m,i).
+                !$omp target teams distribute parallel do collapse(2)
                 do m = 0, ims_npro_i - 1
-                    !$omp target teams distribute parallel do
                     do i = 1, mas
                         node_cx_all_i(int(node_lrank_i(m),8)*int(apu_size_i/2,8) + ims_pro_i*mas + i) = a(m*mas + i)
                     end do
-                    !$omp end target teams distribute parallel do
                 end do
+                !$omp end target teams distribute parallel do
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
@@ -2178,16 +2187,17 @@ contains
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
                 ! Option 1: all I-peers intra-node -> node-window GPU push (apudirect-I backward), no MPI.
                 call MPI_Win_fence(0, node_win_i, ims_err)
+                ! ONE fused GPU push over all I-peers (all intra-node) — collapse(3) over (m,i,j).
+                !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
-                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
                             node_all_i(int(node_lrank_i(m),8)*int(apu_size_i,8) + ims_pro_i*mas + i*nmax_p + j + 1) = &
                                 b(m*nmax_p + i*nmax_full + j + 1)
                         end do
                     end do
-                    !$omp end target teams distribute parallel do
                 end do
+                !$omp end target teams distribute parallel do
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 !$omp target teams distribute parallel do
                 do i = 1, size
@@ -2446,16 +2456,17 @@ contains
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
                 call MPI_Win_fence(0, node_win_i, ims_err)
+                ! ONE fused GPU push over all I-peers (all intra-node) — collapse(3) over (m,i,j).
+                !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
-                    !$omp target teams distribute parallel do collapse(2)
                     do i = 0, nlines_p - 1
                         do j = 0, nmax_p - 1
                             node_cx_all_i(int(node_lrank_i(m),8)*int(apu_size_i/2,8) + ims_pro_i*mas + i*nmax_p + j + 1) = &
                                 b(m*nmax_p + i*nmax_full + j + 1)
                         end do
                     end do
-                    !$omp end target teams distribute parallel do
                 end do
+                !$omp end target teams distribute parallel do
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 !$omp target teams distribute parallel do
                 do i = 1, size
