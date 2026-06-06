@@ -296,7 +296,7 @@ program TRANSFIELDS
     isize_wrk3d = max(isize_wrk3d, imax_dst*jmax_dst*kmax_dst)
     if (fourier_on) inb_txc = max(inb_txc, 1)
 
-    write (0, '(A,4(A,I0))') '[TRN-1] calling TLab_Initialize_Memory; imax=', imax, ' jmax=', jmax, ' kmax=', kmax, ' inb_txc=', inb_txc
+    write (0, '(*(G0))') '[TRN-1] calling TLab_Initialize_Memory; imax=', imax, ' jmax=', jmax, ' kmax=', kmax, ' inb_txc=', inb_txc
     call TLab_Initialize_Memory(C_FILE_LOC)
     write (0, '(A)') '[TRN-2] TLab_Initialize_Memory done'
     if (imode_ibm == 1) call IBM_ALLOCATE(C_FILE_LOC)
@@ -308,7 +308,7 @@ program TRANSFIELDS
     ! Further allocation
     if (flow_on) call TLab_Allocate_Real(__FILE__, q_dst, [imax_dst*jmax_dst*kmax_dst, inb_flow], 'flow-dst')
     if (scal_on) call TLab_Allocate_Real(__FILE__, s_dst, [imax_dst*jmax_dst*kmax_dst, inb_scal_dst], 'scal-dst')
-    write (0, '(A,3(A,I0))') '[TRN-5] q_dst/s_dst allocated; imax_dst=', imax_dst, ' jmax_dst=', jmax_dst, ' kmax_dst=', kmax_dst
+    write (0, '(*(G0))') '[TRN-5] q_dst/s_dst allocated; imax_dst=', imax_dst, ' jmax_dst=', jmax_dst, ' kmax_dst=', kmax_dst
 
     ! ###################################################################
     ! Initialize operators and reference data
@@ -338,7 +338,7 @@ program TRANSFIELDS
     ! Initialize remeshing
     ! -------------------------------------------------------------------
     if (opt_main == 3) then
-        write (0, '(A,3(A,I0))') '[TRN-8] reading grid.trn; g_dst sizes=', g_dst(1)%size, ' x', g_dst(2)%size, ' x', g_dst(3)%size
+        write (0, '(*(G0))') '[TRN-8] reading grid.trn; g_dst sizes=', g_dst(1)%size, ' x', g_dst(2)%size, ' x', g_dst(3)%size
         call TLab_Grid_Read('grid.trn', x_dst, y_dst, z_dst, [g_dst(1)%size, g_dst(2)%size, g_dst(3)%size])
         write (0, '(A)') '[TRN-9] grid.trn read done'
         g_dst(1:3)%periodic = g(1:3)%periodic
@@ -408,8 +408,8 @@ program TRANSFIELDS
         end if
 
         ! Reallocating memory space because jmax_aux can be larger than jmax, jmax_dst
-        write (0, '(A,6(A,I0))') '[TRN-10] grid done; jmax_aux=', jmax_aux, &
-            ' flag_crop=', merge(1,0,flag_crop), ' flag_extend=', merge(1,0,flag_extend), &
+        write (0, '(*(G0))') '[TRN-10] grid done; jmax_aux=', jmax_aux, &
+            ' flag_crop=', flag_crop, ' flag_extend=', flag_extend, &
             ' sub(3)=', subdomain(3), ' sub(4)=', subdomain(4), ' g_dst(2)%size=', g_dst(2)%size
         isize_wrk1d = max(isize_wrk1d, jmax_aux)
 
@@ -426,13 +426,13 @@ program TRANSFIELDS
 #endif
         isize_wrk3d = max(isize_wrk3d, isize_txc_field)
 
-        write (0, '(A,2(A,I0))') '[TRN-11] deallocating; isize_txc_field=', isize_txc_field, ' inb_txc=', inb_txc
+        write (0, '(*(G0))') '[TRN-11] deallocating; isize_txc_field=', isize_txc_field, ' inb_txc=', inb_txc
         deallocate (txc, wrk1d, wrk3d)
         write (0, '(A)') '[TRN-12] deallocate done; reallocating txc/wrk1d/wrk3d'
         call TLab_Allocate_Real(C_FILE_LOC, txc, [isize_txc_field, inb_txc], 'txc')
         call TLab_Allocate_Real(C_FILE_LOC, wrk1d, [isize_wrk1d, inb_wrk1d], 'wrk1d')
         call TLab_Allocate_Real(C_FILE_LOC, wrk3d, [isize_wrk3d], 'wrk3d')
-        write (0, '(A,3(A,I0))') '[TRN-13] realloc done; calling c_f_pointer for txc_aux; shape=', imax, ' x', jmax_aux, ' x', kmax
+        write (0, '(*(G0))') '[TRN-13] realloc done; calling c_f_pointer for txc_aux; shape=', imax, ' x', jmax_aux, ' x', kmax
         call c_f_pointer(c_loc(txc(1, 1)), txc_aux, [imax, jmax_aux, kmax])
         write (0, '(A)') '[TRN-14] txc_aux pointer set; allocating x/y/z_aux'
 
