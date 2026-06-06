@@ -180,7 +180,10 @@ contains
                 if (ims_pro_k == 0) then
                     call MPI_Reduce(localsum, avg_ptr(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
                 else
-                    call MPI_Reduce(localsum, MPI_IN_PLACE, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
+                    ! Non-root: recvbuf is not significant, but it must NOT be MPI_IN_PLACE
+                    ! (that sentinel is only legal in the SEND buffer at the root). OpenMPI
+                    ! (Curta) rejects MPI_IN_PLACE here; pass a real, distinct scratch (wrk3d).
+                    call MPI_Reduce(localsum, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
                 end if
 #else
                 avg_ptr(iavg_srt:iavg_end) = localsum
@@ -267,7 +270,10 @@ contains
         if (ims_pro_k == 0) then
             call MPI_Reduce(wrk2d, avg_stress(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
         else
-            call MPI_Reduce(wrk2d, MPI_IN_PLACE, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
+            ! Non-root: recvbuf not significant, but must not be MPI_IN_PLACE (illegal here;
+            ! OpenMPI rejects it). wrk3d is free at this point (its product is already summed
+            ! into wrk2d above), so reuse it as the ignored scratch recvbuf.
+            call MPI_Reduce(wrk2d, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
         end if
 #else
         avg_stress(iavg_srt:iavg_end) = wrk2d(:, 1)
