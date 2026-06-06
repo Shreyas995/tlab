@@ -308,7 +308,7 @@ contains
         select case (f(1)%type)
 
         case (DNS_FILTER_HELMHOLTZ)
-            p_bcs(1:nx, 1:nz, 1:2) => wrk2d(1:nx*nz*2, 1)
+            call c_f_pointer(c_loc(wrk2d(1, 1)), p_bcs, [nx, nz, 2])
 
             if (f(2)%BcsMin == DNS_FILTER_BCS_DIRICHLET) then
                 p_bcs(:, :, 1) = u(:, 1, :)

@@ -34,6 +34,7 @@ program TRANSFIELDS
     use OPR_Fourier
     use TLab_Grid
     use IBM_VARS, only: imode_ibm
+    use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
 
     implicit none
 
@@ -48,7 +49,7 @@ program TRANSFIELDS
     real(wp), allocatable, save :: q_dst(:, :), s_dst(:, :)
 
     real(wp), allocatable, save :: x_aux(:), y_aux(:), z_aux(:)
-    real(wp), pointer :: txc_aux(:, :, :) => null()
+    real(wp), contiguous, pointer :: txc_aux(:, :, :) => null()
 
     ! -------------------------------------------------------------------
     ! Local variables
@@ -417,7 +418,7 @@ program TRANSFIELDS
         call TLab_Allocate_Real(C_FILE_LOC, txc, [isize_txc_field, inb_txc], 'txc')
         call TLab_Allocate_Real(C_FILE_LOC, wrk1d, [isize_wrk1d, inb_wrk1d], 'wrk1d')
         call TLab_Allocate_Real(C_FILE_LOC, wrk3d, [isize_wrk3d], 'wrk3d')
-        txc_aux(1:imax, 1:jmax_aux, 1:kmax) => txc(1:imax*jmax_aux*kmax, 1)
+        call c_f_pointer(c_loc(txc(1, 1)), txc_aux, [imax, jmax_aux, kmax])
 
         allocate (x_aux(g(1)%size + 1))         ! need extra space in cubic splines
         allocate (z_aux(g(3)%size + 1))
