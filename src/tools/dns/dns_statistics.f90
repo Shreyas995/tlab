@@ -72,6 +72,9 @@ contains
         use PARTICLE_VARS
         use PARTICLE_ARRAYS
         use FI_VORTICITY_EQN
+#ifdef USE_MPI
+        use TLabMPI_VARS, only: ims_pro
+#endif
 
         ! -------------------------------------------------------------------
         real(wp) dummy, amin(16), amax(16)
@@ -82,8 +85,14 @@ contains
         character*64 str
         integer(1) igate
         integer(1), allocatable, save :: gate(:)
+        integer :: dbg_rank
 
         ! ###################################################################
+        dbg_rank = 0
+#ifdef USE_MPI
+        dbg_rank = ims_pro
+#endif
+        write (0, '(*(G0))') '[STA-1] rank=', dbg_rank, ' DNS_STATISTICS_TEMPORAL enter: itime=', itime
 #ifdef TRACE_ON
         call TLab_Write_ASCII(tfile, 'ENTERING STATS_TEMPORAL_LAYER')
 #endif
@@ -92,6 +101,7 @@ contains
         if (any([DNS_EQNS_INCOMPRESSIBLE, DNS_EQNS_ANELASTIC] == nse_eqns)) then
             call FI_PRESSURE_BOUSSINESQ(q, s, txc(1, 3), txc(1, 1), txc(1, 2), txc(1, 4), DCMP_TOTAL)
         end if
+        write (0, '(*(G0))') '[STA-2] rank=', dbg_rank, ' pressure done'
 
         ! ###################################################################
         ! Intermittency
@@ -115,6 +125,7 @@ contains
 
             deallocate (gate)
         end if
+        write (0, '(*(G0))') '[STA-3] rank=', dbg_rank, ' intermittency done (stats_intermittency=', stats_intermittency, ')'
 
         ! ###################################################################
         ! Unconditional plane PDFs
@@ -146,13 +157,17 @@ contains
                          nfield, nbins, ibc, amin, amax, vars, igate, wrk3d, g(2)%nodes, txc)
 
         end if
+        write (0, '(*(G0))') '[STA-4] rank=', dbg_rank, ' pdfs done (stats_pdfs=', stats_pdfs, ')'
 
         ! ###################################################################
         ! Plane averages
         ! ###################################################################
         if (stats_averages) then
+            write (0, '(*(G0))') '[STA-5] rank=', dbg_rank, ' entering averages block; scal_on=', scal_on, &
+                ' inb_scal_array=', inb_scal_array
             if (scal_on) then
                 do is = 1, inb_scal_array          ! All, prognostic and diagnostic fields in array s
+                    write (0, '(*(G0))') '[STA-5a] rank=', dbg_rank, ' AVG_SCAL_XZ is=', is
                     hq(1:isize_field, 3) = txc(1:isize_field, 3) ! Pass the pressure
                     call AVG_SCAL_XZ(is, q, s, s(1, is), &
                                      txc(1, 1), txc(1, 2), txc(1, 4), txc(1, 5), txc(1, 6), hq(1, 3), mean)
@@ -190,8 +205,10 @@ contains
 
             end if
 
+            write (0, '(*(G0))') '[STA-5b] rank=', dbg_rank, ' before AVG_FLOW_XZ'
             call AVG_FLOW_XZ(q, s, txc(1, 1), txc(1, 2), txc(1, 3), txc(1, 4), txc(1, 5), txc(1, 6), hq(1, 1), hq(1, 2), hq(1, 3), &
                              mean)
+            write (0, '(*(G0))') '[STA-5c] rank=', dbg_rank, ' after AVG_FLOW_XZ'
 
             ! Lagrange Liquid and Liquid without diffusion
             if (part%type == PART_TYPE_BIL_CLOUD_3 .or. part%type == PART_TYPE_BIL_CLOUD_4) then
@@ -221,6 +238,7 @@ contains
 
         end if
 
+        write (0, '(*(G0))') '[STA-6] rank=', dbg_rank, ' DNS_STATISTICS_TEMPORAL exit'
 #ifdef TRACE_ON
         call TLab_Write_ASCII(tfile, 'LEAVING STATS_TEMPORAL_LAYER')
 #endif

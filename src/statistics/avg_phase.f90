@@ -91,6 +91,10 @@ contains
             avg_p(:) = 0.0_wp
             avg_scal(:) = 0.0_wp
 
+            write (0, '(*(G0))') '[PHM-1] AvgPhaseInitializeMemory: avg_planes=', avg_planes, &
+                ' alloc_size=', alloc_size, ' inb_flow=', inb_flow, ' inb_scal=', inb_scal, &
+                ' size(avg_flow)=', size(avg_flow), ' size(avg_stress)=', size(avg_stress), &
+                ' size(avg_p)=', size(avg_p), ' size(avg_scal)=', size(avg_scal)
 #ifdef USE_MPI
         end if
 #endif
@@ -137,10 +141,18 @@ contains
         real(wp), dimension(:), pointer :: avg_ptr
         real(wp), dimension(:), pointer :: loc_field
         integer(wi) :: ipl_srt, ipl_end, iavg_srt, iavg_end, lpl_srt, lpl_end
+        integer :: dbg_rank
         ! ================================================================== !
+        dbg_rank = 0
+#ifdef USE_MPI
+        dbg_rank = ims_pro
+#endif
         ! Calculation of the plane id to write the spatial average
         plane_id = 1
         if (it_save /= 0) plane_id = mod((itr - 1) - (it_first), it_save) + 1
+        write (0, '(*(G0))') '[PHA-1] rank=', dbg_rank, ' AvgPhaseSpaceExec enter: index=', index, &
+            ' nfield=', nfield, ' itr=', itr, ' plane_id=', plane_id, ' nxy=', nxy, &
+            ' isize_field=', isize_field, ' avg_planes=', avg_planes
 
         ! Determing the tendency to be written
         if (index == 1) then
@@ -160,6 +172,8 @@ contains
             call TLAB_WRITE_ASCII(efile, __FILE__//'. Unassigned case type check the index of the field in AvgPhaseSpaceExec')
             call TLAB_STOP(DNS_ERROR_AVG_PHASE)
         end if
+        write (0, '(*(G0))') '[PHA-2] rank=', dbg_rank, ' loc_field c_f_pointer done; loc_field size=', &
+            size(loc_field), ' (need ', imax*jmax*kmax*nfield, '); avg_ptr assoc=', associated(avg_ptr)
 
         if ((index == 1) .or. (index == 2) .or. (index == 4)) then
             do ifld = 1, nfield
@@ -176,6 +190,13 @@ contains
                 ! Computing the local sum from start and end of the field for accumulating the space averages
                 iavg_srt = (ifld - 1)*nxy*(avg_planes + 1) + nxy*(plane_id - 1) + 1
                 iavg_end = (ifld - 1)*nxy*(avg_planes + 1) + nxy*plane_id
+                if (associated(avg_ptr)) then
+                    write (0, '(*(G0))') '[PHA-3] rank=', dbg_rank, ' ifld=', ifld, ' iavg=', iavg_srt, ':', iavg_end, &
+                        ' avg_ptr_size=', size(avg_ptr), ' before MPI_Reduce'
+                else
+                    write (0, '(*(G0))') '[PHA-3] rank=', dbg_rank, ' ifld=', ifld, ' iavg=', iavg_srt, ':', iavg_end, &
+                        ' avg_ptr NOT associated (non-root) before MPI_Reduce'
+                end if
 #ifdef USE_MPI
                 if (ims_pro_k == 0) then
                     call MPI_Reduce(localsum, avg_ptr(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
@@ -189,22 +210,30 @@ contains
                 avg_ptr(iavg_srt:iavg_end) = localsum
 #endif
 
+                write (0, '(*(G0))') '[PHA-4] rank=', dbg_rank, ' ifld=', ifld, ' MPI_Reduce done'
+
                 lpl_srt = (ifld - 1)*nxy*(avg_planes + 1) + nxy*avg_planes + 1
                 lpl_end = ifld*nxy*(avg_planes + 1)
 
 #ifdef USE_MPI
                 if (ims_pro_k == 0) then
 #endif
+                    write (0, '(*(G0))') '[PHA-5] rank=', dbg_rank, ' ifld=', ifld, ' lpl=', lpl_srt, ':', lpl_end, &
+                        ' avg_ptr_size=', size(avg_ptr), ' before accumulate'
                     avg_ptr(lpl_srt:lpl_end) = avg_ptr(lpl_srt:lpl_end) + avg_ptr(iavg_srt:iavg_end)/avg_planes
 #ifdef USE_MPI
                 end if
 #endif
             end do
         end if
+        write (0, '(*(G0))') '[PHA-6] rank=', dbg_rank, ' AvgPhaseSpaceExec exit'
         return
     end subroutine AvgPhaseSpaceExec
 
     subroutine AvgPhaseStress(q, itr, it_first, it_save)
+#ifdef USE_MPI
+        use TLabMPI_VARS, only: ims_pro
+#endif
         real(wp), dimension(:, :), intent(in) :: q
         integer(wi), intent(in) :: itr
         integer(wi), intent(in) :: it_first
@@ -212,9 +241,16 @@ contains
 
         real(wp), dimension(:), pointer :: u, v, w
         integer(wi) :: plane_id
+        integer :: dbg_rank
 
         target q
 
+        dbg_rank = 0
+#ifdef USE_MPI
+        dbg_rank = ims_pro
+#endif
+        write (0, '(*(G0))') '[STR-0] rank=', dbg_rank, ' AvgPhaseStress enter: itr=', itr, &
+            ' size(q,1)=', size(q, 1), ' size(q,2)=', size(q, 2)
         u => q(:, 1)
         v => q(:, 2)
         w => q(:, 3)
@@ -250,21 +286,47 @@ contains
         integer(wi), intent(in) :: plane_id
 
         integer(wi) :: k, ipl_srt, ipl_end, iavg_srt, iavg_end, lpl_srt, lpl_end
+        integer :: dbg_rank
+
+        dbg_rank = 0
+#ifdef USE_MPI
+        dbg_rank = ims_pro
+#endif
+        write (0, '(*(G0))') '[STR-1] rank=', dbg_rank, ' CalcStress enter: stress_id=', stress_id, &
+            ' plane_id=', plane_id, ' size(field1)=', size(field1), ' size(field2)=', size(field2), &
+            ' size(wrk3d)=', size(wrk3d), ' size(wrk2d)=', size(wrk2d), ' isize_field=', isize_field, ' nxy=', nxy
 
         wrk3d(:) = 0.0_wp
         wrk2d(:, :) = 0.0_wp
 
-        wrk3d(:) = field1(:)*field2(:)
+        write (0, '(*(G0))') '[STR-2] rank=', dbg_rank, ' before wrk3d=field1*field2 (LHS slice=', &
+            size(field1), ' of wrk3d size=', size(wrk3d), ' RHS=', size(field1), ')'
+        ! Conformant assignment: field1/field2 have isize_field elements, but wrk3d is
+        ! sized isize_wrk3d ( = max(isize_field, isize_txc_field) ) and is LARGER when
+        ! fourier_on (isize_txc_field = (imax+2)*jmax*kmax). The old "wrk3d(:) = ..."
+        ! was a non-conformant assignment; Cray over-reads the RHS temporary -> SIGSEGV.
+        ! Only the first isize_field elements are used by the k-loop below.
+        wrk3d(1:size(field1)) = field1(:)*field2(:)
+        write (0, '(*(G0))') '[STR-3] rank=', dbg_rank, ' after wrk3d=field1*field2'
 
         do k = 1, kmax
             ipl_srt = nxy*(k - 1) + 1
             ipl_end = nxy*k
 
-            wrk2d(:, 1) = wrk2d(:, 1) + (wrk3d(ipl_srt:ipl_end))/g(3)%size
+            ! Slice the LHS to nxy: wrk2d's first dim is isize_wrk2d ( >= nxy ), so the
+            ! bare "wrk2d(:,1) = wrk2d(:,1) + wrk3d(ipl_srt:ipl_end)" is non-conformant.
+            wrk2d(1:nxy, 1) = wrk2d(1:nxy, 1) + (wrk3d(ipl_srt:ipl_end))/g(3)%size
         end do
 
         iavg_srt = (stress_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id - 1) + 1
         iavg_end = (stress_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id)
+        if (allocated(avg_stress)) then
+            write (0, '(*(G0))') '[STR-4] rank=', dbg_rank, ' iavg=', iavg_srt, ':', iavg_end, &
+                ' size(avg_stress)=', size(avg_stress), ' before MPI_Reduce'
+        else
+            write (0, '(*(G0))') '[STR-4] rank=', dbg_rank, ' iavg=', iavg_srt, ':', iavg_end, &
+                ' avg_stress NOT allocated (non-root) before MPI_Reduce'
+        end if
 
 #ifdef USE_MPI
         if (ims_pro_k == 0) then

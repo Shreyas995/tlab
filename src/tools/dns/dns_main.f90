@@ -295,11 +295,15 @@ program DNS
 
         if (PhAvg%active) then
             if (mod(itime, PhAvg%stride) == 0) then
+                write (0, '(*(G0))') '[DNS-PHA] itime=', itime, ' enter phase-avg: AvgPhaseSpace(flow)'
                 call AvgPhaseSpace(wrk2d, inb_flow, itime/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride, 1)
+                write (0, '(*(G0))') '[DNS-PHA] itime=', itime, ' AvgPhaseSpace(scal)'
                 call AvgPhaseSpace(wrk2d, inb_scal, itime/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride, 2)
                 ! Pressure is taken from the RHS subroutine
                 ! call AvgPhaseSpace(wrk2d, 6       , itime/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride, 8)
+                write (0, '(*(G0))') '[DNS-PHA] itime=', itime, ' AvgPhaseStress'
                 call AvgPhaseStress(q, itime/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride)
+                write (0, '(*(G0))') '[DNS-PHA] itime=', itime, ' phase-avg accumulate done'
                 if (mod(itime - nitera_first, nitera_save) == 0) then
                     call IO_Write_AvgPhase(avg_planes, inb_flow, IO_FLOW, nitera_save, PhAvg%stride, avgu_name, 1, avg_flow)
                     call IO_Write_AvgPhase(avg_planes, inb_scal, IO_SCAL, nitera_save, PhAvg%stride, avgs_name, 2, avg_scal)
@@ -323,8 +327,10 @@ program DNS
             if (scal_on) call AVG_SCAL_ZT_REDUCE(q, s, hq, txc, mean_scal)
         end if
         if (mod(itime - nitera_first, nitera_stats) == 0) then      ! Calculate statistics
+            write (0, '(*(G0))') '[DNS-STA] itime=', itime, ' enter statistics'
             if (imode_sim == DNS_MODE_TEMPORAL) call DNS_STATISTICS_TEMPORAL()
             if (imode_sim == DNS_MODE_SPATIAL) call DNS_STATISTICS_SPATIAL()
+            write (0, '(*(G0))') '[DNS-STA] itime=', itime, ' statistics done'
         end if
         if (mod(itime - nitera_first, nitera_save) == 0 .or. &      ! Check-pointing: Save restart files
             itime == nitera_last .or. int(logs_data(1)) /= 0 .or. & ! Secure that one restart file is saved
