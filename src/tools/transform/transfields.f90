@@ -34,7 +34,6 @@ program TRANSFIELDS
     use OPR_Fourier
     use TLab_Grid
     use IBM_VARS, only: imode_ibm
-    use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
 
     implicit none
 
@@ -449,8 +448,13 @@ program TRANSFIELDS
         call TLab_Allocate_Real(C_FILE_LOC, txc, [isize_txc_field, inb_txc], 'txc')
         call TLab_Allocate_Real(C_FILE_LOC, wrk1d, [isize_wrk1d, inb_wrk1d], 'wrk1d')
         call TLab_Allocate_Real(C_FILE_LOC, wrk3d, [isize_wrk3d], 'wrk3d')
-        write (0, '(*(G0))') '[TRN-13] realloc done; calling c_f_pointer for txc_aux; shape=', imax, ' x', jmax_aux, ' x', kmax
-        call c_f_pointer(c_loc(txc(1, 1)), txc_aux, [imax, jmax_aux, kmax])
+        write (0, '(*(G0))') '[TRN-13] realloc done; remapping txc_aux; shape=', imax, ' x', jmax_aux, ' x', kmax
+        ! Bounds-remap a contiguous section of txc column 1 to a rank-3 pointer.
+        ! This is the same portable idiom the production solver uses (see
+        ! TLab_Set_Pointers_3D: "u(1:imax,1:jmax,1:kmax) => q(1:isize_field,1)")
+        ! and is correct on both gfortran and Cray CCE. (Do NOT use
+        ! c_f_pointer(c_loc(...)) here: it corrupted the heap under gfortran/MPI.)
+        txc_aux(1:imax, 1:jmax_aux, 1:kmax) => txc(1:imax*jmax_aux*kmax, 1)
         write (0, '(A)') '[TRN-14] txc_aux pointer set; allocating x/y/z_aux'
 
         allocate (x_aux(g(1)%size + 1))         ! need extra space in cubic splines
@@ -515,13 +519,19 @@ program TRANSFIELDS
 
         if (iread_flow) then ! Flow variables
             write (flow_file, *) itime; flow_file = trim(adjustl(tag_flow))//trim(adjustl(flow_file))
+            write (0, '(*(G0))') '[TRN-18] reading flow field base name=', trim(flow_file), &
+                ' (IO_Read_Fields opens ', trim(flow_file), '.1 ... .', inb_flow, ')'
             call IO_Read_Fields(flow_file, imax, jmax, kmax, itime, inb_flow, 0, q, params)
+            write (0, '(A)') '[TRN-19] flow field read done'
             rtime = params(1)
         end if
 
         if (iread_scal) then ! Scalar variables
             write (scal_file, *) itime; scal_file = trim(adjustl(tag_scal))//trim(adjustl(scal_file))
+            write (0, '(*(G0))') '[TRN-20] reading scal field base name=', trim(scal_file), &
+                ' (IO_Read_Fields opens ', trim(scal_file), '.1 ... .', inb_scal, ')'
             call IO_Read_Fields(scal_file, imax, jmax, kmax, itime, inb_scal, 0, s, params)
+            write (0, '(A)') '[TRN-21] scal field read done'
             rtime = params(1)
         end if
 

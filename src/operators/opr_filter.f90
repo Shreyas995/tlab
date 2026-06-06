@@ -227,8 +227,15 @@ contains
         end do
 
 #ifdef USE_MPI
-        variable(1)%trp_plan = tmpi_plan_dx
-        variable(3)%trp_plan = tmpi_plan_dx
+        ! X filter -> OPR_FILTER_X -> ExecI  (I-transpose plan, sized ims_npro_i)
+        ! Z filter -> OPR_FILTER_Z -> ExecK  (K-transpose plan, sized ims_npro_k)
+        ! NOTE: variable(3) must get the K plan (tmpi_plan_dz). It previously got
+        ! tmpi_plan_dx (the I plan); with ims_npro_i /= ims_npro_k the K-exec then
+        ! ran off the end of the I-plan's disp arrays -> heap corruption and a null
+        ! communicator in MPI_Irecv. Guard each by its own ims_npro (the plans are
+        ! only created when ims_npro_* > 1).
+        if (ims_npro_i > 1) variable(1)%trp_plan = tmpi_plan_dx
+        if (ims_npro_k > 1) variable(3)%trp_plan = tmpi_plan_dz
 #endif
 
         return
@@ -308,7 +315,7 @@ contains
         select case (f(1)%type)
 
         case (DNS_FILTER_HELMHOLTZ)
-            call c_f_pointer(c_loc(wrk2d(1, 1)), p_bcs, [nx, nz, 2])
+            p_bcs(1:nx, 1:nz, 1:2) => wrk2d(1:nx*nz*2, 1)
 
             if (f(2)%BcsMin == DNS_FILTER_BCS_DIRICHLET) then
                 p_bcs(:, :, 1) = u(:, 1, :)
