@@ -62,6 +62,7 @@ program TRANSFIELDS
     character*64 str
     character*512 sRes
     integer(wi) subdomain(6)
+    integer(wi) sizes_dst(3)
 
     integer(wi) imax_dst, jmax_dst, kmax_dst
 
@@ -339,7 +340,11 @@ program TRANSFIELDS
     ! -------------------------------------------------------------------
     if (opt_main == 3) then
         write (0, '(*(G0))') '[TRN-8] reading grid.trn; g_dst sizes=', g_dst(1)%size, ' x', g_dst(2)%size, ' x', g_dst(3)%size
-        call TLab_Grid_Read('grid.trn', x_dst, y_dst, z_dst, [g_dst(1)%size, g_dst(2)%size, g_dst(3)%size])
+        write (0, '(*(G0))') '[TRN-8a] assoc(x_dst,g_dst(1))=', associated(x_dst, g_dst(1)), &
+            ' assoc(y_dst,g_dst(2))=', associated(y_dst, g_dst(2)), &
+            ' assoc(z_dst,g_dst(3))=', associated(z_dst, g_dst(3))
+        sizes_dst = [g_dst(1)%size, g_dst(2)%size, g_dst(3)%size]
+        call TLab_Grid_Read('grid.trn', g_dst(1), g_dst(2), g_dst(3), sizes_dst)
         write (0, '(A)') '[TRN-9] grid.trn read done'
         g_dst(1:3)%periodic = g(1:3)%periodic
         
