@@ -342,10 +342,12 @@ contains
 #endif
         call TLab_Debug_Print_int('[IKV] after target, call#', dbg_ikv_n)
         avg = avg/real(nx*nz, wp)
+        call TLab_Debug_Print_int('[IKV] post-divide (read GPU-written avg) call#', dbg_ikv_n)
 #ifdef USE_MPI
         call MPI_ALLREDUCE(avg, wrk, ny, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ims_err)
         avg = wrk/real(ims_npro_i*ims_npro_k, wp)
 #endif
+        call TLab_Debug_Print_int('[IKV] post-allreduce call#', dbg_ikv_n)
 
         return
     end subroutine AVG_IK_V
