@@ -32,15 +32,11 @@ contains
         character*(32) line
 
         ! #######################################################################
-        write (0, '(*(G0))') '[GRID-1] opening file ', trim(name), ' present(sizes)=', present(sizes)
         open (50, file=name, status='old', form='unformatted')
         rewind (50)
-        write (0, '(A)') '[GRID-2] file opened; reading sizes record'
 
         ! -----------------------------------------------------------------------
         read (50) x%size, y%size, z%size
-        write (0, '(*(G0))') '[GRID-3] sizes read: x%size=', x%size, ' y%size=', y%size, ' z%size=', z%size
-        if (present(sizes)) write (0, '(*(G0))') '[GRID-3b] expected sizes=', sizes(1), ' x', sizes(2), ' x', sizes(3)
 
         if (present(sizes)) then        ! check
             if (any([x%size, y%size, z%size] /= sizes)) then
@@ -51,27 +47,19 @@ contains
             end if
         end if
 
-        write (0, '(A)') '[GRID-4] size check passed; reading scale record'
         read (50) x%scale, y%scale, z%scale
-        write (0, '(*(G0))') '[GRID-5] scales read: x%scale=', x%scale, ' y%scale=', y%scale, ' z%scale=', z%scale
 
         if (allocated(x%nodes)) deallocate (x%nodes)
         if (allocated(y%nodes)) deallocate (y%nodes)
         if (allocated(z%nodes)) deallocate (z%nodes)
-        write (0, '(A)') '[GRID-6] allocating nodes arrays'
         allocate (x%nodes(x%size), y%nodes(y%size), z%nodes(z%size))
-        write (0, '(A)') '[GRID-7] nodes allocated; reading x%nodes'
 
         read (50) x%nodes(:)
-        write (0, '(A)') '[GRID-8] x%nodes read; reading y%nodes'
         read (50) y%nodes(:)
-        write (0, '(A)') '[GRID-9] y%nodes read; reading z%nodes'
         read (50) z%nodes(:)
-        write (0, '(A)') '[GRID-10] z%nodes read; closing file'
 
         ! -----------------------------------------------------------------------
         close (50)
-        write (0, '(A)') '[GRID-11] file closed; TLab_Grid_Read returning'
 
         return
 

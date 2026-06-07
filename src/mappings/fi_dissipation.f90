@@ -12,7 +12,6 @@ subroutine FI_DISSIPATION(nx, ny, nz, u, v, w, eps, tmp1, tmp2, tmp3, tmp4)
     use TLab_Pointers_3D, only: p_wrk3d
     use Averages, only: AVG_IK_V
     use OPR_Partial
-    use Tlab_Debug, only: TLab_Debug_Print_int
     implicit none
 
     integer(wi), intent(IN) :: nx, ny, nz
@@ -24,7 +23,6 @@ subroutine FI_DISSIPATION(nx, ny, nz, u, v, w, eps, tmp1, tmp2, tmp3, tmp4)
     integer(wi) bcs(2, 2), j
 
 ! ###################################################################
-    call TLab_Debug_Print_int('[DISS] FI_DISSIPATION enter, line', __LINE__)
     bcs = 0
 
 ! Diagonal terms
@@ -65,16 +63,13 @@ subroutine FI_DISSIPATION(nx, ny, nz, u, v, w, eps, tmp1, tmp2, tmp3, tmp4)
         end do
     ! end if
     eps = eps + p_wrk3d*tmp3
-    call TLab_Debug_Print_int('[DISS] after 33-term (host ops), before 12 OPR_Partial, line', __LINE__)
 
 ! Off-diagonal terms
 ! 12
     call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs, g(2), u, tmp1)
     call OPR_Partial_X(OPR_P1, nx, ny, nz, bcs, g(1), v, tmp2)
-    call TLab_Debug_Print_int('[DISS] after 12 OPR_Partial X/Y, before p_wrk3d=tmp1+tmp2, line', __LINE__)
 
     p_wrk3d = tmp1 + tmp2 ! )*vis
-    call TLab_Debug_Print_int('[DISS] after p_wrk3d=tmp1+tmp2, before AVG#6, line', __LINE__)
     ! if (flag == 1) then
         call AVG_IK_V(nx, ny, nz, p_wrk3d, wrk1d(1, 1), wrk1d(1, 2))
         call AVG_IK_V(nx, ny, nz, u, wrk1d(1, 3), wrk1d(1, 2))

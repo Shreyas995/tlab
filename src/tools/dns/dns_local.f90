@@ -242,7 +242,6 @@ contains
         use TLab_Arrays
         use Averages
         use Integration, only: Int_Simpson
-        use Tlab_Debug, only: TLab_Debug_Print_int
 
         integer(wi) :: ip, is
 
@@ -258,16 +257,12 @@ contains
 
         ip = 8
 
-        call TLab_Debug_Print_int('[OBS] DNS_OBS_CONTROL enter, dns_obs_log=', dns_obs_log)
         select case (dns_obs_log)
 
         case (OBS_TYPE_EKMAN)
             ! ubulk, wbulk
-            call TLab_Debug_Print_int('[OBS] before AVG_IK_V q(1,1), line', __LINE__)
             call AVG_IK_V(imax, jmax, kmax, q(1, 1), wrk1d(:, 1), wrk1d(:, 2))
-            call TLab_Debug_Print_int('[OBS] before AVG_IK_V q(1,3), line', __LINE__)
             call AVG_IK_V(imax, jmax, kmax, q(1, 3), wrk1d(:, 3), wrk1d(:, 4))
-            call TLab_Debug_Print_int('[OBS] after q-avgs, before Int_Simpson, line', __LINE__)
             ubulk = (1.0_wp/g(2)%nodes(g(2)%size))*Int_Simpson(wrk1d(1:jmax, 1), g(2)%nodes(1:jmax))
             wbulk = (1.0_wp/g(2)%nodes(g(2)%size))*Int_Simpson(wrk1d(1:jmax, 3), g(2)%nodes(1:jmax))
 
@@ -280,23 +275,18 @@ contains
             alpha_ny = ATAN2D(wrk1d(g(2)%size, 3), wrk1d(g(2)%size, 1))
 
             ! integrated entstrophy
-            call TLab_Debug_Print_int('[OBS] before FI_VORTICITY, line', __LINE__)
             call FI_VORTICITY(imax, jmax, kmax, q(1, 1), q(1, 2), q(1, 3), txc(1, 1), txc(1, 2), txc(1, 3))
-            call TLab_Debug_Print_int('[OBS] before AVG_IK_V vorticity, line', __LINE__)
             call AVG_IK_V(imax, jmax, kmax, txc(1, 1), wrk1d(:, 1), wrk1d(:, 2))
-            call TLab_Debug_Print_int('[OBS] after vorticity avg, line', __LINE__)
             int_ent = (1.0_wp/g(2)%nodes(g(2)%size))*Int_Simpson(wrk1d(1:jmax, 1), g(2)%nodes(1:jmax))
 
             if (scal_on) then
                 do is = 1, inb_scal
-                    call TLab_Debug_Print_int('[OBS] before AVG_IK_V scal is=', is)
                     call AVG_IK_V(imax, jmax, kmax, s(1, is), wrk1d(:, 1), wrk1d(:, 2))
                     obs_data(ip + is) = (wrk1d(2, 1) - wrk1d(1, 1))/g(2)%nodes(2)
                 end do
             end if
 
         end select
-        call TLab_Debug_Print_int('[OBS] DNS_OBS_CONTROL exit, line', __LINE__)
 
         return
 

@@ -5,7 +5,6 @@ module Averages
     use TLabMPI_VARS, only: ims_comm_z, ims_npro_i, ims_npro_k
     use TLabMPI_VARS, only: ims_err
 #endif
-    use Tlab_Debug, only: TLab_Debug_Print_int
     implicit none
 #ifdef USE_APU
     ! Required so this compilation unit's !$omp target regions share host memory
@@ -15,8 +14,6 @@ module Averages
     !$omp requires unified_shared_memory
 #endif
     private
-
-    integer(wi) :: dbg_ikv_n = 0   ! DEBUG: AVG_IK_V call counter (localize GPU segfault)
 
 #ifdef USE_MPI
     real(wp) sum_mpi
@@ -328,8 +325,6 @@ contains
 
         ! ###################################################################
         avg = 0.0_wp
-        dbg_ikv_n = dbg_ikv_n + 1
-        call TLab_Debug_Print_int('[IKV] before target, call#', dbg_ikv_n)
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(3) private(i,j,k) default(shared) &
         !$omp if (nz*nx*ny > mas)
@@ -347,14 +342,11 @@ contains
 #ifdef USE_APU
         !$omp end target teams distribute parallel do
 #endif
-        call TLab_Debug_Print_int('[IKV] after target, call#', dbg_ikv_n)
         avg = avg/real(nx*nz, wp)
-        call TLab_Debug_Print_int('[IKV] post-divide (read GPU-written avg) call#', dbg_ikv_n)
 #ifdef USE_MPI
         call MPI_ALLREDUCE(avg, wrk, ny, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, ims_err)
         avg = wrk/real(ims_npro_i*ims_npro_k, wp)
 #endif
-        call TLab_Debug_Print_int('[IKV] post-allreduce call#', dbg_ikv_n)
 
         return
     end subroutine AVG_IK_V

@@ -308,19 +308,14 @@ program TRANSFIELDS
     isize_wrk3d = max(isize_wrk3d, imax_dst*jmax_dst*kmax_dst)
     if (fourier_on) inb_txc = max(inb_txc, 1)
 
-    write (0, '(*(G0))') '[TRN-1] calling TLab_Initialize_Memory; imax=', imax, ' jmax=', jmax, ' kmax=', kmax, ' inb_txc=', inb_txc
     call TLab_Initialize_Memory(C_FILE_LOC)
-    write (0, '(A)') '[TRN-2] TLab_Initialize_Memory done'
     if (imode_ibm == 1) call IBM_ALLOCATE(C_FILE_LOC)
 
-    write (0, '(A)') '[TRN-3] calling TLab_Initialize_Background'
     call TLab_Initialize_Background(ifile)
-    write (0, '(A)') '[TRN-4] TLab_Initialize_Background done'
 
     ! Further allocation
     if (flow_on) call TLab_Allocate_Real(__FILE__, q_dst, [imax_dst*jmax_dst*kmax_dst, inb_flow], 'flow-dst')
     if (scal_on) call TLab_Allocate_Real(__FILE__, s_dst, [imax_dst*jmax_dst*kmax_dst, inb_scal_dst], 'scal-dst')
-    write (0, '(*(G0))') '[TRN-5] q_dst/s_dst allocated; imax_dst=', imax_dst, ' jmax_dst=', jmax_dst, ' kmax_dst=', kmax_dst
 
     ! ###################################################################
     ! Initialize operators and reference data
@@ -334,9 +329,7 @@ program TRANSFIELDS
 
     if (fourier_on) call OPR_Fourier_Initialize()
 
-    write (0, '(A)') '[TRN-6] calling OPR_CHECK'
     call OPR_CHECK()
-    write (0, '(A)') '[TRN-7] OPR_CHECK done'
 
     ! -------------------------------------------------------------------
     ! Initialize cumulative field
@@ -350,13 +343,8 @@ program TRANSFIELDS
     ! Initialize remeshing
     ! -------------------------------------------------------------------
     if (opt_main == 3) then
-        write (0, '(*(G0))') '[TRN-8] reading grid.trn; g_dst sizes=', g_dst(1)%size, ' x', g_dst(2)%size, ' x', g_dst(3)%size
-        write (0, '(*(G0))') '[TRN-8a] assoc(x_dst,g_dst(1))=', associated(x_dst, g_dst(1)), &
-            ' assoc(y_dst,g_dst(2))=', associated(y_dst, g_dst(2)), &
-            ' assoc(z_dst,g_dst(3))=', associated(z_dst, g_dst(3))
         sizes_dst = [g_dst(1)%size, g_dst(2)%size, g_dst(3)%size]
         call TLab_Grid_Read('grid.trn', g_dst(1), g_dst(2), g_dst(3), sizes_dst)
-        write (0, '(A)') '[TRN-9] grid.trn read done'
         g_dst(1:3)%periodic = g(1:3)%periodic
         
         tolerance = 0.001_wp    ! percentage of grid spacing
@@ -424,9 +412,6 @@ program TRANSFIELDS
         end if
 
         ! Reallocating memory space because jmax_aux can be larger than jmax, jmax_dst
-        write (0, '(*(G0))') '[TRN-10] grid done; jmax_aux=', jmax_aux, &
-            ' flag_crop=', flag_crop, ' flag_extend=', flag_extend, &
-            ' sub(3)=', subdomain(3), ' sub(4)=', subdomain(4), ' g_dst(2)%size=', g_dst(2)%size
         isize_wrk1d = max(isize_wrk1d, jmax_aux)
 
         idummy = max(imax, imax_dst)*max(jmax_aux, max(jmax, jmax_dst))*max(kmax, kmax_dst)
@@ -442,25 +427,20 @@ program TRANSFIELDS
 #endif
         isize_wrk3d = max(isize_wrk3d, isize_txc_field)
 
-        write (0, '(*(G0))') '[TRN-11] deallocating; isize_txc_field=', isize_txc_field, ' inb_txc=', inb_txc
         deallocate (txc, wrk1d, wrk3d)
-        write (0, '(A)') '[TRN-12] deallocate done; reallocating txc/wrk1d/wrk3d'
         call TLab_Allocate_Real(C_FILE_LOC, txc, [isize_txc_field, inb_txc], 'txc')
         call TLab_Allocate_Real(C_FILE_LOC, wrk1d, [isize_wrk1d, inb_wrk1d], 'wrk1d')
         call TLab_Allocate_Real(C_FILE_LOC, wrk3d, [isize_wrk3d], 'wrk3d')
-        write (0, '(*(G0))') '[TRN-13] realloc done; remapping txc_aux; shape=', imax, ' x', jmax_aux, ' x', kmax
         ! Bounds-remap a contiguous section of txc column 1 to a rank-3 pointer.
         ! This is the same portable idiom the production solver uses (see
         ! TLab_Set_Pointers_3D: "u(1:imax,1:jmax,1:kmax) => q(1:isize_field,1)")
         ! and is correct on both gfortran and Cray CCE. (Do NOT use
         ! c_f_pointer(c_loc(...)) here: it corrupted the heap under gfortran/MPI.)
         txc_aux(1:imax, 1:jmax_aux, 1:kmax) => txc(1:imax*jmax_aux*kmax, 1)
-        write (0, '(A)') '[TRN-14] txc_aux pointer set; allocating x/y/z_aux'
 
         allocate (x_aux(g(1)%size + 1))         ! need extra space in cubic splines
         allocate (z_aux(g(3)%size + 1))
         allocate (y_aux(jmax_aux + 1))
-        write (0, '(A)') '[TRN-15] x/y/z_aux allocated'
 
         x_aux(1:g(1)%size) = xn(1:g(1)%size)  ! need extra space in cubic splines
         z_aux(1:g(3)%size) = zn(1:g(3)%size)  ! need extra space in cubic splines
@@ -504,13 +484,11 @@ program TRANSFIELDS
 
         if (imode_ibm == 1) call IBM_INITIALIZE_GEOMETRY(txc, wrk3d)
 
-        write (0, '(A)') '[TRN-16] remesh init block done'
     end if
 
     ! ###################################################################
     ! Postprocess given list of files
     ! ###################################################################
-    write (0, '(A,I0,A)') '[TRN-17] starting main loop; itime_size=', itime_size, ' iterations'
     do it = 1, itime_size
         itime = itime_vec(it)
 
@@ -519,19 +497,13 @@ program TRANSFIELDS
 
         if (iread_flow) then ! Flow variables
             write (flow_file, *) itime; flow_file = trim(adjustl(tag_flow))//trim(adjustl(flow_file))
-            write (0, '(*(G0))') '[TRN-18] reading flow field base name=', trim(flow_file), &
-                ' (IO_Read_Fields opens ', trim(flow_file), '.1 ... .', inb_flow, ')'
             call IO_Read_Fields(flow_file, imax, jmax, kmax, itime, inb_flow, 0, q, params)
-            write (0, '(A)') '[TRN-19] flow field read done'
             rtime = params(1)
         end if
 
         if (iread_scal) then ! Scalar variables
             write (scal_file, *) itime; scal_file = trim(adjustl(tag_scal))//trim(adjustl(scal_file))
-            write (0, '(*(G0))') '[TRN-20] reading scal field base name=', trim(scal_file), &
-                ' (IO_Read_Fields opens ', trim(scal_file), '.1 ... .', inb_scal, ')'
             call IO_Read_Fields(scal_file, imax, jmax, kmax, itime, inb_scal, 0, s, params)
-            write (0, '(A)') '[TRN-21] scal field read done'
             rtime = params(1)
         end if
 
