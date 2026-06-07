@@ -7,6 +7,13 @@ module Averages
 #endif
     use Tlab_Debug, only: TLab_Debug_Print_int
     implicit none
+#ifdef USE_APU
+    ! Required so this compilation unit's !$omp target regions share host memory
+    ! coherently on the MI300A (matches the program-scope declaration in dns_main.f90).
+    ! Without it, GPU target regions here run in non-USM mode and host accesses to the
+    ! same arrays (e.g. p_wrk3d) after a GPU read/write fault on Cray CCE.
+    !$omp requires unified_shared_memory
+#endif
     private
 
     integer(wi) :: dbg_ikv_n = 0   ! DEBUG: AVG_IK_V call counter (localize GPU segfault)

@@ -44,6 +44,12 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     use Tlab_Debug, only: TLab_Debug_Print_int
 
     implicit none
+#ifdef USE_APU
+    ! MI300A: this unit's !$omp target regions must share host memory coherently
+    ! (matches dns_main.f90). Without it the module pointers (u,v,w,p_loc,p_wrk3d)
+    ! used in the target regions are not coherent with host accesses on Cray CCE.
+    !$omp requires unified_shared_memory
+#endif
 
     real(wp), intent(IN) :: q(imax, jmax, kmax, inb_flow_array)
     real(wp), intent(IN) :: s(imax, jmax, kmax, inb_scal_array)
