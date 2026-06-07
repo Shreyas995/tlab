@@ -47,6 +47,7 @@ subroutine IBM_AVG_GAMMA(gamma_0, gamma_1, eps, tmp1)
     use TLab_Constants, only: wp
     use TLab_Memory, only: imax, jmax, kmax, isize_field
     use Averages, only: AVG_IK_V
+    use Tlab_Debug, only: TLab_Debug_Print_int
 
     implicit none
 
@@ -56,7 +57,9 @@ subroutine IBM_AVG_GAMMA(gamma_0, gamma_1, eps, tmp1)
 
     ! ================================================================== !
     ! horizontal average - compute gamma_1
+    call TLab_Debug_Print_int('[IBMGAMMA] IBM_AVG_GAMMA before AVG_IK_V, line', __LINE__)
     call AVG_IK_V(imax, jmax, kmax, eps, gamma_1, tmp1(1:jmax))
+    call TLab_Debug_Print_int('[IBMGAMMA] IBM_AVG_GAMMA after AVG_IK_V, line', __LINE__)
 
     gamma_0(:) = 1.0_wp - gamma_1(:) 
 

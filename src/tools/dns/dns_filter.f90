@@ -122,6 +122,7 @@ subroutine FI_RTKE(nx, ny, nz, q, ke)
     use TLab_Arrays, only: wrk1d
     use THERMO_ANELASTIC, only : rbackground
     use Averages, only: AVG_IK_V
+    use Tlab_Debug, only: TLab_Debug_Print_int
 
     implicit none
 
@@ -133,6 +134,7 @@ subroutine FI_RTKE(nx, ny, nz, q, ke)
     integer(wi) j
 
     ! #######################################################################
+    call TLab_Debug_Print_int('[RTKE] FI_RTKE enter, nse_eqns=', nse_eqns)
     select case (nse_eqns)
     case (DNS_EQNS_TOTAL, DNS_EQNS_INTERNAL)
         call AVG_IK_V(nx, ny, nz, q(1, 1, 1, 5), rR(1), aux(1))
