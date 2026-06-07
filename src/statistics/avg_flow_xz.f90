@@ -41,6 +41,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     use OPR_Partial
     use IBM_VARS, only: imode_ibm, gamma_0, gamma_1
     use Averages, only: AVG_IK_V
+    use Tlab_Debug, only: TLab_Debug_Print_int
 
     implicit none
 
@@ -511,6 +512,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     ! Main covariances (do not overwrite dudz; it contains p for incompressible case)
     ! #######################################################################
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -593,7 +595,8 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 
         ! Density Fluctuations Budget
 #ifdef USE_APU    
-        !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
+        call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
+    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
         !$omp if (imax*jmax*kmax > mas)
         do k = 1, kmax
             do j = 1, jmax
@@ -667,6 +670,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 
     ! Pressure
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -848,6 +852,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 
         ! Covariances
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -883,6 +888,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         fT2(:) = fT2(:)/rR(:)
 
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -906,6 +912,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 
         p_wrk3d = e + CRATIO_INV*p_loc/rho
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -929,6 +936,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 
         ! Acoustic and entropic density and temperature fluctuations
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -970,6 +978,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         call THERMO_CP(imax*jmax*kmax, s, GAMMA_LOC(:, :, :), dvdx)
 
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1044,6 +1053,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 
             call AVG_IK_V(imax, jmax, kmax, dudx, rB(1), wrk1d)
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1162,6 +1172,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, U_x4(1), wrk1d)
 
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1179,6 +1190,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 #endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, V_y2(1), wrk1d)
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1196,6 +1208,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
 #endif    
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, V_y3(1), wrk1d)
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1223,6 +1236,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     ! -------------------------------------------------------------------
     ! Lateral terms U
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1241,6 +1255,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, U_y2(1), wrk1d)
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1259,6 +1274,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, U_y3(1), wrk1d)
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1310,6 +1326,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, W_x4(1), wrk1d)
 
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1328,6 +1345,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, W_y2(1), wrk1d)
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1346,6 +1364,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, W_y3(1), wrk1d)
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1367,6 +1386,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     ! Dilatation fluctuation
     p_wrk3d = dudx + dvdy + dwdz
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1390,7 +1410,8 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     if (nse_eqns == DNS_EQNS_INTERNAL .or. nse_eqns == DNS_EQNS_TOTAL) then
         p_wrk3d = dudx + dvdy + dwdz
 #ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
+        call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
+    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
         !$omp if (imax*jmax*kmax > mas)
         do k = 1, kmax
             do j = 1, jmax 
@@ -1409,7 +1430,8 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
         call AVG_IK_V(imax, jmax, kmax, p_wrk3d, rR2_dil1(1), wrk1d)
 
 #ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
+        call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
+    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
         !$omp if (imax*jmax*kmax > mas)
         do k = 1, kmax
             do j = 1, jmax 
@@ -1480,6 +1502,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     if (itransport == EQNS_TRANS_POWERLAW) p_wrk3d = p_wrk3d*vis
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, Tau_yy(1), wrk1d)
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1501,6 +1524,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     if (itransport == EQNS_TRANS_POWERLAW) p_wrk3d = p_wrk3d*vis
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, Tau_xy(1), wrk1d)
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1522,6 +1546,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     if (itransport == EQNS_TRANS_POWERLAW) p_wrk3d = p_wrk3d*vis
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, Tau_yz(1), wrk1d)
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1546,6 +1571,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     ! -------------------------------------------------------------------
     ! Contribution to turbulent transport terms
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1566,6 +1592,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     Ty3(:) = Ty3(:) - wrk1d(1:jmax, 2)*visc
 
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1586,6 +1613,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     Ty3(:) = Ty3(:) - wrk1d(1:jmax, 2)*visc
 
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1606,6 +1634,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     Ty3(:) = Ty3(:) - wrk1d(1:jmax, 2)*visc
 
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1625,6 +1654,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     Txyy(:) = Txyy(:) - wrk1d(1:jmax, 2)*visc
 
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -1644,6 +1674,7 @@ subroutine AVG_FLOW_XZ(q, s, dudx, dudy, dudz, dvdx, dvdy, dvdz, dwdx, dwdy, dwd
     Txzy(:) = Txzy(:) - wrk1d(1:jmax, 2)*visc
 
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[FLOW] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax

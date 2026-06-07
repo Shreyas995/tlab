@@ -37,6 +37,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     use OPR_Partial
     use IBM_VARS, only: imode_ibm, gamma_0, gamma_1, scal_bcs
     use Averages, only: AVG_IK_V
+    use Tlab_Debug, only: TLab_Debug_Print_int
 
     implicit none
 
@@ -282,6 +283,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         call TLab_Stop(DNS_ERROR_AVGTMP)
     end if
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[SCAL] before target region, line', __LINE__)
     !$omp target teams distribute parallel do default(shared) private (i,j) &
     !$omp if (nv*jmax > mas)
     do i = 1, nv
@@ -382,6 +384,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! -----------------------------------------------------------------------
     ! Moments
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[SCAL] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -411,7 +414,8 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
 
     else
 #ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
+        call TLab_Debug_Print_int('[SCAL] before target region, line', __LINE__)
+    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
         !$omp if (imax*jmax*kmax > mas)
         do k = 1, kmax
             do j = 1, jmax
@@ -443,7 +447,8 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! -----------------------------------------------------------------------
     ! Cross terms
 #ifdef USE_APU
-        !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
+        call TLab_Debug_Print_int('[SCAL] before target region, line', __LINE__)
+    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
         !$omp if (imax*jmax*kmax > mas)
         do k = 1, kmax
             do j = 1, jmax
@@ -461,6 +466,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     if (any([DNS_EQNS_TOTAL, DNS_EQNS_INTERNAL] == nse_eqns)) p_wrk3d = p_wrk3d*rho
 
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[SCAL] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -494,6 +500,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! -----------------------------------------------------------------------
     ! turbulent transport terms
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[SCAL] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1, kmax
@@ -528,6 +535,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     call OPR_Partial_Y(OPR_P1, imax, jmax, kmax, bcs, g(2), s_local, dsdy)
     call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), s_local, dsdz)
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[SCAL] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (imax*jmax*kmax > mas)
     do k = 1,kmax
@@ -679,6 +687,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     fQ(:) = fQ(:)/rR(:)
 
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[SCAL] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (kmax*jmax*imax > mas)
     do k = 1, kmax
@@ -822,6 +831,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     ! -----------------------------------------------------------------------
     ! Moments
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[SCAL] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (kmax*jmax*imax > mas)
     do k = 1, kmax
@@ -865,6 +875,7 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
 
     ! Contribution to turbulent transport
 #ifdef USE_APU
+    call TLab_Debug_Print_int('[SCAL] before target region, line', __LINE__)
     !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
     !$omp if (kmax*jmax*imax > mas)
     do k = 1, kmax
