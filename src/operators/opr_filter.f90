@@ -46,6 +46,7 @@ module OPR_FILTERS
     type(filter_dt), public :: PressureFilter(3)
 
     public :: OPR_Filter_Initialize_Parameters, FILTER_READBLOCK, OPR_FILTER_INITIALIZE
+    public :: OPR_FILTER_REINIT
     public :: OPR_FILTER
     public :: OPR_FILTER_X, OPR_FILTER_Y, OPR_FILTER_Z
     public :: OPR_FILTER_1D
@@ -250,6 +251,22 @@ contains
         !###################################################################
         if (f%inb_filter > 0) allocate (f%coeffs(f%size, f%inb_filter))
 
+        call OPR_FILTER_REINIT(g, f)
+
+        return
+    end subroutine OPR_FILTER_INITIALIZE
+
+    !###################################################################
+    ! Rebuild the filter coefficients in-place WITHOUT (re)allocating f%coeffs.
+    ! Safe to call repeatedly at runtime when f%parameters(1) changes (e.g. the
+    ! compact-filter alpha is ramped by the adaptive controller). OPR_FILTER_INITIALIZE
+    ! does the one-time allocation and then defers to this routine.
+    !###################################################################
+    subroutine OPR_FILTER_REINIT(g, f)
+        type(fdm_dt), intent(in) :: g
+        type(filter_dt), intent(inout) :: f
+
+        !###################################################################
         select case (f%type)
 
         case (DNS_FILTER_4E, DNS_FILTER_ADM)
@@ -284,7 +301,7 @@ contains
         end select
 
         return
-    end subroutine OPR_FILTER_INITIALIZE
+    end subroutine OPR_FILTER_REINIT
 
     !###################################################################
     ! Filter of u (I-nplace operation)
