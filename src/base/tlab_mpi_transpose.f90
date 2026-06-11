@@ -12,6 +12,7 @@ module TLabMPI_Transpose
     use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc, c_null_ptr, c_associated, c_size_t, c_sizeof, c_int
     ! c_ptr / c_intptr_t are accessible via mpi_f08 (which re-exports iso_c_binding); re-declaring causes ambiguity.
     use TLabMPI_VARS
+    use Tlab_Debug, only: TLab_Debug_Print_int   ! [FDBG] apudirect+filter crash localization
     implicit none
     private
 
@@ -744,7 +745,15 @@ contains
             ! -- Push: one fused GPU kernel writes our chunk to ALL peers simultaneously.
             ! Eliminates per-peer kernel-launch overhead (npro separate launches → 1).
             size = trp_plan%size3d
+            ! [FDBG] apudirect+filter localization — extents/OOB check (remove after diagnosis)
+            call TLab_Debug_Print_int('[FDBG] Kfwd size3d', size)
+            call TLab_Debug_Print_int('[FDBG] Kfwd ubnd_a', ubound(a, 1))
+            call TLab_Debug_Print_int('[FDBG] Kfwd ubnd_b', ubound(b, 1))
+            call TLab_Debug_Print_int('[FDBG] Kfwd winext', apu_stride_k*ims_npro_k)
+            call TLab_Debug_Print_int('[FDBG] Kfwd maxpush', (ims_npro_k - 1)*apu_stride_k + ims_pro_k*nmax_p*nlines_p + (nmax_p - 1)*nlines_p + nlines_p)
+            call TLab_Debug_Print_int('[FDBG] Kfwd preF1 L', __LINE__)
             call MPI_Win_fence(0, apu_win_k, ims_err)
+            call TLab_Debug_Print_int('[FDBG] Kfwd postF1 L', __LINE__)
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_k - 1         ! peer rank (0-based)
                 do i = 0, nmax_p - 1          ! element along K axis (kmax total)
@@ -756,13 +765,16 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            call TLab_Debug_Print_int('[FDBG] Kfwd postPush L', __LINE__)
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: our recv buffer is now fully populated
+            call TLab_Debug_Print_int('[FDBG] Kfwd postF2 L', __LINE__)
             ! -- Unpack: recv buffer is already in the flat K-space layout; one-to-one copy to b.
             !$omp target teams distribute parallel do
             do i = 1, size
                 b(i) = apu_recv_fptr_k(i)
             end do
             !$omp end target teams distribute parallel do
+            call TLab_Debug_Print_int('[FDBG] Kfwd postUnpack L', __LINE__)
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
             ! K-Forward FABRIC_DIRECT. Option 1 (use_node_win_k): the 4 intra-node K-peers go via
@@ -1238,7 +1250,15 @@ contains
         if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
             ! -- Push: b is flat K-space; push our chunk to all peers' recv buffers in one fused kernel.
             size = trp_plan%size3d
+            ! [FDBG] apudirect+filter localization — extents/OOB check (remove after diagnosis)
+            call TLab_Debug_Print_int('[FDBG] Kbwd size3d', size)
+            call TLab_Debug_Print_int('[FDBG] Kbwd ubnd_a', ubound(a, 1))
+            call TLab_Debug_Print_int('[FDBG] Kbwd ubnd_b', ubound(b, 1))
+            call TLab_Debug_Print_int('[FDBG] Kbwd winext', apu_stride_k*ims_npro_k)
+            call TLab_Debug_Print_int('[FDBG] Kbwd maxpush', (ims_npro_k - 1)*apu_stride_k + ims_pro_k*nmax_p*nlines_p + nmax_p*nlines_p)
+            call TLab_Debug_Print_int('[FDBG] Kbwd preF1 L', __LINE__)
             call MPI_Win_fence(0, apu_win_k, ims_err)
+            call TLab_Debug_Print_int('[FDBG] Kbwd postF1 L', __LINE__)
             !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_k - 1
                 do i = 1, nmax_p * nlines_p
@@ -1247,7 +1267,9 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            call TLab_Debug_Print_int('[FDBG] Kbwd postPush L', __LINE__)
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: all peers have written to our buffer
+            call TLab_Debug_Print_int('[FDBG] Kbwd postF2 L', __LINE__)
             ! -- Unpack: recv buffer holds sorted chunks; scatter to strided a in one fused kernel.
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_k - 1
@@ -1259,6 +1281,7 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            call TLab_Debug_Print_int('[FDBG] Kbwd postUnpack L', __LINE__)
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
             ! K-Backward FABRIC_DIRECT. Option 1: intra-node peers via node-window GPU push + fence;
@@ -1720,7 +1743,15 @@ contains
         if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
             ! -- Push: a is flat; one fused kernel writes our chunk to ALL peers simultaneously.
             size = trp_plan%size3d
+            ! [FDBG] apudirect+filter localization — extents/OOB check (remove after diagnosis)
+            call TLab_Debug_Print_int('[FDBG] Ifwd size3d', size)
+            call TLab_Debug_Print_int('[FDBG] Ifwd ubnd_a', ubound(a, 1))
+            call TLab_Debug_Print_int('[FDBG] Ifwd ubnd_b', ubound(b, 1))
+            call TLab_Debug_Print_int('[FDBG] Ifwd winext', apu_stride_i*ims_npro_i)
+            call TLab_Debug_Print_int('[FDBG] Ifwd maxpush', (ims_npro_i - 1)*apu_stride_i + ims_pro_i*nmax_p*nlines_p + nmax_p*nlines_p)
+            call TLab_Debug_Print_int('[FDBG] Ifwd preF1 L', __LINE__)
             call MPI_Win_fence(0, apu_win_i, ims_err)
+            call TLab_Debug_Print_int('[FDBG] Ifwd postF1 L', __LINE__)
             !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_i - 1
                 do i = 1, nmax_p * nlines_p
@@ -1729,7 +1760,9 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            call TLab_Debug_Print_int('[FDBG] Ifwd postPush L', __LINE__)
             call MPI_Win_fence(0, apu_win_i, ims_err)   ! barrier: recv buffer fully populated
+            call TLab_Debug_Print_int('[FDBG] Ifwd postF2 L', __LINE__)
             ! -- Unpack: recv buffer holds sorted flat chunks; scatter to strided b in one fused kernel.
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
@@ -1742,6 +1775,7 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            call TLab_Debug_Print_int('[FDBG] Ifwd postUnpack L', __LINE__)
 
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
             size = trp_plan%size3d
@@ -2161,8 +2195,16 @@ contains
             ! every peer m's recv buffer at slot own_rank*chunk. Single fused collapse(3)
             ! kernel covers all m in one HIP launch, eliminating per-peer launch overhead.
             size = trp_plan%size3d
+            ! [FDBG] apudirect+filter localization — extents/OOB check (remove after diagnosis)
+            call TLab_Debug_Print_int('[FDBG] Ibwd size3d', size)
+            call TLab_Debug_Print_int('[FDBG] Ibwd ubnd_a', ubound(a, 1))
+            call TLab_Debug_Print_int('[FDBG] Ibwd ubnd_b', ubound(b, 1))
+            call TLab_Debug_Print_int('[FDBG] Ibwd winext', apu_stride_i*ims_npro_i)
+            call TLab_Debug_Print_int('[FDBG] Ibwd maxpush', (ims_npro_i - 1)*apu_stride_i + ims_pro_i*nmax_p*nlines_p + (nlines_p - 1)*nmax_p + nmax_p)
+            call TLab_Debug_Print_int('[FDBG] Ibwd preF1 L', __LINE__)
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
             call MPI_Win_fence(0, apu_win_i, ims_err)
+            call TLab_Debug_Print_int('[FDBG] Ibwd postF1 L', __LINE__)
             ! Push: pack strided b[m] → peer m's recv buffer at slot own_rank*chunk (flat).
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
@@ -2174,14 +2216,17 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            call TLab_Debug_Print_int('[FDBG] Ibwd postPush L', __LINE__)
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
+            call TLab_Debug_Print_int('[FDBG] Ibwd postF2 L', __LINE__)
             ! Flat copy: recv buffer layout is flat and matches a 1:1.
             !$omp target teams distribute parallel do
             do i = 1, size
                 a(i) = apu_recv_fptr_i(i)
             end do
             !$omp end target teams distribute parallel do
+            call TLab_Debug_Print_int('[FDBG] Ibwd postUnpack L', __LINE__)
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
             size = trp_plan%size3d
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
