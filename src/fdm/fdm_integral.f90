@@ -14,7 +14,7 @@ module FDM_Integral
     use FDM_Derivative, only: fdm_derivative_dt
     use FDM_Base
     use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
-    use LinearDss
+    use LinearDss   ! TRIDSS/PENTADSS/HEPTADSS_APU: !$omp target is inert without -fopenmp, so these run as host code in the CPU build.
 
     implicit none
     private

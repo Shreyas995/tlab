@@ -227,8 +227,14 @@ contains
         end do
 
 #ifdef USE_MPI
-        variable(1)%trp_plan = tmpi_plan_dx
-        variable(3)%trp_plan = tmpi_plan_dx
+        ! X filter -> OPR_FILTER_X -> ExecI  (I-transpose plan, sized ims_npro_i)
+        ! Z filter -> OPR_FILTER_Z -> ExecK  (K-transpose plan, sized ims_npro_k)
+        ! variable(3) must get the K plan (tmpi_plan_dz); it previously got the I plan
+        ! (tmpi_plan_dx), so with ims_npro_i /= ims_npro_k the K-exec ran off the end of
+        ! the I-plan's disp arrays -> heap corruption / null communicator. Guard each by
+        ! its own ims_npro (the plans are only created when ims_npro_* > 1).
+        if (ims_npro_i > 1) variable(1)%trp_plan = tmpi_plan_dx
+        if (ims_npro_k > 1) variable(3)%trp_plan = tmpi_plan_dz
 #endif
 
         return

@@ -43,7 +43,10 @@ program TRANSFIELDS
     ! -------------------------------------------------------------------
     ! Additional local arrays
     type(grid_dt), target :: g_dst(3)
-    type(grid_dt), pointer :: x_dst => g_dst(1), y_dst => g_dst(2), z_dst => g_dst(3)       ! to be cleaned
+    ! NOTE: do NOT use declaration-time pointer initialization (... => g_dst(1), => g_dst(2),
+    ! => g_dst(3)). Cray CCE honors only the FIRST initializer on a combined line, leaving
+    ! y_dst/z_dst null -> segfault. Associate explicitly at runtime below. gfortran honors all.
+    type(grid_dt), pointer :: x_dst => null(), y_dst => null(), z_dst => null()       ! to be cleaned
     real(wp), allocatable, save :: q_dst(:, :), s_dst(:, :)
 
     real(wp), allocatable, save :: x_aux(:), y_aux(:), z_aux(:)
@@ -76,6 +79,12 @@ program TRANSFIELDS
     real(wp) params(1)!, scales(3)
 
     ! ###################################################################
+    ! Associate the destination-grid aliases explicitly at runtime (Cray CCE does not
+    ! reliably apply multiple declaration-time pointer initializers).
+    x_dst => g_dst(1)
+    y_dst => g_dst(2)
+    z_dst => g_dst(3)
+
     bakfile = trim(adjustl(ifile))//'.bak'
 
     call TLab_Start

@@ -150,7 +150,15 @@ subroutine FI_RTKE(nx, ny, nz, q, ke)
         fW(:) = fW(:)/rR(:)
 
     case (DNS_EQNS_INCOMPRESSIBLE, DNS_EQNS_ANELASTIC)
-        rR(:) = rbackground(:)
+        ! rbackground is allocated ONLY for anelastic (imode_thermo == ANELASTIC).
+        ! For incompressible it is unallocated, so "rR(:) = rbackground(:)" read
+        ! unallocated memory -> crash. Also rR(:) is the full wrk1d(:,1) column
+        ! (isize_wrk1d), not y%size, so the old assignment was non-conformant.
+        if (nse_eqns == DNS_EQNS_ANELASTIC) then
+            rR(1:ny) = rbackground(1:ny)   ! variable background density
+        else
+            rR(1:ny) = 1.0_wp              ! incompressible: unit (constant) density
+        end if
         call AVG_IK_V(nx, ny, nz, q(1, 1, 1, 1), fU(1), aux(1))
         call AVG_IK_V(nx, ny, nz, q(1, 1, 1, 2), fV(1), aux(1))
         call AVG_IK_V(nx, ny, nz, q(1, 1, 1, 3), fW(1), aux(1))

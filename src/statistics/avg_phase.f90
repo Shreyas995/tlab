@@ -180,7 +180,10 @@ contains
                 if (ims_pro_k == 0) then
                     call MPI_Reduce(localsum, avg_ptr(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
                 else
-                    call MPI_Reduce(localsum, MPI_IN_PLACE, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
+                    ! Non-root: recvbuf is not significant, but it must NOT be MPI_IN_PLACE
+                    ! (only legal in the SEND buffer at the root; OpenMPI rejects it here).
+                    ! Pass a real, distinct scratch (wrk3d).
+                    call MPI_Reduce(localsum, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
                 end if
 #else
                 avg_ptr(iavg_srt:iavg_end) = localsum
@@ -251,13 +254,18 @@ contains
         wrk3d(:) = 0.0_wp
         wrk2d(:, :) = 0.0_wp
 
-        wrk3d(:) = field1(:)*field2(:)
+        ! Conformant assignment: field1/field2 have isize_field elements but wrk3d is
+        ! sized isize_wrk3d ( = max(isize_field, isize_txc_field) ), larger when fourier_on.
+        ! The old "wrk3d(:) = field1*field2" over-read the RHS temporary -> crash on Cray.
+        wrk3d(1:size(field1)) = field1(:)*field2(:)
 
         do k = 1, kmax
             ipl_srt = nxy*(k - 1) + 1
             ipl_end = nxy*k
 
-            wrk2d(:, 1) = wrk2d(:, 1) + (wrk3d(ipl_srt:ipl_end))/g(3)%size
+            ! Slice LHS to nxy: wrk2d's first dim is isize_wrk2d ( >= nxy ), so the bare
+            ! "wrk2d(:,1) = wrk2d(:,1) + wrk3d(ipl_srt:ipl_end)" is non-conformant.
+            wrk2d(1:nxy, 1) = wrk2d(1:nxy, 1) + (wrk3d(ipl_srt:ipl_end))/g(3)%size
         end do
 
         iavg_srt = (stress_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id - 1) + 1
@@ -267,7 +275,9 @@ contains
         if (ims_pro_k == 0) then
             call MPI_Reduce(wrk2d, avg_stress(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
         else
-            call MPI_Reduce(wrk2d, MPI_IN_PLACE, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
+            ! Non-root: recvbuf not significant, but must not be MPI_IN_PLACE (illegal here;
+            ! OpenMPI rejects it). wrk3d is free at this point, so reuse it as scratch.
+            call MPI_Reduce(wrk2d, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
         end if
 #else
         avg_stress(iavg_srt:iavg_end) = wrk2d(:, 1)
