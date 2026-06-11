@@ -31,6 +31,7 @@ program DNS
     use OPR_Elliptic, only: OPR_Elliptic_Initialize
     use OPR_Burgers, only: OPR_Burgers_Initialize
     use OPR_FILTERS
+    use DNS_FILTER_CONTROL_M, only: DNS_FILTER_CONTROL_INITIALIZE, DNS_FILTER_CONTROL
     use PARTICLE_VARS
     use PARTICLE_ARRAYS
     use PARTICLE_PROCS
@@ -144,6 +145,8 @@ program DNS
         call OPR_FILTER_INITIALIZE(g(ig), FilterDomain(ig))
         call OPR_FILTER_INITIALIZE(g(ig), PressureFilter(ig))
     end do
+
+    call DNS_FILTER_CONTROL_INITIALIZE(ifile)   ! adaptive [Filter] alpha ramp (no-op if Adaptive=no)
 
     if (fourier_on) call OPR_Fourier_Initialize()
     
@@ -286,6 +289,7 @@ program DNS
         ! -------------------------------------------------------------------
         call DNS_BOUNDS_CONTROL()
         call DNS_OBS_CONTROL()
+        call DNS_FILTER_CONTROL(q, s)           ! adaptive [Filter] alpha ramp (dilatation-gated)
         if (mod(itime - nitera_first, nitera_log) == 0 .or. int(logs_data(1)) /= 0) then
             call DNS_LOGS()
             if (dns_obs_log /= OBS_TYPE_NONE) then
