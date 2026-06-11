@@ -146,9 +146,7 @@ program DNS
         call OPR_FILTER_INITIALIZE(g(ig), PressureFilter(ig))
     end do
 
-    call TLab_Debug_Print_int('[FDBG] dns_main preFCInit L', __LINE__)    ! [FDBG]
     call DNS_FILTER_CONTROL_INITIALIZE(ifile)   ! adaptive [Filter] alpha ramp (no-op if Adaptive=no)
-    call TLab_Debug_Print_int('[FDBG] dns_main postFCInit L', __LINE__)   ! [FDBG]
 
     if (fourier_on) call OPR_Fourier_Initialize()
     
@@ -258,23 +256,18 @@ program DNS
     write (str, *) itime
     call TLab_Write_ASCII(lfile, 'Starting time integration at It'//trim(adjustl(str))//'.')
     !call Tlab_Debug_Initialize()
-    call TLab_Debug_Print_int('[FDBG] dns_main preTimeLoop itime', itime)   ! [FDBG]
 
     do
         if (itime >= nitera_last) exit
         if (int(logs_data(1)) /= 0) exit
         WRITE(UNIT=dbg_string, FMT='(I10)') itime
 
-        call TLab_Debug_Print_int('[FDBG] dns_main preRK itime', itime)     ! [FDBG]
         call TIME_RUNGEKUTTA()
-        call TLab_Debug_Print_int('[FDBG] dns_main postRK itime', itime)    ! [FDBG]
 
         itime = itime + 1
         rtime = rtime + dtime
         if (mod(itime - nitera_first, nitera_filter) == 0) then
-            call TLab_Debug_Print_int('[FDBG] dns_main preDNS_FILTER itime', itime)   ! [FDBG]
             call DNS_FILTER()
-            call TLab_Debug_Print_int('[FDBG] dns_main postDNS_FILTER itime', itime)  ! [FDBG]
             if (imode_ibm == 1) then
                 call IBM_BCS_FIELD_COMBINED(i0, q) ! apply IBM BCs
                 if (scal_on) call IBM_INITIALIZE_SCAL(i0, s)

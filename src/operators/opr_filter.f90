@@ -22,7 +22,6 @@ module OPR_FILTERS
     use TLabMPI_Transpose
 #endif
     use Distributions
-    use Tlab_Debug, only: TLab_Debug_Print_int   ! [FDBG] apudirect+filter crash localization
     implicit none
     private
 
@@ -250,11 +249,9 @@ contains
         type(filter_dt), intent(inout) :: f
 
         !###################################################################
-        call TLab_Debug_Print_int('[FDBG] OPR_FILTER_INITIALIZE enter size', f%size)   ! [FDBG]
         if (f%inb_filter > 0) allocate (f%coeffs(f%size, f%inb_filter))
 
         call OPR_FILTER_REINIT(g, f)
-        call TLab_Debug_Print_int('[FDBG] OPR_FILTER_INITIALIZE done size', f%size)     ! [FDBG]
 
         return
     end subroutine OPR_FILTER_INITIALIZE
@@ -327,7 +324,6 @@ contains
         target txc
 
         !###################################################################
-        call TLab_Debug_Print_int('[FDBG] OPR_FILTER enter nxyz', nx*ny*nz)   ! [FDBG]
         nxy = nx*ny
 
         bcs = 0  !Boundary conditions for derivative operator set to biased, non-zero
@@ -505,9 +501,7 @@ contains
         !-------------------------------------------------------------------
 #ifdef USE_MPI
         if (ims_npro_i > 1) then
-            call TLab_Debug_Print_int('[FDBG] FILTER_X preFwd nxyz', nx*ny*nz)   ! [FDBG]
             call TLabMPI_Trp_ExecI_Forward(u, wrk3d, f%trp_plan)
-            call TLab_Debug_Print_int('[FDBG] FILTER_X postFwd nxyz', nx*ny*nz)  ! [FDBG]
             p_a => wrk3d
             p_b => u
             ! nyz = ims_size_i(id)
@@ -532,7 +526,6 @@ contains
 
         !###################################################################
         call OPR_FILTER_1D(nyz, f, p_b, p_a)
-        call TLab_Debug_Print_int('[FDBG] FILTER_X post1D nyz', nyz)             ! [FDBG]
 
         !###################################################################
         !-------------------------------------------------------------------
@@ -549,9 +542,7 @@ contains
         !-------------------------------------------------------------------
 #ifdef USE_MPI
         if (ims_npro_i > 1) then
-            call TLab_Debug_Print_int('[FDBG] FILTER_X preBwd nxyz', nx*ny*nz)   ! [FDBG]
             call TLabMPI_Trp_ExecI_Backward(p_b, p_a, f%trp_plan)
-            call TLab_Debug_Print_int('[FDBG] FILTER_X postBwd nxyz', nx*ny*nz)  ! [FDBG]
         end if
 #endif
 
@@ -644,9 +635,7 @@ contains
         !-------------------------------------------------------------------
 #ifdef USE_MPI
         if (ims_npro_k > 1) then
-            call TLab_Debug_Print_int('[FDBG] FILTER_Z preFwd nxyz', nx*ny*nz)   ! [FDBG]
             call TLabMPI_Trp_ExecK_Forward(u, wrk3d, f%trp_plan)
-            call TLab_Debug_Print_int('[FDBG] FILTER_Z postFwd nxyz', nx*ny*nz)  ! [FDBG]
             p_a => wrk3d
             p_b => u
             ! nxy = ims_size_k(id)
@@ -662,7 +651,6 @@ contains
 
         !###################################################################
         call OPR_FILTER_1D(nxy, f, p_a, p_b)
-        call TLab_Debug_Print_int('[FDBG] FILTER_Z post1D nxy', nxy)             ! [FDBG]
 
         !###################################################################
         !-------------------------------------------------------------------
@@ -670,9 +658,7 @@ contains
         !-------------------------------------------------------------------
 #ifdef USE_MPI
         if (ims_npro_k > 1) then
-            call TLab_Debug_Print_int('[FDBG] FILTER_Z preBwd nxyz', nx*ny*nz)   ! [FDBG]
             call TLabMPI_Trp_ExecK_Backward(p_b, p_a, f%trp_plan)
-            call TLab_Debug_Print_int('[FDBG] FILTER_Z postBwd nxyz', nx*ny*nz)  ! [FDBG]
         end if
 #endif
 
