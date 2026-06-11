@@ -250,9 +250,11 @@ contains
         type(filter_dt), intent(inout) :: f
 
         !###################################################################
+        call TLab_Debug_Print_int('[FDBG] OPR_FILTER_INITIALIZE enter size', f%size)   ! [FDBG]
         if (f%inb_filter > 0) allocate (f%coeffs(f%size, f%inb_filter))
 
         call OPR_FILTER_REINIT(g, f)
+        call TLab_Debug_Print_int('[FDBG] OPR_FILTER_INITIALIZE done size', f%size)     ! [FDBG]
 
         return
     end subroutine OPR_FILTER_INITIALIZE
@@ -325,6 +327,7 @@ contains
         target txc
 
         !###################################################################
+        call TLab_Debug_Print_int('[FDBG] OPR_FILTER enter nxyz', nx*ny*nz)   ! [FDBG]
         nxy = nx*ny
 
         bcs = 0  !Boundary conditions for derivative operator set to biased, non-zero
