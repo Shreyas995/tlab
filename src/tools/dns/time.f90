@@ -656,7 +656,7 @@ contains
             case (EQNS_RHS_COMBINED)
                 !_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT 1', hq(:,2))
 
-                call TLab_Sources_Flow(q, s, hq, txc(1, 1)) ! hq 2 goes wrong
+                call TLab_Sources_Flow(q, s, hq, txc(1, 1))
                 call TLab_Sources_Scal(s, hs, txc(1, 1), txc(1, 2), txc(1, 3), txc(1, 4))
 
                 call RHS_GLOBAL_INCOMPRESSIBLE_1()

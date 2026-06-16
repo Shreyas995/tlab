@@ -49,6 +49,16 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     implicit none
 
+#ifdef USE_APU
+    interface
+        function hipDeviceSynchronize() bind(C, name='hipDeviceSynchronize') result(ierr)
+            use iso_c_binding, only: c_int
+            integer(c_int) :: ierr
+        end function hipDeviceSynchronize
+    end interface
+    integer(c_int) :: hip_sync_err
+#endif
+
     ! -----------------------------------------------------------------------
     integer(wi) iq, is, ij
     integer ibc, bcs(2, 2)
@@ -250,6 +260,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             call IBM_BCS_FIELD(tmp2)
             call IBM_BCS_FIELD(tmp3)
             call IBM_BCS_FIELD(tmp4)
+#ifdef USE_APU
+            hip_sync_err = hipDeviceSynchronize()  ! flush GPU L2 before CPU-side MPI in OPR_Partial_X/Z
+#endif
         end if
         if (nse_eqns == DNS_EQNS_ANELASTIC) then
             call Thermo_Anelastic_WEIGHT_INPLACE(imax, jmax, kmax, rbackground, tmp2)
@@ -312,7 +325,12 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     ! -----------------------------------------------------------------------
     ! Neumman BCs in d/dy(p) s.t. v=0 (no-penetration)
     ! Stagger also Bcs
-    if (imode_ibm == 1) call IBM_BCS_FIELD(hq(:, 2))
+    if (imode_ibm == 1) then
+        call IBM_BCS_FIELD(hq(:, 2))
+#ifdef USE_APU
+        if (stagger_on) hip_sync_err = hipDeviceSynchronize()  ! flush GPU L2 before CPU-side MPI in OPR_Partial_X/Z
+#endif
+    end if
     if (stagger_on) then ! todo: only need to stagger upper/lower boundary plane, not full h2-array
         call OPR_Partial_X(OPR_P0_INT_VP, imax, jmax, kmax, bcs, g(1), hq(:, 2), tmp5)
         call OPR_Partial_Z(OPR_P0_INT_VP, imax, jmax, kmax, bcs, g(3), tmp5, tmp4)
