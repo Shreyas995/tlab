@@ -36,8 +36,7 @@ subroutine DNS_CATCH_POLLUTION(tag, a, n, isub)
 #endif
 
     ! -----------------------------------------------------------------------
-    real(wp), parameter :: thr = 1.0_wp         ! TEMP forced-trip test value (trips on healthy data);
-                                                ! restore to 1.0e6_wp for production (|u|~O(10), |p|~O(100); blow-up ~1e20+)
+    real(wp), parameter :: thr = 1.0e6_wp       ! healthy |u|~O(10), |p|~O(100); blow-up ~1e20+
     real(wp) vmax
     integer(wi) ij, nbad
     character(len=256) line

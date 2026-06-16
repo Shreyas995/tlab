@@ -386,6 +386,13 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), tmp1, tmp4)
     end if
     
+    ! Sentinel: gradient INPUTS just before the subtraction. If these are clean but
+    ! 'RHS1:post-pgrad' (below) trips, the host !$omp parallel do that subtracts them
+    ! into hq is the culprit (the suspected GPU-written -> CPU-read coherency hazard).
+    call DNS_CATCH_POLLUTION('RHS1:pre-pgrad-dpdx', tmp2, isize_field, rkm_substep)
+    call DNS_CATCH_POLLUTION('RHS1:pre-pgrad-dpdy', tmp3, isize_field, rkm_substep)
+    call DNS_CATCH_POLLUTION('RHS1:pre-pgrad-dpdz', tmp4, isize_field, rkm_substep)
+
     ! -----------------------------------------------------------------------
     ! Add pressure gradient
     ! -----------------------------------------------------------------------
