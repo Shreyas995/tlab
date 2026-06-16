@@ -25,6 +25,15 @@ subroutine FI_PRESSURE_BOUSSINESQ(q, s, p, tmp1, tmp2, tmp, decomposition)
 
     implicit none
 
+#ifdef USE_APU
+    interface
+        function hipDeviceSynchronize() bind(C, name='hipDeviceSynchronize') result(ierr)
+            integer :: ierr
+        end function hipDeviceSynchronize
+    end interface
+    integer :: hip_sync_err
+#endif
+
     real(wp), intent(in) :: q(isize_field, 3)
     real(wp), intent(in) :: s(isize_field, *)
     real(wp), intent(out) :: p(isize_field)
@@ -206,6 +215,9 @@ subroutine FI_PRESSURE_BOUSSINESQ(q, s, p, tmp1, tmp2, tmp, decomposition)
         call IBM_BCS_FIELD(tmp3)
         call IBM_BCS_FIELD(tmp4)
         call IBM_BCS_FIELD(tmp5)
+#ifdef USE_APU
+        hip_sync_err = hipDeviceSynchronize()  ! flush GPU L2 before CPU-side MPI in OPR_Partial_X/Z (fabricdirect)
+#endif
     end if
 
 ! Calculate forcing term Ox
