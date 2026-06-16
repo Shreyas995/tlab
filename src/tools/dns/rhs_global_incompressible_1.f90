@@ -90,6 +90,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         end do
     end if
 
+    ! Sentinel: catch a field already polluted on entry (upstream sources / Coriolis)
+    call DNS_CATCH_POLLUTION('RHS1:entry', hq(1, 1), isize_field*inb_flow, rkm_substep)
+
     ! #######################################################################
     ! Diffusion and advection terms
     ! #######################################################################
@@ -163,6 +166,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp end target teams distribute parallel do
 #endif
 
+    ! Sentinel: catch pollution from the advection/diffusion (OPR_Burgers) stage
+    call DNS_CATCH_POLLUTION('RHS1:post-adv', hq(1, 1), isize_field*inb_flow, rkm_substep)
+
     ! IBM
     if (imode_ibm == 1) then
         ibm_burgers = .false. ! until here, IBM is used for flow fields
@@ -203,6 +209,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     if (BuffType == DNS_BUFFER_RELAX .or. BuffType == DNS_BUFFER_BOTH) then
         call BOUNDARY_BUFFER_RELAX_FLOW()
     end if
+
+    ! Sentinel: catch pollution from the buffer-relaxation stage
+    call DNS_CATCH_POLLUTION('RHS1:post-buf', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
     ! #######################################################################
     ! Pressure term
@@ -324,10 +333,16 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     ! pressure in tmp1, Oy derivative in tmp3
     call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, p_tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
 
+    ! Sentinel: catch pollution from the FFT/Poisson/elliptic solve (pressure in tmp1)
+    call DNS_CATCH_POLLUTION('RHS1:post-poisson', tmp1, isize_field, rkm_substep)
+
     ! filter pressure p and its vertical gradient dpdy
     if (any(PressureFilter(:)%type /= DNS_FILTER_NONE)) then
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp1, txc(1:isize_field,4:6))
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp3, txc(1:isize_field,4:6))
+        ! Sentinel: catch pollution from the compact pressure filter (p and dpdy)
+        call DNS_CATCH_POLLUTION('RHS1:post-pfilter-p', tmp1, isize_field, rkm_substep)
+        call DNS_CATCH_POLLUTION('RHS1:post-pfilter-dpdy', tmp3, isize_field, rkm_substep)
     end if
 
     ! Saving pressure for towers to tmp array
@@ -406,6 +421,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #endif
     end if
 
+    ! Sentinel: catch pollution from the pressure-gradient subtraction
+    ! (in particular the host !$omp parallel do at ~L388 reading GPU-written tmp2/3/4)
+    call DNS_CATCH_POLLUTION('RHS1:post-pgrad', hq(1, 1), isize_field*inb_flow, rkm_substep)
+
     ! #######################################################################
     ! Boundary conditions
     ! #######################################################################
@@ -447,6 +466,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         p_bcs(:, jmax, :) = BcsScalJmax%ref(:, :, is)
 
     end do
+
+    ! Sentinel: catch pollution from the boundary-condition stage (Neumann_Y / IBM_BCS / surface BC)
+    call DNS_CATCH_POLLUTION('RHS1:post-bc', hq(1, 1), isize_field*inb_flow, rkm_substep)
+    call DNS_CATCH_POLLUTION('RHS1:post-bc-s', hs(1, 1), isize_field*inb_scal, rkm_substep)
 
 #ifdef TRACE_ON
     call TLab_Write_ASCII(tfile, 'LEAVING SUBROUTINE RHS_GLOBAL_INCOMPRESSIBLE_1')
