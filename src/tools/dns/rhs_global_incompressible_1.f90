@@ -321,6 +321,12 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp end target teams distribute parallel do
 #endif
 
+    ! Sentinel: catch pollution in the ASSEMBLED forcing BEFORE OPR_Poisson.
+    ! Splits the blow-up: if this trips, the cause is the forcing assembly
+    ! (IBM BCs / OPR_Partial derivatives / divergence); if it passes but
+    ! RHS1:post-poisson trips, the cause is inside OPR_Poisson (FFT/elliptic).
+    call DNS_CATCH_POLLUTION('RHS1:pre-poisson-forcing', tmp1, isize_field, rkm_substep)
+
     ! -----------------------------------------------------------------------
     ! Neumman BCs in d/dy(p) s.t. v=0 (no-penetration)
     ! Stagger also Bcs
