@@ -52,11 +52,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     interface
         function hipDeviceSynchronize() bind(C, name='hipDeviceSynchronize') result(ierr)
-            use iso_c_binding, only: c_int
-            integer(c_int) :: ierr
+            integer :: ierr
         end function hipDeviceSynchronize
     end interface
-    integer(c_int) :: hip_sync_err
+    integer :: hip_sync_err
 #endif
 
     ! -----------------------------------------------------------------------
