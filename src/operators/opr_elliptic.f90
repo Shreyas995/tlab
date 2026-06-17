@@ -403,8 +403,9 @@ contains
         target tmp1, tmp2
         ! -----------------------------------------------------------------------
         integer(wi), parameter :: bcs_p(2, 2) = 0                       ! For partial_y at the end
-        real(wp), parameter :: thr_hi = 1.0e15_wp                       ! sentinel threshold for the GPU
-                                                                        ! blow-up (>> healthy ~1e10, << 1e20)
+        real(wp), parameter :: thr_hi = 1.0e15_wp                       ! spectral arrays (healthy ~1e7-1e10)
+        real(wp), parameter :: thr_lo = 1.0e6_wp                        ! real-space p/dpdy (healthy ~1e3);
+                                                                        ! catches the ~1e8 dpdy growth seen in crashlog
         ! #######################################################################
         call c_f_pointer(c_loc(tmp1), c_tmp1, shape=[isize_txc_field])
         call c_f_pointer(c_loc(tmp2), c_tmp2, shape=[isize_txc_field])
@@ -453,6 +454,20 @@ contains
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
 
+        ! ================================================================================
+        ! >>> SUSPECT REGION for the nondeterministic single-iteration blow-up <<<
+        ! Narrowed from crashlog (no extra run needed): RHS1:post-poisson trips on a corrupted
+        ! PRESSURE *before* any filter (it=234553, max 8.35e6), while RHS1:post-pfilter-p NEVER
+        ! trips -> the pressure filter is exonerated; the Poisson solve itself produces a
+        ! magnitude-clean-but-locally-KINKED pressure (the kink only explodes under d/dy -> dpdy).
+        ! Reviewed and currently believed CORRECT (race-free / no uninit read):
+        !   - PENTADSS_APU            (src/utils/LinearDss.f90:109)   per-(k,i) column, sequential recurrence
+        !   - MatMul_3d_APU           (src/fdm/fdm_matmul.f90:310)    writes bcs_b/bcs_t for all (k,i)
+        !   - correction block        (src/fdm/fdm_integral.f90:1282) per-column, p2_wrk2d fully written
+        !   - boundary setup below    (this routine)                  u zeroed then bcs rows set
+        ! STILL UNREVIEWED (prime remaining suspects): the FFT path OPR_Fourier_X/Z_*(hipFFT vs FFTW)
+        ! and any GPU/CPU coherency at the TLab_Transpose_COMPLEX boundaries around this solve.
+        ! ================================================================================
         select case (ibc)
         case (BCS_NN)           ! use precalculated LU factorization
             ! Compatibility constraint for singular modes. The reference value of p at bottom is set to zero
@@ -509,15 +524,17 @@ contains
         end if
 
         call TLab_Debug_Print_int('POIS-trace:5-after-fftbwd', itime)
-        ! Sentinel: real-space pressure straight out of the backward FFT.
-        call DNS_CATCH_POLLUTION_HI('POIS:post-fft-bwd', p(1, 1, 1), nx*ny*nz, -1, thr_hi)
+        ! Sentinel: real-space pressure straight out of the backward FFT (1e6 -- real-space scale).
+        call DNS_CATCH_POLLUTION_HI('POIS:post-fft-bwd', p(1, 1, 1), nx*ny*nz, -1, thr_lo)
         call TLab_Debug_Print_int('POIS-trace:6-after-sent-fftbwd', itime)
 
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
             call TLab_Debug_Print_int('POIS-trace:7-after-dpdy', itime)
-            ! Sentinel: vertical pressure derivative (first probe sensitive to a localized pressure kink).
-            call DNS_CATCH_POLLUTION_HI('POIS:post-dpdy', dpdy(1, 1, 1), nx*ny*nz, -1, thr_hi)
+            ! Sentinel: dpdy straight out of OPR_Partial_Y, BEFORE the pressure filter (1e6). If this
+            ! trips but the filter is exonerated -> the kink is born in the Poisson solve; if it stays
+            ! clean and only RHS1:post-pfilter-dpdy trips -> the pressure filter creates the pollution.
+            call DNS_CATCH_POLLUTION_HI('POIS:post-dpdy', dpdy(1, 1, 1), nx*ny*nz, -1, thr_lo)
             call TLab_Debug_Print_int('POIS-trace:8-after-sent-dpdy', itime)
         end if
 
