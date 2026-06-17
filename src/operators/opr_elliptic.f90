@@ -402,6 +402,8 @@ contains
         target tmp1, tmp2
         ! -----------------------------------------------------------------------
         integer(wi), parameter :: bcs_p(2, 2) = 0                       ! For partial_y at the end
+        real(wp), parameter :: thr_hi = 1.0e15_wp                       ! sentinel threshold for the GPU
+                                                                        ! blow-up (>> healthy ~1e10, << 1e20)
         ! #######################################################################
         call c_f_pointer(c_loc(tmp1), c_tmp1, shape=[isize_txc_field])
         call c_f_pointer(c_loc(tmp2), c_tmp2, shape=[isize_txc_field])
@@ -424,6 +426,9 @@ contains
         end if
 
         tmp1 = tmp1*norm
+
+        ! Sentinel: forcing spectrum after the forward FFT, before the GPU elliptic Y-solve.
+        call DNS_CATCH_POLLUTION_HI('POIS:post-fft-fwd', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1, thr_hi)
 
         ! ###################################################################
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
@@ -472,6 +477,9 @@ contains
             end do
         end select
 
+        ! Sentinel: solution spectrum straight out of the GPU elliptic Y-solve
+        ! (MatMul_3d_APU / PENTADSS_APU / correction block) -- the prime suspect region.
+        call DNS_CATCH_POLLUTION_HI('POIS:post-ysolve', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1, thr_hi)
 
 ! #ifdef USE_APU
 !         call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
@@ -489,8 +497,13 @@ contains
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
         end if
 
+        ! Sentinel: real-space pressure straight out of the backward FFT.
+        call DNS_CATCH_POLLUTION_HI('POIS:post-fft-bwd', p(1, 1, 1), nx*ny*nz, -1, thr_hi)
+
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
+            ! Sentinel: vertical pressure derivative (first probe sensitive to a localized pressure kink).
+            call DNS_CATCH_POLLUTION_HI('POIS:post-dpdy', dpdy(1, 1, 1), nx*ny*nz, -1, thr_hi)
         end if
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)

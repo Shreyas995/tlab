@@ -15,8 +15,36 @@
 !# values AND for NaN/Inf (a plain abs(a) > thr would miss NaN, because
 !# NaN > thr evaluates to .false.).
 !#
+!# DNS_CATCH_POLLUTION    uses the default physical-field threshold (1e6:
+!#                        healthy |u|~O(10), |p|~O(100)).
+!# DNS_CATCH_POLLUTION_HI takes an explicit threshold, for non-physical-
+!#                        scale arrays (e.g. the Poisson forcing ~1e7 or
+!#                        spectral intermediates ~1e10) where 1e6 would
+!#                        false-trip; pass a high value (e.g. 1e15) that
+!#                        still sits far below the 1e20-1e40 blow-up.
+!# Both are plain external subroutines with all-required arguments, so no
+!# explicit interface is needed at the call sites.
+!#
 !########################################################################
 subroutine DNS_CATCH_POLLUTION(tag, a, n, isub)
+    use TLab_Constants, only: wp, wi
+
+    implicit none
+
+    character(len=*), intent(in) :: tag         ! short stage/subroutine label
+    integer(wi), intent(in) :: n                ! number of elements to scan
+    real(wp), intent(in) :: a(n)                ! flattened field (hq, q, tmp1, ...)
+    integer(wi), intent(in) :: isub             ! RK substep (-1 if not applicable)
+
+    call DNS_CATCH_POLLUTION_HI(tag, a, n, isub, 1.0e6_wp)
+
+    return
+
+end subroutine DNS_CATCH_POLLUTION
+
+!########################################################################
+!########################################################################
+subroutine DNS_CATCH_POLLUTION_HI(tag, a, n, isub, thr)
     use TLab_Constants, only: wp, wi, efile
     use TLab_Time, only: itime
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
@@ -30,13 +58,13 @@ subroutine DNS_CATCH_POLLUTION(tag, a, n, isub)
     integer(wi), intent(in) :: n                ! number of elements to scan
     real(wp), intent(in) :: a(n)                ! flattened field (hq, q, tmp1, ...)
     integer(wi), intent(in) :: isub             ! RK substep (-1 if not applicable)
+    real(wp), intent(in) :: thr                 ! magnitude threshold (huge OR NaN/Inf trips it)
 
 #ifdef USE_APU
     !$omp requires unified_shared_memory
 #endif
 
     ! -----------------------------------------------------------------------
-    real(wp), parameter :: thr = 1.0e6_wp       ! healthy |u|~O(10), |p|~O(100); blow-up ~1e20+
     real(wp) vmax
     integer(wi) ij, nbad
     character(len=256) line
@@ -49,7 +77,7 @@ subroutine DNS_CATCH_POLLUTION(tag, a, n, isub)
     nbad = 0
 
 #ifdef USE_APU
-    !$omp target teams distribute parallel do private(ij) firstprivate(n) &
+    !$omp target teams distribute parallel do private(ij) firstprivate(n, thr) &
     !$omp reduction(max:vmax) reduction(+:nbad)
 #endif
     do ij = 1, n
@@ -70,4 +98,4 @@ subroutine DNS_CATCH_POLLUTION(tag, a, n, isub)
 
 1000 format('[POLLUTION] tag=', a, ' it=', i7, ' sub=', i3, ' rank=', i5, ' max=', e13.6, ' nbad=', i12)
 
-end subroutine DNS_CATCH_POLLUTION
+end subroutine DNS_CATCH_POLLUTION_HI

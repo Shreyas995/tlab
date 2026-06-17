@@ -321,11 +321,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp end target teams distribute parallel do
 #endif
 
-    ! Sentinel: catch pollution in the ASSEMBLED forcing BEFORE OPR_Poisson.
-    ! Splits the blow-up: if this trips, the cause is the forcing assembly
-    ! (IBM BCs / OPR_Partial derivatives / divergence); if it passes but
-    ! RHS1:post-poisson trips, the cause is inside OPR_Poisson (FFT/elliptic).
-    call DNS_CATCH_POLLUTION('RHS1:pre-poisson-forcing', tmp1, isize_field, rkm_substep)
+    ! Sentinel: assembled Poisson forcing BEFORE OPR_Poisson. High threshold (1e15) because the
+    ! forcing legitimately reaches ~1e7 (carries 1/dte and 1/dx factors) -- only a real blow-up trips it.
+    ! Brackets "before the solve" so the POIS:* sentinels inside OPR_Poisson localize the GPU region.
+    call DNS_CATCH_POLLUTION_HI('RHS1:pre-poisson-forcing', tmp1, isize_field, rkm_substep, 1.0e15_wp)
 
     ! -----------------------------------------------------------------------
     ! Neumman BCs in d/dy(p) s.t. v=0 (no-penetration)
