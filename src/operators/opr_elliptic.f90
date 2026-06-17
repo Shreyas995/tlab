@@ -391,6 +391,7 @@ contains
     subroutine OPR_Poisson_FourierXZ_Direct(nx, ny, nz, ibc, p, tmp1, tmp2, bcs_hb, bcs_ht, dpdy)
         use FDM, only: g
         use Tlab_Debug
+        use TLab_Time, only: itime
         integer(wi), intent(in) :: nx, ny, nz
         integer, intent(in) :: ibc
         real(wp), intent(inout) :: p(nx, ny, nz)                        ! Forcing term, and solution field p
@@ -411,6 +412,12 @@ contains
         ! p_wrk3d(1:2*ny, 1:nz, 1:nx/2 + 1) => wrk3d(1:isize_txc_field)
         call c_f_pointer(c_loc(wrk2d), p2_wrk2d, shape=[2, nz, isize_line, 2])
 
+        ! Flushed trace (survives a GPU memory fault that writes no [POLLUTION] line): the LAST
+        ! POIS-trace line in the dead rank's debug_thread_testing<rank>.log / fort.5xx localizes the
+        ! faulting GPU op. Odd numbers = after a compute op; even = after the value-sentinel (so a gap
+        ! at an even->odd boundary means the sentinel itself faulted, not the compute op).
+        call TLab_Debug_Print_int('POIS-trace:0-entry', itime)
+
         ! #######################################################################
         ! Fourier transform of forcing term; output of this section in array tmp1
         ! #######################################################################
@@ -427,8 +434,10 @@ contains
 
         tmp1 = tmp1*norm
 
+        call TLab_Debug_Print_int('POIS-trace:1-after-fftfwd', itime)
         ! Sentinel: forcing spectrum after the forward FFT, before the GPU elliptic Y-solve.
         call DNS_CATCH_POLLUTION_HI('POIS:post-fft-fwd', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1, thr_hi)
+        call TLab_Debug_Print_int('POIS-trace:2-after-sent-fftfwd', itime)
 
         ! ###################################################################
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
@@ -477,9 +486,11 @@ contains
             end do
         end select
 
+        call TLab_Debug_Print_int('POIS-trace:3-after-ysolve', itime)
         ! Sentinel: solution spectrum straight out of the GPU elliptic Y-solve
         ! (MatMul_3d_APU / PENTADSS_APU / correction block) -- the prime suspect region.
         call DNS_CATCH_POLLUTION_HI('POIS:post-ysolve', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1, thr_hi)
+        call TLab_Debug_Print_int('POIS-trace:4-after-sent-ysolve', itime)
 
 ! #ifdef USE_APU
 !         call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
@@ -497,13 +508,17 @@ contains
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
         end if
 
+        call TLab_Debug_Print_int('POIS-trace:5-after-fftbwd', itime)
         ! Sentinel: real-space pressure straight out of the backward FFT.
         call DNS_CATCH_POLLUTION_HI('POIS:post-fft-bwd', p(1, 1, 1), nx*ny*nz, -1, thr_hi)
+        call TLab_Debug_Print_int('POIS-trace:6-after-sent-fftbwd', itime)
 
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
+            call TLab_Debug_Print_int('POIS-trace:7-after-dpdy', itime)
             ! Sentinel: vertical pressure derivative (first probe sensitive to a localized pressure kink).
             call DNS_CATCH_POLLUTION_HI('POIS:post-dpdy', dpdy(1, 1, 1), nx*ny*nz, -1, thr_hi)
+            call TLab_Debug_Print_int('POIS-trace:8-after-sent-dpdy', itime)
         end if
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)

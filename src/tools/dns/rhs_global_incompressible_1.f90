@@ -326,6 +326,11 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     ! Brackets "before the solve" so the POIS:* sentinels inside OPR_Poisson localize the GPU region.
     call DNS_CATCH_POLLUTION_HI('RHS1:pre-poisson-forcing', tmp1, isize_field, rkm_substep, 1.0e15_wp)
 
+    ! Flushed trace: survives a GPU memory fault that writes no [POLLUTION] line. The LAST
+    ! RHS-trace / POIS-trace line in the dead rank's debug_thread_testing<rank>.log / fort.5xx
+    ! is the last point reached -- the next op in program order is the one that faulted.
+    call TLab_Debug_Print_int('RHS-trace:A-after-forcing', itime)
+
     ! -----------------------------------------------------------------------
     ! Neumman BCs in d/dy(p) s.t. v=0 (no-penetration)
     ! Stagger also Bcs
@@ -353,7 +358,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     end if
 
     ! pressure in tmp1, Oy derivative in tmp3
+    call TLab_Debug_Print_int('RHS-trace:B-before-poisson', itime)
     call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, p_tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
+    call TLab_Debug_Print_int('RHS-trace:C-after-poisson', itime)
 
     ! Sentinel: catch pollution from the FFT/Poisson/elliptic solve (pressure in tmp1)
     call DNS_CATCH_POLLUTION('RHS1:post-poisson', tmp1, isize_field, rkm_substep)
@@ -366,6 +373,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call DNS_CATCH_POLLUTION('RHS1:post-pfilter-p', tmp1, isize_field, rkm_substep)
         call DNS_CATCH_POLLUTION('RHS1:post-pfilter-dpdy', tmp3, isize_field, rkm_substep)
     end if
+    call TLab_Debug_Print_int('RHS-trace:D-after-pfilter', itime)
 
     ! Saving pressure for towers to tmp array
     if (rkm_substep == rkm_endstep) then
@@ -407,7 +415,8 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp1, tmp2)
         call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), tmp1, tmp4)
     end if
-    
+    call TLab_Debug_Print_int('RHS-trace:E-after-stagger', itime)
+
     ! Sentinel: gradient INPUTS just before the subtraction. If these are clean but
     ! 'RHS1:post-pgrad' (below) trips, the host !$omp parallel do that subtracts them
     ! into hq is the culprit (the suspected GPU-written -> CPU-read coherency hazard).
