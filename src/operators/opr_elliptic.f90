@@ -406,6 +406,14 @@ contains
         real(wp), parameter :: thr_hi = 1.0e15_wp                       ! spectral arrays (healthy ~1e7-1e10)
         real(wp), parameter :: thr_lo = 1.0e6_wp                        ! real-space p/dpdy (healthy ~1e3);
                                                                         ! catches the ~1e8 dpdy growth seen in crashlog
+#ifdef USE_APU
+        interface
+            function hipDeviceSynchronize() bind(C, name='hipDeviceSynchronize') result(ierr)
+                integer :: ierr
+            end function hipDeviceSynchronize
+        end interface
+        integer :: hip_sync_err
+#endif
         ! #######################################################################
         call c_f_pointer(c_loc(tmp1), c_tmp1, shape=[isize_txc_field])
         call c_f_pointer(c_loc(tmp2), c_tmp2, shape=[isize_txc_field])
@@ -444,11 +452,15 @@ contains
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
         ! ###################################################################
         ! Make x direction last one and leave y direction first
-! #ifdef USE_APU
-        ! call TLab_Transpose_COMPLEX_APU(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
-! #else
+        ! Pre-solve transpose restored to GPU (as tlab_old), bracketed by hipDeviceSynchronize so no
+        ! stale data is read across the surrounding GPU/CPU boundaries.
+#ifdef USE_APU
+        hip_sync_err = hipDeviceSynchronize()
+        call TLab_Transpose_COMPLEX_APU(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
+        hip_sync_err = hipDeviceSynchronize()
+#else
         call TLab_Transpose_COMPLEX(c_tmp1, isize_line, ny*nz, isize_line, c_tmp2, ny*nz)
-! #endif
+#endif
 
         p_wrk3d(:,:,:) = 0.0_wp
 #define f(j,k,i) tmp2(j,k,i)
@@ -507,11 +519,16 @@ contains
         call DNS_CATCH_POLLUTION_HI('POIS:post-ysolve', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1, thr_hi)
         call TLab_Debug_Print_int('POIS-trace:4-after-sent-ysolve', itime)
 
-! #ifdef USE_APU
-!         call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
-! #else
+        ! Post-solve transpose restored to GPU (as tlab_old), bracketed by hipDeviceSynchronize so the
+        ! GPU solver's writes to p_wrk3d are flushed before the transpose, and the transpose's output to
+        ! c_tmp1 is flushed before the (CPU FFTW) backward FFT reads it -- no stale data in either direction.
+#ifdef USE_APU
+        hip_sync_err = hipDeviceSynchronize()
+        call TLab_Transpose_COMPLEX_APU(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
+        hip_sync_err = hipDeviceSynchronize()
+#else
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
-! #endif
+#endif
 
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
