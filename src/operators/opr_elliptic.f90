@@ -526,12 +526,14 @@ contains
 #else
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
 #endif
+        call DNS_PRINT_MAXVAL('POIS:post-transp-back', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
 
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
         ! ###################################################################
         if (fft_z_on) then
             call OPR_Fourier_Z_Backward(c_tmp1, c_wrk3d)          ! tmp1 might be overwritten
+            call DNS_PRINT_MAXVAL('POIS:post-fftZ-bwd', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
             call OPR_Fourier_X_Backward(nx, ny, nz, c_wrk3d, p)   ! wrk3d might be overwritten
         else
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
