@@ -1004,6 +1004,7 @@ contains
         integer :: send_to, recv_from, fbd_tag
 #ifdef USE_APU
         complex(dp), pointer :: apu_cx_all(:) => null()   ! complex view of apu_all_k across all peers
+        integer(c_int) :: hip_sync_err                    ! flush GPU-assembled b before the CPU FFTW reads it
 #endif
         type(MPI_Comm) :: trp_comm_k   ! fabric_mpi_comm_k (MPI_COMM_WORLD split) or ims_comm_z
 #ifdef USE_APU
@@ -1054,6 +1055,11 @@ contains
                 b(i) = apu_cx_recv_fptr_k(i)
             end do
             !$omp end target teams distribute parallel do
+            ! b is GPU-written here but its consumer is the CPU FFTW in OPR_Fourier_Z_Forward/Backward.
+            ! MPI_Win_fence orders the RMA epoch but does NOT flush the GPU write to be CPU-coherent on
+            ! MI300A (unlike the real K-transpose, whose consumer is the GPU FDM solve and is stream-ordered).
+            ! Without this flush the CPU FFTW intermittently reads stale b -> the random one-step blow-up.
+            hip_sync_err = hipDeviceSynchronize()
             nullify (apu_cx_all)
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
@@ -1128,6 +1134,10 @@ contains
                     end do
                 end do
                 !$omp end target teams distribute parallel do
+                ! b's intra slots are GPU-assembled; its consumer is the CPU FFTW. Flush so the GPU writes
+                ! are CPU-coherent before the FFTW reads them (the inter slots came via IRECV, already
+                ! CPU-coherent). Same hazard the APU_DIRECT path above fixes.
+                hip_sync_err = hipDeviceSynchronize()
             else
                 ! Fallback: all K-peers via two-sided MPI (original complex fabricdirect path).
                 do m = 1, ims_npro_k
@@ -1493,6 +1503,7 @@ contains
         integer :: send_to, recv_from, fbd_tag
 #ifdef USE_APU
         complex(dp), pointer :: apu_cx_all(:) => null()
+        integer(c_int) :: hip_sync_err                    ! flush GPU-assembled a before the CPU FFTW reads it
 #endif
         type(MPI_Comm) :: trp_comm_k   ! fabric_mpi_comm_k (MPI_COMM_WORLD split) or ims_comm_z
 #ifdef USE_APU
@@ -1542,6 +1553,9 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            ! a is GPU-written but its consumer is the CPU FFTW (OPR_Fourier_X_Backward). Flush so the GPU
+            ! write is CPU-coherent before the FFTW reads it (the missing flush = the random one-step blow-up).
+            hip_sync_err = hipDeviceSynchronize()
             nullify (apu_cx_all)
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
@@ -1603,6 +1617,9 @@ contains
                     end do
                 end do
                 !$omp end target teams distribute parallel do
+                ! a's intra slots are GPU-assembled; its consumer is the CPU FFTW. Flush so the GPU writes
+                ! are CPU-coherent before the FFTW reads them. Same hazard the APU_DIRECT path above fixes.
+                hip_sync_err = hipDeviceSynchronize()
                 ! 6b. inter peers: CPU scatter flat c_wrk_cx → strided a.
                 do m = 0, ims_npro_k - 1
                     if (is_intra_k(m)) cycle
@@ -2021,6 +2038,9 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            ! b is GPU-unpacked but consumed by the CPU FFTW in OPR_Fourier_X_Forward; flush so the GPU
+            ! write is CPU-coherent before the FFTW reads it (same GPU->CPU hazard as the K-transpose).
+            hip_sync_err = hipDeviceSynchronize()
             nullify (apu_cx_all)
 
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
@@ -2052,6 +2072,8 @@ contains
                     end do
                 end do
                 !$omp end target teams distribute parallel do
+                ! b is GPU-unpacked but consumed by the CPU FFTW; flush so the GPU write is CPU-coherent.
+                hip_sync_err = hipDeviceSynchronize()
             else
                 ! Fallback: all-MPI complex on fabric_mpi_comm_i. Flush GPU-written a for the CPU ISEND
                 ! (needed if the fallback ever carries an inter-node peer; harmless when all intra).
@@ -2390,6 +2412,7 @@ contains
         ! apu_cx_all: complex view spanning all peers' shared windows (stride = apu_stride_i/2 complex units).
         complex(dp), pointer :: apu_cx_all(:) => null()
         integer(wi) :: mas
+        integer(c_int) :: hip_sync_err   ! flush GPU-assembled a before the CPU FFTW reads it
 #endif
         type(MPI_Comm) :: trp_comm_i   ! MPI_COMM_WORLD for FABRIC_DIRECT (see K-Forward_Complex comment).
 #ifdef USE_APU
@@ -2442,6 +2465,9 @@ contains
                 a(i) = apu_cx_recv_fptr_i(i)
             end do
             !$omp end target teams distribute parallel do
+            ! a is GPU-written but consumed by the CPU FFTW in OPR_Fourier_X_Backward; flush so the GPU
+            ! write is CPU-coherent before the FFTW reads it (same GPU->CPU hazard as the K-transpose).
+            hip_sync_err = hipDeviceSynchronize()
             nullify (apu_cx_all)
 
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
@@ -2473,6 +2499,8 @@ contains
                     a(i) = node_cx_recv_fptr_i(i)
                 end do
                 !$omp end target teams distribute parallel do
+                ! a is GPU-written but consumed by the CPU FFTW; flush so the GPU write is CPU-coherent.
+                hip_sync_err = hipDeviceSynchronize()
             else
                 ! Fallback: all-MPI complex on fabric_mpi_comm_i. Pack strided b → flat c_wrk_cx, ISEND;
                 ! IRECV directly into flat a (disp_s(m+1) = m*mas on the fabric comm).

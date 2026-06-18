@@ -352,7 +352,6 @@ contains
         ! -----------------------------------------------------------------------
         complex(wp), pointer :: p_org(:, :), p_dst(:, :)
         integer(wi) k_old1, k_old2, k_new1, k_new2
-        real(wp), pointer :: rp_dbg(:)                  ! DEBUG: real view of in/out for split sentinels
 
         ! #######################################################################
 #ifdef USE_MPI
@@ -405,7 +404,6 @@ contains
         ! -----------------------------------------------------------------------
         complex(wp), pointer :: p_org(:, :), p_dst(:, :)
         integer(wi) k_old1, k_old2, k_new1, k_new2
-        real(wp), pointer :: rp_dbg(:)                  ! DEBUG: real view of in/out for split sentinels
 
         ! #######################################################################
 #ifdef USE_MPI
@@ -436,27 +434,7 @@ contains
             end do
         end if
 
-        ! DEBUG P1: data straight out of the apudirect K-transpose FORWARD, just before the FFTW (the z
-        ! reorder is OFF on the Poisson path, so `out` is still ExecK_Forward's output here). If this jumps
-        ! while POIS:post-transp-back stayed clean -> the corruptor is TLabMPI_Trp_ExecK_Forward (apudirect).
-#ifdef USE_MPI
-        if (ims_npro_k > 1) then
-            call c_f_pointer(c_loc(out(1)), rp_dbg, [2*isize_txc_field])
-            call DNS_PRINT_MAXVAL('FFTZ:P1-execK-fwd', rp_dbg(1), 2*isize_txc_field, -1)
-        end if
-#endif
-
         call dfftw_execute_dft(fft_plan_bz, p_org, p_dst)
-
-        ! DEBUG P2: data straight out of the FFTW, before the K-transpose BACKWARD (p_dst => in in the MPI
-        ! case). If P1 is clean and P2 jumps -> the FFTW; if P1 AND P2 are clean and only POIS:post-fftZ-bwd
-        ! jumps -> the corruptor is TLabMPI_Trp_ExecK_Backward (apudirect).
-#ifdef USE_MPI
-        if (ims_npro_k > 1) then
-            call c_f_pointer(c_loc(in(1)), rp_dbg, [2*isize_txc_field])
-            call DNS_PRINT_MAXVAL('FFTZ:P2-post-fftw', rp_dbg(1), 2*isize_txc_field, -1)
-        end if
-#endif
 
 #ifdef USE_MPI
         if (ims_npro_k > 1) then
