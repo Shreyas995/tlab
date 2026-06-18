@@ -100,7 +100,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     end if
 
     ! Sentinel: catch a field already polluted on entry (upstream sources / Coriolis)
-    call DNS_CATCH_POLLUTION('RHS1:entry', hq(1, 1), isize_field*inb_flow, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:entry', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
     ! #######################################################################
     ! Diffusion and advection terms
@@ -191,7 +191,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call DNS_PRINT_MAXVAL('RHS:hq3-after-Oz-acc', hq(1, 3), isize_field, rkm_substep)
 
     ! Sentinel: catch pollution from the advection/diffusion (OPR_Burgers) stage
-    call DNS_CATCH_POLLUTION('RHS1:post-adv', hq(1, 1), isize_field*inb_flow, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:post-adv', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
     ! IBM
     if (imode_ibm == 1) then
@@ -235,7 +235,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     end if
 
     ! Sentinel: catch pollution from the buffer-relaxation stage
-    call DNS_CATCH_POLLUTION('RHS1:post-buf', hq(1, 1), isize_field*inb_flow, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:post-buf', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
     ! #######################################################################
     ! Pressure term
@@ -339,7 +339,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     ! Sentinel: assembled Poisson forcing BEFORE OPR_Poisson. High threshold (1e15) because the
     ! forcing legitimately reaches ~1e7 (carries 1/dte and 1/dx factors) -- only a real blow-up trips it.
     ! Brackets "before the solve" so the POIS:* sentinels inside OPR_Poisson localize the GPU region.
-    call DNS_CATCH_POLLUTION_HI('RHS1:pre-poisson-forcing', tmp1, isize_field, rkm_substep, 1.0e15_wp)
+    call DNS_PRINT_MAXVAL('RHS1:pre-poisson-forcing', tmp1, isize_field, rkm_substep)
 
     ! Flushed trace: survives a GPU memory fault that writes no [POLLUTION] line. The LAST
     ! RHS-trace / POIS-trace line in the dead rank's debug_thread_testing<rank>.log / fort.5xx
@@ -378,15 +378,15 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call TLab_Debug_Print_int('RHS-trace:C-after-poisson', itime)
 
     ! Sentinel: catch pollution from the FFT/Poisson/elliptic solve (pressure in tmp1)
-    call DNS_CATCH_POLLUTION('RHS1:post-poisson', tmp1, isize_field, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:post-poisson', tmp1, isize_field, rkm_substep)
 
     ! filter pressure p and its vertical gradient dpdy
     if (any(PressureFilter(:)%type /= DNS_FILTER_NONE)) then
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp1, txc(1:isize_field,4:6))
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp3, txc(1:isize_field,4:6))
         ! Sentinel: catch pollution from the compact pressure filter (p and dpdy)
-        call DNS_CATCH_POLLUTION('RHS1:post-pfilter-p', tmp1, isize_field, rkm_substep)
-        call DNS_CATCH_POLLUTION('RHS1:post-pfilter-dpdy', tmp3, isize_field, rkm_substep)
+        call DNS_PRINT_MAXVAL('RHS1:post-pfilter-p', tmp1, isize_field, rkm_substep)
+        call DNS_PRINT_MAXVAL('RHS1:post-pfilter-dpdy', tmp3, isize_field, rkm_substep)
     end if
     call TLab_Debug_Print_int('RHS-trace:D-after-pfilter', itime)
 
@@ -435,9 +435,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     ! Sentinel: gradient INPUTS just before the subtraction. If these are clean but
     ! 'RHS1:post-pgrad' (below) trips, the host !$omp parallel do that subtracts them
     ! into hq is the culprit (the suspected GPU-written -> CPU-read coherency hazard).
-    call DNS_CATCH_POLLUTION('RHS1:pre-pgrad-dpdx', tmp2, isize_field, rkm_substep)
-    call DNS_CATCH_POLLUTION('RHS1:pre-pgrad-dpdy', tmp3, isize_field, rkm_substep)
-    call DNS_CATCH_POLLUTION('RHS1:pre-pgrad-dpdz', tmp4, isize_field, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:pre-pgrad-dpdx', tmp2, isize_field, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:pre-pgrad-dpdy', tmp3, isize_field, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:pre-pgrad-dpdz', tmp4, isize_field, rkm_substep)
 
     ! -----------------------------------------------------------------------
     ! Add pressure gradient
@@ -476,7 +476,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     ! Sentinel: catch pollution from the pressure-gradient subtraction
     ! (in particular the host !$omp parallel do at ~L388 reading GPU-written tmp2/3/4)
-    call DNS_CATCH_POLLUTION('RHS1:post-pgrad', hq(1, 1), isize_field*inb_flow, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:post-pgrad', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
     ! #######################################################################
     ! Boundary conditions
@@ -521,8 +521,8 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     end do
 
     ! Sentinel: catch pollution from the boundary-condition stage (Neumann_Y / IBM_BCS / surface BC)
-    call DNS_CATCH_POLLUTION('RHS1:post-bc', hq(1, 1), isize_field*inb_flow, rkm_substep)
-    call DNS_CATCH_POLLUTION('RHS1:post-bc-s', hs(1, 1), isize_field*inb_scal, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:post-bc', hq(1, 1), isize_field*inb_flow, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:post-bc-s', hs(1, 1), isize_field*inb_scal, rkm_substep)
 
 #ifdef TRACE_ON
     call TLab_Write_ASCII(tfile, 'LEAVING SUBROUTINE RHS_GLOBAL_INCOMPRESSIBLE_1')

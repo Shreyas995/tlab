@@ -403,9 +403,6 @@ contains
         target tmp1, tmp2
         ! -----------------------------------------------------------------------
         integer(wi), parameter :: bcs_p(2, 2) = 0                       ! For partial_y at the end
-        real(wp), parameter :: thr_hi = 1.0e15_wp                       ! spectral arrays (healthy ~1e7-1e10)
-        real(wp), parameter :: thr_lo = 1.0e6_wp                        ! real-space p/dpdy (healthy ~1e3);
-                                                                        ! catches the ~1e8 dpdy growth seen in crashlog
 #ifdef USE_APU
         interface
             function hipDeviceSynchronize() bind(C, name='hipDeviceSynchronize') result(ierr)
@@ -445,7 +442,7 @@ contains
 
         call TLab_Debug_Print_int('POIS-trace:1-after-fftfwd', itime)
         ! Sentinel: forcing spectrum after the forward FFT, before the GPU elliptic Y-solve.
-        call DNS_CATCH_POLLUTION_HI('POIS:post-fft-fwd', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1, thr_hi)
+        call DNS_PRINT_MAXVAL('POIS:post-fft-fwd', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
         call TLab_Debug_Print_int('POIS-trace:2-after-sent-fftfwd', itime)
 
         ! ###################################################################
@@ -516,7 +513,7 @@ contains
         call TLab_Debug_Print_int('POIS-trace:3-after-ysolve', itime)
         ! Sentinel: solution spectrum straight out of the GPU elliptic Y-solve
         ! (MatMul_3d_APU / PENTADSS_APU / correction block) -- the prime suspect region.
-        call DNS_CATCH_POLLUTION_HI('POIS:post-ysolve', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1, thr_hi)
+        call DNS_PRINT_MAXVAL('POIS:post-ysolve', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
         call TLab_Debug_Print_int('POIS-trace:4-after-sent-ysolve', itime)
 
         ! Post-solve transpose restored to GPU (as tlab_old), bracketed by hipDeviceSynchronize so the
@@ -542,7 +539,7 @@ contains
 
         call TLab_Debug_Print_int('POIS-trace:5-after-fftbwd', itime)
         ! Sentinel: real-space pressure straight out of the backward FFT (1e6 -- real-space scale).
-        call DNS_CATCH_POLLUTION_HI('POIS:post-fft-bwd', p(1, 1, 1), nx*ny*nz, -1, thr_lo)
+        call DNS_PRINT_MAXVAL('POIS:post-fft-bwd', p(1, 1, 1), nx*ny*nz, -1)
         call TLab_Debug_Print_int('POIS-trace:6-after-sent-fftbwd', itime)
 
         if (present(dpdy)) then
@@ -551,7 +548,7 @@ contains
             ! Sentinel: dpdy straight out of OPR_Partial_Y, BEFORE the pressure filter (1e6). If this
             ! trips but the filter is exonerated -> the kink is born in the Poisson solve; if it stays
             ! clean and only RHS1:post-pfilter-dpdy trips -> the pressure filter creates the pollution.
-            call DNS_CATCH_POLLUTION_HI('POIS:post-dpdy', dpdy(1, 1, 1), nx*ny*nz, -1, thr_lo)
+            call DNS_PRINT_MAXVAL('POIS:post-dpdy', dpdy(1, 1, 1), nx*ny*nz, -1)
             call TLab_Debug_Print_int('POIS-trace:8-after-sent-dpdy', itime)
         end if
 

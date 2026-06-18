@@ -732,8 +732,8 @@ contains
 #endif
 
         ! Sentinel: definitive polluted-velocity check after the substep update q += dte*hq
-        call DNS_CATCH_POLLUTION('TIME:post-update', q(1, 1), isize_field*inb_flow, rkm_substep)
-        call DNS_CATCH_POLLUTION('TIME:post-update-s', s(1, 1), isize_field*inb_scal, rkm_substep)
+        call DNS_PRINT_MAXVAL('TIME:post-update', q(1, 1), isize_field*inb_flow, rkm_substep)
+        call DNS_PRINT_MAXVAL('TIME:post-update-s', s(1, 1), isize_field*inb_scal, rkm_substep)
 
         return
     end subroutine TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT
