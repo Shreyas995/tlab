@@ -99,3 +99,62 @@ subroutine DNS_CATCH_POLLUTION_HI(tag, a, n, isub, thr)
 1000 format('[POLLUTION] tag=', a, ' it=', i7, ' sub=', i3, ' rank=', i5, ' max=', e13.6, ' nbad=', i12)
 
 end subroutine DNS_CATCH_POLLUTION_HI
+
+!########################################################################
+!# PRINT-AND-CONTINUE probe: logs max|a| and the count of non-finite (NaN/Inf)
+!# entries of a(1:n) to the per-rank flushed log (unit 500+rank / fort.5xx),
+!# and ALWAYS returns -- it never aborts. Use it to flood the code with
+!# write statements: run to the natural blow-up (DNS_CONTROL / NaN), then the
+!# LAST line per rank whose max jumps to ~1e20 (or nbad>0) names the operation
+!# that corrupted the field. No threshold => no false alarm.
+!########################################################################
+subroutine DNS_PRINT_MAXVAL(tag, a, n, isub)
+    use TLab_Constants, only: wp, wi
+    use TLab_Time, only: itime
+#ifdef USE_MPI
+    use TLabMPI_VARS, only: ims_pro
+#endif
+
+    implicit none
+
+    character(len=*), intent(in) :: tag
+    integer(wi), intent(in) :: n
+    real(wp), intent(in) :: a(n)
+    integer(wi), intent(in) :: isub
+
+#ifdef USE_APU
+    !$omp requires unified_shared_memory
+#endif
+
+    ! -----------------------------------------------------------------------
+    real(wp) vmax
+    integer(wi) ij, nbad, unit_num
+#ifndef USE_MPI
+    integer, parameter :: ims_pro = 0
+#endif
+
+    ! #######################################################################
+    vmax = 0.0_wp
+    nbad = 0
+
+#ifdef USE_APU
+    !$omp target teams distribute parallel do private(ij) firstprivate(n) &
+    !$omp reduction(max:vmax) reduction(+:nbad)
+#endif
+    do ij = 1, n
+        vmax = max(vmax, abs(a(ij)))
+        if (.not. (abs(a(ij)) <= 1.0e30_wp)) nbad = nbad + 1   ! NaN/Inf/huge
+    end do
+#ifdef USE_APU
+    !$omp end target teams distribute parallel do
+#endif
+
+    unit_num = 500 + ims_pro
+    write (unit_num, 1100) trim(adjustl(tag)), itime, isub, vmax, nbad
+    flush (unit_num)
+
+    return
+
+1100 format('[MAXVAL] tag=', a, ' it=', i7, ' sub=', i3, ' max=', e14.6, ' nbad=', i12)
+
+end subroutine DNS_PRINT_MAXVAL

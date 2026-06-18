@@ -689,10 +689,15 @@ contains
 ! !$omp private (ij,  is,ij_srt,ij_end,ij_siz)
 #endif
 #endif
+        ! Discriminator: hq (RHS tendency) and q (velocity) BEFORE the simple q += dte*hq update.
+        ! If hq is clean here but q explodes at TIME:post-update, the corruption is in/around the
+        ! update (or a direct memory clobber of q), not the RHS.
+        call DNS_PRINT_MAXVAL('TIME:pre-update-hq', hq(1, 1), isize_field*inb_flow, rkm_substep)
+        call DNS_PRINT_MAXVAL('TIME:pre-update-q', q(1, 1), isize_field*inb_flow, rkm_substep)
         call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
-        !$omp if (inb_flow*ij_end > mas) 
+        !$omp if (inb_flow*ij_end > mas)
         do is = 1, inb_flow !offload to APU
             do ij = ij_srt, ij_end
                 q(ij, is) = q(ij, is) + dte*hq(ij, is)

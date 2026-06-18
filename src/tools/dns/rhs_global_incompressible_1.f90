@@ -110,14 +110,22 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     if (imode_ibm == 1) ibm_burgers = .true.
 
     ! Diagonal terms and transposed velocity arrays
+    call DNS_PRINT_MAXVAL('RHS:u-in', u, isize_field, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS:v-in', v, isize_field, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS:w-in', w, isize_field, rkm_substep)
     call OPR_Burgers_X(OPR_B_SELF, 0, imax, jmax, kmax, bcs, u, u, tmp1, tmp4) ! store u transposed in tmp4
+    call DNS_PRINT_MAXVAL('RHS:BurgX-uu->tmp1', tmp1, isize_field, rkm_substep)
 
     call OPR_Burgers_Y(OPR_B_SELF, 0, imax, jmax, kmax, bcs, v, v, tmp2, tmp5) ! store v transposed in tmp5
+    call DNS_PRINT_MAXVAL('RHS:BurgY-vv->tmp2', tmp2, isize_field, rkm_substep)
     call OPR_Burgers_Z(OPR_B_SELF, 0, imax, jmax, kmax, bcs, w, w, tmp3, tmp6) ! store w transposed in tmp6
+    call DNS_PRINT_MAXVAL('RHS:BurgZ-ww->tmp3', tmp3, isize_field, rkm_substep)
 
     ! Ox momentum equation
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, v, tmp7, tmp9, tmp5) ! tmp5 contains v transposed
+    call DNS_PRINT_MAXVAL('RHS:BurgY-uv->tmp7', tmp7, isize_field, rkm_substep)
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
+    call DNS_PRINT_MAXVAL('RHS:BurgZ-uw->tmp8', tmp8, isize_field, rkm_substep)
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
@@ -133,10 +141,13 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
+    call DNS_PRINT_MAXVAL('RHS:hq1-after-Ox-acc', hq(1, 1), isize_field, rkm_substep)
 
     ! Oy momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
+    call DNS_PRINT_MAXVAL('RHS:BurgX-vu->tmp7', tmp7, isize_field, rkm_substep)
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
+    call DNS_PRINT_MAXVAL('RHS:BurgZ-vw->tmp8', tmp8, isize_field, rkm_substep)
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
@@ -154,10 +165,13 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
+    call DNS_PRINT_MAXVAL('RHS:hq2-after-Oy-acc', hq(1, 2), isize_field, rkm_substep)
 
     ! Oz momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
+    call DNS_PRINT_MAXVAL('RHS:BurgX-wu->tmp7', tmp7, isize_field, rkm_substep)
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, v, tmp8, tmp9, tmp5) ! tmp5 contains v transposed
+    call DNS_PRINT_MAXVAL('RHS:BurgY-wv->tmp8', tmp8, isize_field, rkm_substep)
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
 #ifdef USE_APU
@@ -174,6 +188,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
+    call DNS_PRINT_MAXVAL('RHS:hq3-after-Oz-acc', hq(1, 3), isize_field, rkm_substep)
 
     ! Sentinel: catch pollution from the advection/diffusion (OPR_Burgers) stage
     call DNS_CATCH_POLLUTION('RHS1:post-adv', hq(1, 1), isize_field*inb_flow, rkm_substep)
