@@ -330,9 +330,17 @@ contains
             ! Pass the full [nmax_full*nlines] rank-1 view (c_out_1d aliases the same out memory
             ! as c_out): the transpose writes b linearly across all nlines. A single column
             ! c_out(:,1) would be a too-small assumed-shape actual -> out-of-bounds at -O2.
+#ifdef USE_APU
+            trp_dbg_fft = .true.    ! DEBUG: gate ON -> internal transpose sentinels fire only for these X-FFT calls
+            ! DEBUG X:S0 = input entering X_Backward (= POIS:post-fftZ-bwd). Confirms the region's input is clean.
+            call DNS_PRINT_MAXVAL('X:S0-in', r_in(1), isize_txc_field, -1)
+#endif
             call TLabMPI_Trp_ExecI_Forward(in(:), c_out_1d, tmpi_plan_fftx)
 #ifdef USE_APU
             hip_sync_err = hipDeviceSynchronize()   ! GPU forward transpose wrote c_out -> CPU c2r FFTW reads it
+            ! DEBUG X:P1 = transpose-forward output (out memory holds the complex transposed spectrum here).
+            ! If this jumps in the sick substep while POIS:post-fftZ-bwd is clean -> ExecI_Forward_Complex is the corruptor.
+            call DNS_PRINT_MAXVAL('X:P1-postT1', out(1), nx*ny*nz, -1)
 #endif
 
             if (fft_reordering_i) then      ! reorganize a (FFTW make a stride in a already before)
@@ -354,11 +362,15 @@ contains
             call dfftw_execute_dft_c2r(fft_plan_bx, c_out, r_in)
 #ifdef USE_APU
             hip_sync_err = hipDeviceSynchronize()   ! CPU c2r FFTW wrote r_in -> GPU real backward transpose reads it
+            ! DEBUG X:P2 = c2r FFTW output (r_in, real). If X:P1 was clean and this jumps -> the c2r; if X:P1
+            ! AND X:P2 are clean and only POIS:post-fft-bwd jumps -> ExecI_Backward_Real (the real transpose).
+            call DNS_PRINT_MAXVAL('X:P2-postC2R', r_in(1), isize_txc_field, -1)
 #endif
 
             call TLabMPI_Trp_ExecI_Backward(r_in(:), out(:), tmpi_plan_dx) !tmpi_plan_fftx1)
 #ifdef USE_APU
             hip_sync_err = hipDeviceSynchronize()   ! GPU real backward transpose (tmpi_plan_dx) wrote out -> flush for the consumer
+            trp_dbg_fft = .false.   ! DEBUG: gate OFF
 #endif
 
             nullify (r_in, c_out, c_out_1d)
