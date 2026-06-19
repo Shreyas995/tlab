@@ -53,6 +53,19 @@ module OPR_Fourier
     complex(wp), pointer :: c_tmp1(:, :) => null(), c_in(:, :) => null(), c_out(:, :) => null(), c_in1(:, :) => null()
     complex(wp), pointer :: c_tmp2(:) => null()
 
+#ifdef USE_APU
+    ! The FFT path interleaves GPU apudirect/node-window transposes with the CPU FFTW. Each GPU<->CPU
+    ! handoff needs hipDeviceSynchronize: MPI_Win_fence orders the RMA epoch but does NOT flush GPU writes
+    ! to be CPU-coherent on MI300A (the random one-step pressure blow-up). The complex transposes flush
+    ! internally; the REAL backward transpose (tmpi_plan_dx) in X_Backward does not, so we bracket here.
+    interface
+        function hipDeviceSynchronize() bind(C, name='hipDeviceSynchronize') result(ierr)
+            use, intrinsic :: iso_c_binding, only: c_int
+            integer(c_int) :: ierr
+        end function hipDeviceSynchronize
+    end interface
+#endif
+
 contains
     ! #######################################################################
     ! #######################################################################
@@ -235,6 +248,9 @@ contains
         complex(wp), pointer :: wrk1_1d(:) => null()   ! full-size rank-1 view for the transpose
         real(wp), pointer :: r_out(:) => null()
 #endif
+#ifdef USE_APU
+        integer(c_int) :: hip_sync_err
+#endif
 
         ! #######################################################################
 
@@ -245,6 +261,9 @@ contains
             call c_f_pointer(c_loc(out), r_out, shape=[isize_txc_field])
 
             call TLabMPI_Trp_ExecI_Forward(in(:), r_out(:), tmpi_plan_dx)
+#ifdef USE_APU
+            hip_sync_err = hipDeviceSynchronize()   ! GPU real forward transpose wrote r_out -> CPU r2c FFTW reads it
+#endif
 
             call dfftw_execute_dft_r2c(fft_plan_fx, r_out, wrk1)
 
@@ -297,6 +316,9 @@ contains
         real(wp), pointer :: r_in(:) => null()
         complex(wp), pointer :: c_out_1d(:) => null()   ! full-size rank-1 view for the transpose
 #endif
+#ifdef USE_APU
+        integer(c_int) :: hip_sync_err
+#endif
 
         !########################################################################
 #ifdef USE_MPI
@@ -309,6 +331,9 @@ contains
             ! as c_out): the transpose writes b linearly across all nlines. A single column
             ! c_out(:,1) would be a too-small assumed-shape actual -> out-of-bounds at -O2.
             call TLabMPI_Trp_ExecI_Forward(in(:), c_out_1d, tmpi_plan_fftx)
+#ifdef USE_APU
+            hip_sync_err = hipDeviceSynchronize()   ! GPU forward transpose wrote c_out -> CPU c2r FFTW reads it
+#endif
 
             if (fft_reordering_i) then      ! reorganize a (FFTW make a stride in a already before)
                 isize_line = nx/2 + 1
@@ -327,8 +352,14 @@ contains
             end if
 
             call dfftw_execute_dft_c2r(fft_plan_bx, c_out, r_in)
+#ifdef USE_APU
+            hip_sync_err = hipDeviceSynchronize()   ! CPU c2r FFTW wrote r_in -> GPU real backward transpose reads it
+#endif
 
             call TLabMPI_Trp_ExecI_Backward(r_in(:), out(:), tmpi_plan_dx) !tmpi_plan_fftx1)
+#ifdef USE_APU
+            hip_sync_err = hipDeviceSynchronize()   ! GPU real backward transpose (tmpi_plan_dx) wrote out -> flush for the consumer
+#endif
 
             nullify (r_in, c_out, c_out_1d)
 

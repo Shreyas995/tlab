@@ -781,6 +781,15 @@ contains
         integer mpio_size, mpio_ip
 
         real(wp), dimension(:), pointer :: p_org
+#ifdef USE_APU
+        integer :: hip_sync_err
+        interface
+            function hipDeviceSynchronize() bind(C, name='hipDeviceSynchronize') result(ierr)
+                use, intrinsic :: iso_c_binding, only: c_int
+                integer(c_int) :: ierr
+            end function hipDeviceSynchronize
+        end interface
+#endif
 
         ! ###################################################################
         nx_total = nx*ims_npro_i
@@ -801,6 +810,9 @@ contains
         ! -------------------------------------------------------------------
         if (ims_npro_i > 1) then
             call TLabMPI_Trp_ExecI_Forward(u, tmp1, tmpi_plan_dx)
+#ifdef USE_APU
+            hip_sync_err = hipDeviceSynchronize()   ! GPU transpose wrote tmp1 -> CPU PE0 copy/MPI_SEND reads it
+#endif
             p_org => tmp1
             ! nyz = ims_size_i(id)
             nyz = tmpi_plan_dx%nlines
