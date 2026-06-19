@@ -418,11 +418,8 @@ contains
         ! p_wrk3d(1:2*ny, 1:nz, 1:nx/2 + 1) => wrk3d(1:isize_txc_field)
         call c_f_pointer(c_loc(wrk2d), p2_wrk2d, shape=[2, nz, isize_line, 2])
 
-        ! Flushed trace (survives a GPU memory fault that writes no [POLLUTION] line): the LAST
-        ! POIS-trace line in the dead rank's debug_thread_testing<rank>.log / fort.5xx localizes the
         ! faulting GPU op. Odd numbers = after a compute op; even = after the value-sentinel (so a gap
         ! at an even->odd boundary means the sentinel itself faulted, not the compute op).
-        call TLab_Debug_Print_int('POIS-trace:0-entry', itime)
 
         ! #######################################################################
         ! Fourier transform of forcing term; output of this section in array tmp1
@@ -440,10 +437,6 @@ contains
 
         tmp1 = tmp1*norm
 
-        call TLab_Debug_Print_int('POIS-trace:1-after-fftfwd', itime)
-        ! Sentinel: forcing spectrum after the forward FFT, before the GPU elliptic Y-solve.
-        call DNS_PRINT_MAXVAL('POIS:post-fft-fwd', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
-        call TLab_Debug_Print_int('POIS-trace:2-after-sent-fftfwd', itime)
 
         ! ###################################################################
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
@@ -510,11 +503,6 @@ contains
             end do
         end select
 
-        call TLab_Debug_Print_int('POIS-trace:3-after-ysolve', itime)
-        ! Sentinel: solution spectrum straight out of the GPU elliptic Y-solve
-        ! (MatMul_3d_APU / PENTADSS_APU / correction block) -- the prime suspect region.
-        call DNS_PRINT_MAXVAL('POIS:post-ysolve', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
-        call TLab_Debug_Print_int('POIS-trace:4-after-sent-ysolve', itime)
 
         ! Post-solve transpose restored to GPU (as tlab_old), bracketed by hipDeviceSynchronize so the
         ! GPU solver's writes to p_wrk3d are flushed before the transpose, and the transpose's output to
@@ -526,32 +514,22 @@ contains
 #else
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
 #endif
-        call DNS_PRINT_MAXVAL('POIS:post-transp-back', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
 
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
         ! ###################################################################
         if (fft_z_on) then
             call OPR_Fourier_Z_Backward(c_tmp1, c_wrk3d)          ! tmp1 might be overwritten
-            call DNS_PRINT_MAXVAL('POIS:post-fftZ-bwd', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
             call OPR_Fourier_X_Backward(nx, ny, nz, c_wrk3d, p)   ! wrk3d might be overwritten
         else
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
         end if
 
-        call TLab_Debug_Print_int('POIS-trace:5-after-fftbwd', itime)
         ! Sentinel: real-space pressure straight out of the backward FFT (1e6 -- real-space scale).
         call DNS_PRINT_MAXVAL('POIS:post-fft-bwd', p(1, 1, 1), nx*ny*nz, -1)
-        call TLab_Debug_Print_int('POIS-trace:6-after-sent-fftbwd', itime)
 
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
-            call TLab_Debug_Print_int('POIS-trace:7-after-dpdy', itime)
-            ! Sentinel: dpdy straight out of OPR_Partial_Y, BEFORE the pressure filter (1e6). If this
-            ! trips but the filter is exonerated -> the kink is born in the Poisson solve; if it stays
-            ! clean and only RHS1:post-pfilter-dpdy trips -> the pressure filter creates the pollution.
-            call DNS_PRINT_MAXVAL('POIS:post-dpdy', dpdy(1, 1, 1), nx*ny*nz, -1)
-            call TLab_Debug_Print_int('POIS-trace:8-after-sent-dpdy', itime)
         end if
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)

@@ -1260,7 +1260,6 @@ contains
         ndl = size(fdmi_int2%lhs, 4)
         ndr = size(rhsi, 2)
 
-        call DNS_PRINT_MAXVAL('POIS-solve:0-input-f', f(1, 1, 1), 2*nx*klines*ilines, -1)
         select case (ndr)
         case (3)
             call MatMul_3d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:3), f, &
@@ -1269,7 +1268,6 @@ contains
             call MatMul_5d_APU(nlines, klines, ilines, nx, fdmi_int2, rhsi(:, 1:5), f(1:nlines*nx, 1:klines, 1:ilines), &
             result(1:nlines*nx, 1:klines, 1:ilines), BCS_BOTH, bcs_b=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 1), bcs_t=p2_wrk2d(1:nlines, 1:klines, 1:ilines, 2))
         end select
-        call DNS_PRINT_MAXVAL('POIS-solve:1-post-matmul', result(1, 1, 1), 2*nx*klines*ilines, -1)
 
         ! Solve pentadiagonal linear system
         select case (ndl)
@@ -1280,7 +1278,6 @@ contains
         case (7)
             call HEPTADSS_APU(nlines, nx, klines, ilines, fdmi_int2, result(1:nlines*nx, 1:klines, 1:ilines))
         end select
-        call DNS_PRINT_MAXVAL('POIS-solve:2-post-thomas', result(1, 1, 1), 2*nx*klines*ilines, -1)
 
         block
             real(wp), pointer :: lhs_p(:,:,:,:)
@@ -1318,7 +1315,6 @@ contains
         !$omp end target teams distribute parallel do
 #endif
         end block
-        call DNS_PRINT_MAXVAL('POIS-solve:3-post-correction', result(1, 1, 1), 2*nx*klines*ilines, -1)
 
         return
     end subroutine FDM_Int2_Solve_APU

@@ -99,8 +99,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         end do
     end if
 
-    ! Sentinel: catch a field already polluted on entry (upstream sources / Coriolis)
-    call DNS_PRINT_MAXVAL('RHS1:entry', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
     ! #######################################################################
     ! Diffusion and advection terms
@@ -110,22 +108,14 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     if (imode_ibm == 1) ibm_burgers = .true.
 
     ! Diagonal terms and transposed velocity arrays
-    call DNS_PRINT_MAXVAL('RHS:u-in', u, isize_field, rkm_substep)
-    call DNS_PRINT_MAXVAL('RHS:v-in', v, isize_field, rkm_substep)
-    call DNS_PRINT_MAXVAL('RHS:w-in', w, isize_field, rkm_substep)
     call OPR_Burgers_X(OPR_B_SELF, 0, imax, jmax, kmax, bcs, u, u, tmp1, tmp4) ! store u transposed in tmp4
-    call DNS_PRINT_MAXVAL('RHS:BurgX-uu->tmp1', tmp1, isize_field, rkm_substep)
 
     call OPR_Burgers_Y(OPR_B_SELF, 0, imax, jmax, kmax, bcs, v, v, tmp2, tmp5) ! store v transposed in tmp5
-    call DNS_PRINT_MAXVAL('RHS:BurgY-vv->tmp2', tmp2, isize_field, rkm_substep)
     call OPR_Burgers_Z(OPR_B_SELF, 0, imax, jmax, kmax, bcs, w, w, tmp3, tmp6) ! store w transposed in tmp6
-    call DNS_PRINT_MAXVAL('RHS:BurgZ-ww->tmp3', tmp3, isize_field, rkm_substep)
 
     ! Ox momentum equation
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, v, tmp7, tmp9, tmp5) ! tmp5 contains v transposed
-    call DNS_PRINT_MAXVAL('RHS:BurgY-uv->tmp7', tmp7, isize_field, rkm_substep)
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
-    call DNS_PRINT_MAXVAL('RHS:BurgZ-uw->tmp8', tmp8, isize_field, rkm_substep)
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
@@ -141,13 +131,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
-    call DNS_PRINT_MAXVAL('RHS:hq1-after-Ox-acc', hq(1, 1), isize_field, rkm_substep)
 
     ! Oy momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
-    call DNS_PRINT_MAXVAL('RHS:BurgX-vu->tmp7', tmp7, isize_field, rkm_substep)
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
-    call DNS_PRINT_MAXVAL('RHS:BurgZ-vw->tmp8', tmp8, isize_field, rkm_substep)
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
@@ -165,13 +152,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
-    call DNS_PRINT_MAXVAL('RHS:hq2-after-Oy-acc', hq(1, 2), isize_field, rkm_substep)
 
     ! Oz momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
-    call DNS_PRINT_MAXVAL('RHS:BurgX-wu->tmp7', tmp7, isize_field, rkm_substep)
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, v, tmp8, tmp9, tmp5) ! tmp5 contains v transposed
-    call DNS_PRINT_MAXVAL('RHS:BurgY-wv->tmp8', tmp8, isize_field, rkm_substep)
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 
 #ifdef USE_APU
@@ -188,7 +172,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
-    call DNS_PRINT_MAXVAL('RHS:hq3-after-Oz-acc', hq(1, 3), isize_field, rkm_substep)
 
     ! Sentinel: catch pollution from the advection/diffusion (OPR_Burgers) stage
     call DNS_PRINT_MAXVAL('RHS1:post-adv', hq(1, 1), isize_field*inb_flow, rkm_substep)
@@ -234,8 +217,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call BOUNDARY_BUFFER_RELAX_FLOW()
     end if
 
-    ! Sentinel: catch pollution from the buffer-relaxation stage
-    call DNS_PRINT_MAXVAL('RHS1:post-buf', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
     ! #######################################################################
     ! Pressure term
@@ -336,15 +317,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp end target teams distribute parallel do
 #endif
 
-    ! Sentinel: assembled Poisson forcing BEFORE OPR_Poisson. High threshold (1e15) because the
-    ! forcing legitimately reaches ~1e7 (carries 1/dte and 1/dx factors) -- only a real blow-up trips it.
-    ! Brackets "before the solve" so the POIS:* sentinels inside OPR_Poisson localize the GPU region.
-    call DNS_PRINT_MAXVAL('RHS1:pre-poisson-forcing', tmp1, isize_field, rkm_substep)
 
-    ! Flushed trace: survives a GPU memory fault that writes no [POLLUTION] line. The LAST
-    ! RHS-trace / POIS-trace line in the dead rank's debug_thread_testing<rank>.log / fort.5xx
-    ! is the last point reached -- the next op in program order is the one that faulted.
-    call TLab_Debug_Print_int('RHS-trace:A-after-forcing', itime)
 
     ! -----------------------------------------------------------------------
     ! Neumman BCs in d/dy(p) s.t. v=0 (no-penetration)
@@ -373,22 +346,14 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     end if
 
     ! pressure in tmp1, Oy derivative in tmp3
-    call TLab_Debug_Print_int('RHS-trace:B-before-poisson', itime)
     call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, p_tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
-    call TLab_Debug_Print_int('RHS-trace:C-after-poisson', itime)
 
-    ! Sentinel: catch pollution from the FFT/Poisson/elliptic solve (pressure in tmp1)
-    call DNS_PRINT_MAXVAL('RHS1:post-poisson', tmp1, isize_field, rkm_substep)
 
     ! filter pressure p and its vertical gradient dpdy
     if (any(PressureFilter(:)%type /= DNS_FILTER_NONE)) then
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp1, txc(1:isize_field,4:6))
         call OPR_FILTER(imax, jmax, kmax, PressureFilter, tmp3, txc(1:isize_field,4:6))
-        ! Sentinel: catch pollution from the compact pressure filter (p and dpdy)
-        call DNS_PRINT_MAXVAL('RHS1:post-pfilter-p', tmp1, isize_field, rkm_substep)
-        call DNS_PRINT_MAXVAL('RHS1:post-pfilter-dpdy', tmp3, isize_field, rkm_substep)
     end if
-    call TLab_Debug_Print_int('RHS-trace:D-after-pfilter', itime)
 
     ! Saving pressure for towers to tmp array
     if (rkm_substep == rkm_endstep) then
@@ -430,14 +395,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         call OPR_Partial_X(OPR_P1, imax, jmax, kmax, bcs, g(1), tmp1, tmp2)
         call OPR_Partial_Z(OPR_P1, imax, jmax, kmax, bcs, g(3), tmp1, tmp4)
     end if
-    call TLab_Debug_Print_int('RHS-trace:E-after-stagger', itime)
 
-    ! Sentinel: gradient INPUTS just before the subtraction. If these are clean but
     ! 'RHS1:post-pgrad' (below) trips, the host !$omp parallel do that subtracts them
     ! into hq is the culprit (the suspected GPU-written -> CPU-read coherency hazard).
-    call DNS_PRINT_MAXVAL('RHS1:pre-pgrad-dpdx', tmp2, isize_field, rkm_substep)
-    call DNS_PRINT_MAXVAL('RHS1:pre-pgrad-dpdy', tmp3, isize_field, rkm_substep)
-    call DNS_PRINT_MAXVAL('RHS1:pre-pgrad-dpdz', tmp4, isize_field, rkm_substep)
 
     ! -----------------------------------------------------------------------
     ! Add pressure gradient
@@ -474,9 +434,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #endif
     end if
 
-    ! Sentinel: catch pollution from the pressure-gradient subtraction
     ! (in particular the host !$omp parallel do at ~L388 reading GPU-written tmp2/3/4)
-    call DNS_PRINT_MAXVAL('RHS1:post-pgrad', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
     ! #######################################################################
     ! Boundary conditions
@@ -520,9 +478,6 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     end do
 
-    ! Sentinel: catch pollution from the boundary-condition stage (Neumann_Y / IBM_BCS / surface BC)
-    call DNS_PRINT_MAXVAL('RHS1:post-bc', hq(1, 1), isize_field*inb_flow, rkm_substep)
-    call DNS_PRINT_MAXVAL('RHS1:post-bc-s', hs(1, 1), isize_field*inb_scal, rkm_substep)
 
 #ifdef TRACE_ON
     call TLab_Write_ASCII(tfile, 'LEAVING SUBROUTINE RHS_GLOBAL_INCOMPRESSIBLE_1')

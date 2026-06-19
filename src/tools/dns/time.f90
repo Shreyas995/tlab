@@ -689,11 +689,8 @@ contains
 ! !$omp private (ij,  is,ij_srt,ij_end,ij_siz)
 #endif
 #endif
-        ! Discriminator: hq (RHS tendency) and q (velocity) BEFORE the simple q += dte*hq update.
         ! If hq is clean here but q explodes at TIME:post-update, the corruption is in/around the
         ! update (or a direct memory clobber of q), not the RHS.
-        call DNS_PRINT_MAXVAL('TIME:pre-update-hq', hq(1, 1), isize_field*inb_flow, rkm_substep)
-        call DNS_PRINT_MAXVAL('TIME:pre-update-q', q(1, 1), isize_field*inb_flow, rkm_substep)
         call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
@@ -731,9 +728,8 @@ contains
         end do
 #endif
 
-        ! Sentinel: definitive polluted-velocity check after the substep update q += dte*hq
+        ! Coarse crash-localization marker: polluted-velocity check after the substep update q += dte*hq
         call DNS_PRINT_MAXVAL('TIME:post-update', q(1, 1), isize_field*inb_flow, rkm_substep)
-        call DNS_PRINT_MAXVAL('TIME:post-update-s', s(1, 1), isize_field*inb_scal, rkm_substep)
 
         return
     end subroutine TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT

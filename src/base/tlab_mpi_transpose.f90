@@ -68,7 +68,6 @@ module TLabMPI_Transpose
     type(MPI_Comm) :: node_comm_k                          ! NODE comm (split by hostname hash)
     type(MPI_Win)  :: node_win_k                           ! node-local shared recv window (real K)
     integer        :: node_size_k = 0
-    logical, public :: trp_dbg_fft = .false.               ! DEBUG: gate internal X-FFT-region sentinels (set by OPR_Fourier_X_Backward)
     logical        :: use_node_win_k = .false.             ! true iff the node window came up contiguous
     real(dp), pointer :: node_recv_fptr_k(:) => null()     ! our own node-window segment
     real(dp), pointer :: node_all_k(:) => null()           ! fused span over the whole node window
@@ -720,6 +719,9 @@ contains
 
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_ns, mas
+#ifdef USE_APU
+        integer(c_int) :: hip_sync_err
+#endif
 #ifdef PROFILE_ON
         real(wp) :: time_loc_1, time_loc_2
 #endif
@@ -757,6 +759,7 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: our recv buffer is now fully populated
             ! -- Unpack: recv buffer is already in the flat K-space layout; one-to-one copy to b.
             !$omp target teams distribute parallel do
@@ -817,6 +820,7 @@ contains
                     call MPI_ISEND(c_wrk_dp(m*mas + 1), mas, &
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
                 end do
+                hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
                 ! 5. close epoch (intra writes committed) then wait for inter MPI.
                 call MPI_Win_fence(0, node_win_k, ims_err)
                 if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
@@ -1049,6 +1053,7 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
             ! Unpack: flat copy from complex-typed recv alias to b
             !$omp target teams distribute parallel do
@@ -1121,6 +1126,7 @@ contains
                     call MPI_ISEND(c_wrk_cx(m*mas + 1), mas, &
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
                 end do
+                hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
                 ! 5. close epoch (intra writes committed) then wait for inter MPI.
                 call MPI_Win_fence(0, node_win_k, ims_err)
                 if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
@@ -1229,6 +1235,9 @@ contains
 
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_nr, mas
+#ifdef USE_APU
+        integer(c_int) :: hip_sync_err
+#endif
 #ifdef PROFILE_ON
         real(wp) :: time_loc_1, time_loc_2
 #endif
@@ -1258,6 +1267,7 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: all peers have written to our buffer
             ! -- Unpack: recv buffer holds sorted chunks; scatter to strided a in one fused kernel.
             !$omp target teams distribute parallel do collapse(3)
@@ -1305,6 +1315,7 @@ contains
                     call MPI_ISEND(b(m*mas + 1), mas, &
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
                 end do
+                hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
                 ! 5. close epoch then wait.
                 call MPI_Win_fence(0, node_win_k, ims_err)
                 if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
@@ -1542,6 +1553,7 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
             ! Unpack: complex recv buffer → strided Z-space a
             !$omp target teams distribute parallel do collapse(3)
@@ -1602,6 +1614,7 @@ contains
                     call MPI_ISEND(b(m*mas + 1), mas, &
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
                 end do
+                hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
                 ! 5. close epoch (intra writes committed) then wait for inter MPI.
                 call MPI_Win_fence(0, node_win_k, ims_err)
                 if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
@@ -1722,6 +1735,9 @@ contains
 
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr
         integer(wi) :: nmax_p, nlines_p, nmax_full, flat_off, disp_nr, mas
+#ifdef USE_APU
+        integer(c_int) :: hip_sync_err
+#endif
 
         nmax_p    = trp_plan%nmax
         nlines_p  = trp_plan%nlines
@@ -1747,6 +1763,7 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
             call MPI_Win_fence(0, apu_win_i, ims_err)   ! barrier: recv buffer fully populated
             ! -- Unpack: recv buffer holds sorted flat chunks; scatter to strided b in one fused kernel.
             !$omp target teams distribute parallel do collapse(3)
@@ -1774,6 +1791,7 @@ contains
                     end do
                 end do
                 !$omp end target teams distribute parallel do
+                hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
@@ -2026,12 +2044,12 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            ! ROOT FIX: flush the GPU push to HBM BEFORE the fence. MPI_Win_fence orders the RMA epoch but
+            ! does NOT flush GPU writes on MI300A, so peers would read our cross-rank window writes stale
+            ! -> the intermittent FFT blow-up. hipDeviceSynchronize makes it HBM-visible.
+            hip_sync_err = hipDeviceSynchronize()
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
-            ! DEBUG (X-FFT region only): recv window AFTER the cross-rank push+fence, BEFORE the unpack.
-            ! If this jumps -> the corruption is in the push/fence (cross-rank window write), not the unpack.
-            ! (apu_recv_fptr_i is the real alias of the same window; 2*size reals = size complex elements.)
-            if (trp_dbg_fft) call DNS_PRINT_MAXVAL('X-FWC-win', apu_recv_fptr_i(1), 2*size, -1)
             ! Unpack: scatter recv buffer (flat m*chunk+i layout) → b (strided m*nmax_p + i*nmax_full + j).
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
@@ -2067,6 +2085,7 @@ contains
                     end do
                 end do
                 !$omp end target teams distribute parallel do
+                hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
@@ -2188,9 +2207,6 @@ contains
             ! every peer m's recv buffer at slot own_rank*chunk. Single fused collapse(3)
             ! kernel covers all m in one HIP launch, eliminating per-peer launch overhead.
             size = trp_plan%size3d
-            ! DEBUG (X-FFT region only): input b BEFORE the transpose. If this jumps, the corruption is
-            ! upstream (the c2r FFTW), not this transpose.
-            if (trp_dbg_fft) call DNS_PRINT_MAXVAL('X-BWR-in', b(1), size, -1)
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! Push: pack strided b[m] → peer m's recv buffer at slot own_rank*chunk (flat).
@@ -2204,20 +2220,15 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
-            ! DEBUG (X-FFT region only): recv window AFTER push+fence, BEFORE the unpack. If this jumps but
-            ! X-BWR-in was clean -> the corruption is in the push/fence (cross-rank window write).
-            if (trp_dbg_fft) call DNS_PRINT_MAXVAL('X-BWR-win', apu_recv_fptr_i(1), size, -1)
             ! Flat copy: recv buffer layout is flat and matches a 1:1.
             !$omp target teams distribute parallel do
             do i = 1, size
                 a(i) = apu_recv_fptr_i(i)
             end do
             !$omp end target teams distribute parallel do
-            ! DEBUG (X-FFT region only): output a AFTER the unpack. If X-BWR-win was clean and this jumps ->
-            ! the unpack kernel is the corruptor.
-            if (trp_dbg_fft) call DNS_PRINT_MAXVAL('X-BWR-out', a(1), size, -1)
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
             size = trp_plan%size3d
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
@@ -2234,6 +2245,7 @@ contains
                     end do
                 end do
                 !$omp end target teams distribute parallel do
+                hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 !$omp target teams distribute parallel do
                 do i = 1, size
@@ -2471,6 +2483,7 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! Flat copy: recv buffer is flat and matches a layout 1:1.
@@ -2507,6 +2520,7 @@ contains
                     end do
                 end do
                 !$omp end target teams distribute parallel do
+                hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 !$omp target teams distribute parallel do
                 do i = 1, size
