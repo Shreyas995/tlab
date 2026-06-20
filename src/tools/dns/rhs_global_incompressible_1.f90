@@ -316,6 +316,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
+    ! DIAG: provisional-velocity divergence (= Poisson forcing). If THIS stays flat while [DIL] grows, the
+    ! projection is failing to clean the mode; if THIS grows, the divergence is injected upstream.
+    call DNS_PRINT_MAXVAL('RHS1:div-forcing', tmp1, isize_field, rkm_substep)
 
 
 
@@ -347,6 +350,8 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     ! pressure in tmp1, Oy derivative in tmp3
     call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, p_tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
+    ! DIAG: pressure out of the Poisson solve (tmp1) on the fabricdirect path.
+    call DNS_PRINT_MAXVAL('RHS1:p-poisson', tmp1, isize_field, rkm_substep)
 
 
     ! filter pressure p and its vertical gradient dpdy
@@ -411,14 +416,20 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
+        ! DIAG: pressure-gradient components (dpdx/dpdz/dpdy) just before they are subtracted from hq.
+        call DNS_PRINT_MAXVAL('RHS1:pgrad-x', tmp2, isize_field, rkm_substep)
+        call DNS_PRINT_MAXVAL('RHS1:pgrad-y', tmp3, isize_field, rkm_substep)
+        call DNS_PRINT_MAXVAL('RHS1:pgrad-z', tmp4, isize_field, rkm_substep)
         !$omp parallel do default( shared ) private ( ij ) &
         !$omp if(end > mas)
-        do ij = srt, end 
+        do ij = srt, end
             hq(ij, 1) = hq(ij, 1) - tmp2(ij)
             hq(ij, 2) = hq(ij, 2) - tmp3(ij)
             hq(ij, 3) = hq(ij, 3) - tmp4(ij)
         end do
         !$omp end parallel do
+        ! DIAG: corrected velocity tendency after the pressure-gradient subtraction (the projected hq).
+        call DNS_PRINT_MAXVAL('RHS1:hq-corrected', hq(1, 1), isize_field*inb_flow, rkm_substep)
 #elif defined(USE_ESSL)
         ilen = siz
         dummy = -1.0_wp
