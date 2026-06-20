@@ -2036,6 +2036,10 @@ contains
             call c_f_pointer(apu_peer_cptr_i(0), apu_cx_all, [apu_stride_i*ims_npro_i/2])
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
             call MPI_Win_fence(0, apu_win_i, ims_err)
+            ! DEBUG (crash hunt): window state BEFORE our push (right after open fence). If this is already
+            ! corrupt (>5) the bad value is a PRE-EXISTING clobber/leftover (a prior apu_win_i user, or a
+            ! coverage gap), NOT produced by this epoch's push/fence. If clean, the corruption is born here.
+            if (trp_dbg_fft) call DNS_PRINT_MAXVAL('X-FWC-pre', apu_recv_fptr_i(1), 2*size, -1)
             ! Push: write each peer's flat chunk into peer m's buffer at slot own_rank*chunk.
             !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_i - 1
@@ -2054,6 +2058,16 @@ contains
             ! DEBUG (X-FFT region): recv window AFTER cross-rank push+fence, BEFORE unpack. If this jumps the
             ! corruption is in the push/fence even WITH the flush (apu_recv_fptr_i = real alias; 2*size reals).
             if (trp_dbg_fft) call DNS_PRINT_MAXVAL('X-FWC-win', apu_recv_fptr_i(1), 2*size, -1)
+            ! DEBUG (crash hunt): per-peer-segment window max, sub=segment index l. OUR window is npro_i
+            ! contiguous complex segments of mas=nmax_p*nlines_p each; segment l holds the chunk pushed by
+            ! I-rank l. All sources are <=5, so a >5 segment localizes the faulting push: l==ims_pro_i is our
+            ! OWN local write (a local kernel/memory bug); l/=ims_pro_i is I-rank l's CROSS-rank push (a
+            ! fence/visibility race). Real view: segment l spans reals [2*l*mas+1 .. 2*(l+1)*mas].
+            if (trp_dbg_fft) then
+                do l = 0, ims_npro_i - 1
+                    call DNS_PRINT_MAXVAL('X-FWC-seg', apu_recv_fptr_i(2*l*mas + 1), 2*mas, l)
+                end do
+            end if
             ! Unpack: scatter recv buffer (flat m*chunk+i layout) → b (strided m*nmax_p + i*nmax_full + j).
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
