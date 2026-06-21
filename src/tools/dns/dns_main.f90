@@ -266,6 +266,11 @@ program DNS
 
         itime = itime + 1
         rtime = rtime + dtime
+        ! COARSE crash-localization (post-timestep): clean baseline right after TIME_RUNGEKUTTA, before any
+        ! post-step output. The crash ignites the iteration AFTER a 500-step (stats+checkpoint); these LOOP:*
+        ! brackets isolate whether q is corrupted by filter/phaseavg/stats/checkpoint vs the next timestep.
+        call DNS_PRINT_MAXVAL('LOOP:after-rk-q', q(1, 1), isize_field*inb_flow, -2)
+        if (scal_on) call DNS_PRINT_MAXVAL('LOOP:after-rk-s', s(1, 1), isize_field, -2)
         if (mod(itime - nitera_first, nitera_filter) == 0) then
             call DNS_FILTER()
             if (imode_ibm == 1) then
@@ -273,6 +278,8 @@ program DNS
                 if (scal_on) call IBM_INITIALIZE_SCAL(i0, s)
             end if
         end if
+        ! COARSE: after the filter stage (modifies q,s at filter steps).
+        call DNS_PRINT_MAXVAL('LOOP:after-filter-q', q(1, 1), isize_field*inb_flow, -2)
 
         if (flag_viscosity) then                ! Change viscosity if necessary
             visc = visc + visc_rate*dtime
@@ -314,6 +321,8 @@ program DNS
                 end if
             end if
         end if
+        ! COARSE: after the phase-average stage (reads q every iteration; AvgPhaseStress/Space).
+        call DNS_PRINT_MAXVAL('LOOP:after-phaseavg-q', q(1, 1), isize_field*inb_flow, -2)
 
         if (use_tower) then
             call DNS_TOWER_ACCUMULATE(q, 1, wrk1d)
@@ -330,6 +339,8 @@ program DNS
             if (imode_sim == DNS_MODE_TEMPORAL) call DNS_STATISTICS_TEMPORAL()
             if (imode_sim == DNS_MODE_SPATIAL) call DNS_STATISTICS_SPATIAL()
         end if
+        ! COARSE: after the statistics stage (DNS_STATISTICS_TEMPORAL at stats steps; the 250/500 suspect).
+        call DNS_PRINT_MAXVAL('LOOP:after-stats-q', q(1, 1), isize_field*inb_flow, -2)
         if (mod(itime - nitera_first, nitera_save) == 0 .or. &      ! Check-pointing: Save restart files
             itime == nitera_last .or. int(logs_data(1)) /= 0 .or. & ! Secure that one restart file is saved
             wall_time > nruntime_sec) then                          ! If max runtime of the code is reached
@@ -365,6 +376,10 @@ program DNS
             end if
 
         end if
+
+        ! COARSE: after the check-pointing stage (IO_Write_Fields of q,s at 500-steps; the prime suspect).
+        call DNS_PRINT_MAXVAL('LOOP:after-save-q', q(1, 1), isize_field*inb_flow, -2)
+        if (scal_on) call DNS_PRINT_MAXVAL('LOOP:after-save-s', s(1, 1), isize_field, -2)
 
         if (mod(itime - nitera_first, nitera_pln) == 0) then
             call PLANES_SAVE()

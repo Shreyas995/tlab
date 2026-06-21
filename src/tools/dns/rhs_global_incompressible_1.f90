@@ -132,6 +132,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp end target teams distribute parallel do
 #endif
 
+    ! COARSE crash-localization: Ox momentum tendency after its advection/diffusion (Burgers X/Y/Z of u).
+    call DNS_PRINT_MAXVAL('RHS1:hq1-Ox', hq(1, 1), isize_field, rkm_substep)
+
     ! Oy momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
     call OPR_Burgers_Z(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, w, tmp8, tmp9, tmp6) ! tmp6 contains w transposed
@@ -153,6 +156,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     !$omp end target teams distribute parallel do
 #endif
 
+    ! COARSE crash-localization: Oy momentum tendency after its advection/diffusion.
+    call DNS_PRINT_MAXVAL('RHS1:hq2-Oy', hq(1, 2), isize_field, rkm_substep)
+
     ! Oz momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, v, tmp8, tmp9, tmp5) ! tmp5 contains v transposed
@@ -172,6 +178,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #ifdef USE_APU
     !$omp end target teams distribute parallel do
 #endif
+
+    ! COARSE crash-localization: Oz momentum tendency after its advection/diffusion (Burgers Z = K-transpose).
+    call DNS_PRINT_MAXVAL('RHS1:hq3-Oz', hq(1, 3), isize_field, rkm_substep)
 
     ! Sentinel: catch pollution from the advection/diffusion (OPR_Burgers) stage
     call DNS_PRINT_MAXVAL('RHS1:post-adv', hq(1, 1), isize_field*inb_flow, rkm_substep)
@@ -210,12 +219,18 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     ! IBM usage for scalar field, done
     if (imode_ibm_scal == 1) ibm_burgers = .false.
 
+    ! COARSE crash-localization: scalar tendency after its advection/diffusion.
+    if (inb_scal > 0) call DNS_PRINT_MAXVAL('RHS1:scalar-hs', hs(1, 1), isize_field, rkm_substep)
+
     ! #######################################################################
     ! Impose buffer zone as relaxation terms
     ! #######################################################################
     if (BuffType == DNS_BUFFER_RELAX .or. BuffType == DNS_BUFFER_BOTH) then
         call BOUNDARY_BUFFER_RELAX_FLOW()
     end if
+
+    ! COARSE crash-localization: flow tendency after the buffer-relaxation stage (before the pressure step).
+    call DNS_PRINT_MAXVAL('RHS1:post-buffer', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
 
     ! #######################################################################
