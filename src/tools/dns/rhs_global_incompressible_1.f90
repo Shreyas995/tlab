@@ -292,11 +292,18 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
             call Thermo_Anelastic_WEIGHT_INPLACE(imax, jmax, kmax, rbackground, tmp4)
         end if
 
+        ! CRASH-LOC: the provisional-velocity divergence (div-forcing) is the first all-NaN field this run.
+        ! Split it: provvel = input (should be clean); postX = after OPR_Partial_X (I-transpose = all-intra
+        ! node-window for npro_i=6 = the COMMON mechanism, also in apudirect); postZ = after OPR_Partial_Z
+        ! (K-transpose = inter-node MPI = fabricdirect-specific). Whichever first goes NaN pins the leg.
+        call DNS_PRINT_MAXVAL('RHS1:dvg-provvel', tmp2, isize_field, rkm_substep)
         if (stagger_on) then ! staggering on horizontal pressure nodes
             !  Oy derivative
             call OPR_Partial_X(OPR_P0_INT_VP, imax, jmax, kmax, bcs, g(1), tmp2, tmp5)
+            call DNS_PRINT_MAXVAL('RHS1:dvg-postX', tmp5, isize_field, rkm_substep)
             call OPR_Partial_Y(OPR_P1, imax, jmax, kmax, bcs, g(2), tmp5, tmp2)
             call OPR_Partial_Z(OPR_P0_INT_VP, imax, jmax, kmax, bcs, g(3), tmp2, tmp1)
+            call DNS_PRINT_MAXVAL('RHS1:dvg-postZ', tmp1, isize_field, rkm_substep)
             !  Ox derivative
             call OPR_Partial_X(OPR_P1_INT_VP, imax, jmax, kmax, bcs, g(1), tmp3, tmp5)
             call OPR_Partial_Z(OPR_P0_INT_VP, imax, jmax, kmax, bcs, g(3), tmp5, tmp2)
