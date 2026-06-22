@@ -1556,6 +1556,11 @@ contains
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
+            ! CRASH-LOC (apudirect K-bwd-cplx): our recv window AFTER cross-rank push+fence, BEFORE the unpack.
+            ! SYMMETRIC to the fabricdirect ZKBC probes — covers the OTHER communication branch (single-node
+            ! apudirect window) so a crash on either branch is pinned internally. Input b (=ZFWD:post-fft)
+            ! healthy; if this window is blown the apudirect cross-rank push/fence is the seed.
+            call DNS_PRINT_MAXVAL('ZKBC:apuwin', apu_recv_fptr_k(1), 2*size, -1)
             ! Unpack: complex recv buffer → strided Z-space a
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_k - 1
@@ -1619,6 +1624,12 @@ contains
                 ! 5. close epoch (intra writes committed) then wait for inter MPI.
                 call MPI_Win_fence(0, node_win_k, ims_err)
                 if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+                ! CRASH-LOC (fabricdirect K-bwd-cplx, 2-node): split the two recv legs to pin the faulting one.
+                ! cwrk-inter = inter-node MPI recv (4 inter peers, c_wrk_cx); nodewin = our node-window segment
+                ! (4 intra peers pushed in). Input b (=ZFWD:post-fft) is healthy; whichever recv is blown =
+                ! the faulting leg (inter-node GPU-aware MPI vs intra node-window). Apudirect lacks the inter leg.
+                call DNS_PRINT_MAXVAL('ZKBC:cwrk-inter', wrk_mpi_dp(1), 2*size, -1)
+                call DNS_PRINT_MAXVAL('ZKBC:nodewin', node_recv_fptr_k(1), apu_size_k, -1)
                 ! 6a. intra peers: ONE fused GPU unpack of our recv segment → strided a (inter masked out) —
                 !     collapse(3) over (m,i,j); one kernel instead of one per intra peer. (6b inter stays CPU.)
                 !$omp target teams distribute parallel do collapse(3)
