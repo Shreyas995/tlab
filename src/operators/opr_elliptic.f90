@@ -430,11 +430,17 @@ contains
 
         call TLab_Debug_Print_int('POIS-trace:0-entry', itime)
 
+        ! CRASH-LOCALIZATION: the forward FFT is the seed (clean forcing in -> blown post-fft-fwd). Bracket
+        ! the input p and the X- and Z-forward outputs separately to pin which forward FFT blows.
+        call DNS_PRINT_MAXVAL('POIS:fwd-in-p', p(1, 1, 1), nx*ny*nz, -1)
         if (fft_z_on) then
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp2)
+            call DNS_PRINT_MAXVAL('POIS:fwd-postX', tmp2(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
             call OPR_Fourier_Z_Forward(c_tmp2, c_tmp1) ! tmp2 might be overwritten; cannot use wrk3d
+            call DNS_PRINT_MAXVAL('POIS:fwd-postZ', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
         else
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp1)
+            call DNS_PRINT_MAXVAL('POIS:fwd-postX', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
         end if
 
         tmp1 = tmp1*norm

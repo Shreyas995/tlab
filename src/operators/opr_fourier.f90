@@ -260,12 +260,17 @@ contains
             call c_f_pointer(c_loc(wrk3d), wrk1_1d, shape=[(nx/2 + 1)*ims_npro_i*tmpi_plan_dx%nlines])
             call c_f_pointer(c_loc(out), r_out, shape=[isize_txc_field])
 
+            call DNS_PRINT_MAXVAL('XFWD:in', in(1), nx*ny*nz, -1)
             call TLabMPI_Trp_ExecI_Forward(in(:), r_out(:), tmpi_plan_dx)
 #ifdef USE_APU
             hip_sync_err = hipDeviceSynchronize()   ! GPU real forward transpose wrote r_out -> CPU r2c FFTW reads it
 #endif
+            ! CRASH-LOCALIZATION: after the real forward I-transpose (ExecI_Forward). r_out aliases out.
+            call DNS_PRINT_MAXVAL('XFWD:post-trpF', r_out(1), isize_txc_field, -1)
 
             call dfftw_execute_dft_r2c(fft_plan_fx, r_out, wrk1)
+            ! after the r2c FFTW (CPU). wrk1 aliases wrk3d; r_out still holds the transpose output here.
+            call DNS_PRINT_MAXVAL('XFWD:post-r2c', wrk3d(1), 2*(nx/2 + 1)*ims_npro_i*tmpi_plan_dx%nlines, -1)
 
             if (fft_reordering_i) then      ! reorganize a (FFTW make a stride in a already before)
                 isize_line = nx/2 + 1
@@ -287,6 +292,8 @@ contains
             ! as wrk1): the transpose indexes b linearly across all nlines. A single column
             ! wrk1(:,1) would be a too-small assumed-shape actual -> out-of-bounds at -O2.
             call TLabMPI_Trp_ExecI_Backward(wrk1_1d, out(:), tmpi_plan_fftx)
+            ! CRASH-LOCALIZATION: after the complex backward I-transpose (ExecI_Backward) = X_Forward output.
+            call DNS_PRINT_MAXVAL('XFWD:post-trpB', r_out(1), isize_txc_field, -1)
 
             nullify (wrk1, wrk1_1d, r_out)
 
@@ -390,11 +397,17 @@ contains
         ! -----------------------------------------------------------------------
         complex(wp), pointer :: p_org(:, :), p_dst(:, :)
         integer(wi) k_old1, k_old2, k_new1, k_new2
+        real(wp), pointer :: r_in_dbg(:) => null(), r_out_dbg(:) => null()   ! real views for crash-localization
 
         ! #######################################################################
 #ifdef USE_MPI
         if (ims_npro_k > 1) then
+            ! CRASH-LOCALIZATION: bracket each Z-forward sub-op (complex K-transpose F, z2z FFTW, K-transpose B).
+            call c_f_pointer(c_loc(in(1)), r_in_dbg, [2*isize_txc_field])
+            call c_f_pointer(c_loc(out(1)), r_out_dbg, [2*isize_txc_field])
+            call DNS_PRINT_MAXVAL('ZFWD:in', r_in_dbg(1), 2*isize_txc_field, -1)
             call TLabMPI_Trp_ExecK_Forward(in(1:isize_txc_field), out(1:isize_txc_field), tmpi_plan_fftz)
+            call DNS_PRINT_MAXVAL('ZFWD:post-trpF', r_out_dbg(1), 2*isize_txc_field, -1)
             p_org(1:tmpi_plan_fftz%nlines, 1:size_fft_z) => out(1:isize_txc_field)
             p_dst(1:tmpi_plan_fftz%nlines, 1:size_fft_z) => in(1:isize_txc_field)
         else
@@ -406,6 +419,8 @@ contains
 #endif
 
         call dfftw_execute_dft(fft_plan_fz, p_org, p_dst)
+        ! after the z2z FFTW (CPU). In the parallel path p_dst aliases in (= r_in_dbg).
+        if (ims_npro_k > 1) call DNS_PRINT_MAXVAL('ZFWD:post-fft', r_in_dbg(1), 2*isize_txc_field, -1)
 
         if (fft_reordering_k) then                    ! re-shuffle spectra in z
             do k = 1, size_fft_z/2
@@ -425,10 +440,12 @@ contains
 #ifdef USE_MPI
         if (ims_npro_k > 1) then
             call TLabMPI_Trp_ExecK_Backward(in(1:isize_txc_field), out(1:isize_txc_field), tmpi_plan_fftz)
+            ! CRASH-LOCALIZATION: after the complex backward K-transpose (ExecK_Backward) = Z_Forward output.
+            call DNS_PRINT_MAXVAL('ZFWD:post-trpB', r_out_dbg(1), 2*isize_txc_field, -1)
         end if
 #endif
 
-        nullify (p_org, p_dst)
+        nullify (p_org, p_dst, r_in_dbg, r_out_dbg)
 
         return
     end subroutine OPR_Fourier_Z_Forward
