@@ -100,6 +100,12 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     end if
 
 
+    ! COARSE crash-localization: per-component velocity ENTERING the RHS (u=q1, v=q2, w=q3). If one of these
+    ! is already corrupt here the seed is upstream (RK update / sources / post-step output), not the RHS.
+    call DNS_PRINT_MAXVAL('RHS1:in-u', u(1), isize_field, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:in-v', v(1), isize_field, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:in-w', w(1), isize_field, rkm_substep)
+
     ! #######################################################################
     ! Diffusion and advection terms
     ! #######################################################################
@@ -112,6 +118,12 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     call OPR_Burgers_Y(OPR_B_SELF, 0, imax, jmax, kmax, bcs, v, v, tmp2, tmp5) ! store v transposed in tmp5
     call OPR_Burgers_Z(OPR_B_SELF, 0, imax, jmax, kmax, bcs, w, w, tmp3, tmp6) ! store w transposed in tmp6
+
+    ! COARSE crash-localization: diagonal self-advection-diffusion terms (Burgers X/Y/Z SELF). tmp3 uses
+    ! Burgers_Z = K-transpose, tmp1 uses Burgers_X = I-transpose; a jump here pins the faulting Burgers/transpose.
+    call DNS_PRINT_MAXVAL('RHS1:self-burgX-u', tmp1, isize_field, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:self-burgY-v', tmp2, isize_field, rkm_substep)
+    call DNS_PRINT_MAXVAL('RHS1:self-burgZ-w', tmp3, isize_field, rkm_substep)
 
     ! Ox momentum equation
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, v, tmp7, tmp9, tmp5) ! tmp5 contains v transposed

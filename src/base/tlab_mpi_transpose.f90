@@ -2069,7 +2069,14 @@ contains
                 end do
             end if
             ! Unpack: scatter recv buffer (flat m*chunk+i layout) → b (strided m*nmax_p + i*nmax_full + j).
-            !$omp target teams distribute parallel do collapse(3)
+            ! FIX [2026-06-22]: this unpack is done on the CPU, NOT a GPU !$omp target. The apudirect GPU
+            ! shared-window cross-rank READ returns STALE GPU L2 — confirmed on Hunter: rank0->rank2 segment0
+            ! read back 204.7 from a <=5 source, c2r amplified it, the Poisson pressure blew up (it=241751
+            ! sub5, rank 502; deterministic). hipDeviceSynchronize flushes WRITES to HBM but does NOT
+            ! invalidate the reader's GPU read-cache, so the GPU unpack saw a previous substep's value. The
+            ! CPU reads the freshly-committed HBM window (the close fence + each rank's pre-fence flush
+            ! guarantee visibility), and b then feeds the CPU c2r FFTW directly, so it stays coherent.
+            ! Only the READ moves to the CPU; the cross-rank GPU push above is unchanged (its write is sound).
             do m = 0, ims_npro_i - 1
                 do i = 0, nlines_p - 1
                     do j = 0, nmax_p - 1
@@ -2078,10 +2085,6 @@ contains
                     end do
                 end do
             end do
-            !$omp end target teams distribute parallel do
-            ! b is GPU-unpacked but consumed by the CPU FFTW in OPR_Fourier_X_Forward; flush so the GPU
-            ! write is CPU-coherent before the FFTW reads it (same GPU->CPU hazard as the K-transpose).
-            hip_sync_err = hipDeviceSynchronize()
             nullify (apu_cx_all)
 
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
