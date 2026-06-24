@@ -1794,6 +1794,14 @@ contains
             size = trp_plan%size3d
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
                 ! Option 1: all I-peers intra-node -> node-window GPU writes (apudirect-I pattern), no MPI.
+                ! ----- FINE LOCALIZATION (forward node-window I-transpose; mirrors NWBR). gated by trp_dbg_fft,
+                ! which the RHS now also sets around the seeding self-burgX OPR_Burgers_X call (the 2026-06-24
+                ! origin). 'NWFR' = Node-Window Forward Real. a = input; node_recv_fptr_i = MY recv buffer =
+                ! ims_npro_i source-slots of 'mas' each (slot s pushed by source rank s). Decision tree:
+                !   NWFR:in clean on ALL I-comm peers but NWFR:wcpu/seg garbage -> the cross-rank GPU PUSH
+                !       corrupts healthy data (node-window WRITE bug); seg index = which source slot.
+                !   NWFR:wcpu/win/out all clean but self-burgX still garbage -> the FDM, not the transpose.
+                if (trp_dbg_fft) call DNS_PRINT_MAXVAL('NWFR:in', a(1), size, -1)
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 ! ONE fused GPU write over all I-peers (all intra-node) — collapse(2) over (m,i).
                 !$omp target teams distribute parallel do collapse(2)
@@ -1805,6 +1813,13 @@ contains
                 !$omp end target teams distribute parallel do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
                 call MPI_Win_fence(0, node_win_i, ims_err)
+                if (trp_dbg_fft) then
+                    call DNS_PRINT_MAXVAL_CPU('NWFR:wcpu', node_recv_fptr_i(1), size, -1)   ! CPU read of HBM, first
+                    call DNS_PRINT_MAXVAL('NWFR:win', node_recv_fptr_i(1), size, -1)
+                    do m = 0, ims_npro_i - 1
+                        call DNS_PRINT_MAXVAL('NWFR:seg', node_recv_fptr_i(m*mas + 1), mas, m)
+                    end do
+                end if
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
                     do i = 0, nlines_p - 1
@@ -1814,6 +1829,7 @@ contains
                     end do
                 end do
                 !$omp end target teams distribute parallel do
+                if (trp_dbg_fft) call DNS_PRINT_MAXVAL('NWFR:out', b(1), size, -1)
             else
                 ! Fallback: all-MPI on fabric_mpi_comm_i (clean MPI_COMM_WORLD split). hip_write_with_fence
                 ! flushes GPU L2 -> HBM before the CPU ISENDs.

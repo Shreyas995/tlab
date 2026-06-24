@@ -25,6 +25,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     use FDM, only: g
     use TLab_WorkFlow, only: stagger_on
     use TLab_Time, only: itime
+#ifdef USE_APU
+    use TLabMPI_Transpose, only: trp_dbg_fft   ! gate node-window I-transpose probes around self-burgX
+#endif
     use TLab_Arrays
     use TLab_Pointers, only: u, v, w, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, tmp8, tmp9
     use TLab_Pointers_3D, only: p_tmp2
@@ -114,7 +117,13 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     if (imode_ibm == 1) ibm_burgers = .true.
 
     ! Diagonal terms and transposed velocity arrays
+#ifdef USE_APU
+    trp_dbg_fft = .true.    ! emit the NWFR/NWBR node-window I-transpose probes for THIS call (the 2026-06-24 seed)
+#endif
     call OPR_Burgers_X(OPR_B_SELF, 0, imax, jmax, kmax, bcs, u, u, tmp1, tmp4) ! store u transposed in tmp4
+#ifdef USE_APU
+    trp_dbg_fft = .false.
+#endif
 
     call OPR_Burgers_Y(OPR_B_SELF, 0, imax, jmax, kmax, bcs, v, v, tmp2, tmp5) ! store v transposed in tmp5
     call OPR_Burgers_Z(OPR_B_SELF, 0, imax, jmax, kmax, bcs, w, w, tmp3, tmp6) ! store w transposed in tmp6
