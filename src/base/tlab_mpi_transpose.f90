@@ -2271,6 +2271,12 @@ contains
             size = trp_plan%size3d
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
                 ! Option 1: all I-peers intra-node -> node-window GPU push (apudirect-I backward), no MPI.
+                ! ----- FINE LOCALIZATION of the 2026-06-24 fabricdirect seed (this node-window read-back).
+                ! gated by trp_dbg_fft => fires ONLY in the Poisson OPR_Fourier_X_Backward (where it seeded),
+                ! not in the per-substep OPR_Partial_X calls (keeps log volume sane). 'NWBR' = Node-Window
+                ! Backward Real. b is the (flushed) c2r FFTW output = healthy input; node_recv_fptr_i is MY
+                ! recv segment, = ims_npro_i source-slots of 'mas' each (slot s pushed by source rank s).
+                if (trp_dbg_fft) call DNS_PRINT_MAXVAL('NWBR:in', b(1), size, -1)
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 ! ONE fused GPU push over all I-peers (all intra-node) — collapse(3) over (m,i,j).
                 !$omp target teams distribute parallel do collapse(3)
@@ -2285,11 +2291,25 @@ contains
                 !$omp end target teams distribute parallel do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
                 call MPI_Win_fence(0, node_win_i, ims_err)
+                ! WINDOW STATE after push+fence, BEFORE the GPU read-back. Decision tree on the next crash:
+                !   NWBR:wcpu garbage              -> writer side: a peer pushed bad data / push mis-addressed.
+                !   NWBR:wcpu clean but NWBR:win or NWBR:out garbage
+                !                                  -> reader side: GPU read-back returns STALE L2 cache (HBM is
+                !                                     correct); NWBR:seg index = which source slot is stale.
+                ! NWBR:wcpu MUST come first (CPU read of HBM, uncontaminated by any GPU read of the window).
+                if (trp_dbg_fft) then
+                    call DNS_PRINT_MAXVAL_CPU('NWBR:wcpu', node_recv_fptr_i(1), size, -1)
+                    call DNS_PRINT_MAXVAL('NWBR:win', node_recv_fptr_i(1), size, -1)
+                    do m = 0, ims_npro_i - 1
+                        call DNS_PRINT_MAXVAL('NWBR:seg', node_recv_fptr_i(m*mas + 1), mas, m)
+                    end do
+                end if
                 !$omp target teams distribute parallel do
                 do i = 1, size
                     a(i) = node_recv_fptr_i(i)
                 end do
                 !$omp end target teams distribute parallel do
+                if (trp_dbg_fft) call DNS_PRINT_MAXVAL('NWBR:out', a(1), size, -1)
             else
                 ! Fallback: all-MPI on fabric_mpi_comm_i (clean MPI_COMM_WORLD split).
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])

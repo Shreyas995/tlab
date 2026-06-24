@@ -182,3 +182,52 @@ subroutine DNS_PRINT_MAXVAL(tag, a, n, isub)
 1100 format('[MAXVAL] tag=', a, ' it=', i7, ' sub=', i3, ' max=', e14.6, ' nbad=', i12)
 
 end subroutine DNS_PRINT_MAXVAL
+
+!########################################################################
+!# CPU-ONLY twin of DNS_PRINT_MAXVAL. Scans a(1:n) on the HOST with NO
+!# !$omp target -- it reads host-visible HBM directly, NOT through the GPU
+!# L2 cache. Used to separate a writer-side fault from a reader-side stale
+!# GPU read: place it on a shared-window recv buffer right after the closing
+!# MPI_Win_fence, BEFORE any GPU read of that buffer. If this reads CLEAN
+!# while the GPU read-back of the same buffer is garbage, the data in HBM is
+!# correct and the GPU read-back returned stale cache (a reader-side bug).
+!# Tag printed as [MAXVALC] so it greps apart from the GPU [MAXVAL] probe.
+!########################################################################
+subroutine DNS_PRINT_MAXVAL_CPU(tag, a, n, isub)
+    use TLab_Constants, only: wp, wi
+    use TLab_Time, only: itime
+#ifdef USE_MPI
+    use TLabMPI_VARS, only: ims_pro
+#endif
+
+    implicit none
+
+    character(len=*), intent(in) :: tag
+    integer(wi), intent(in) :: n
+    real(wp), intent(in) :: a(n)
+    integer(wi), intent(in) :: isub
+
+    ! -----------------------------------------------------------------------
+    real(wp) vmax
+    integer(wi) ij, nbad, unit_num
+#ifndef USE_MPI
+    integer, parameter :: ims_pro = 0
+#endif
+
+    ! #######################################################################
+    vmax = 0.0_wp
+    nbad = 0
+    do ij = 1, n        ! pure host loop: reads HBM, never the GPU L2
+        vmax = max(vmax, abs(a(ij)))
+        if (.not. (abs(a(ij)) <= 1.0e30_wp)) nbad = nbad + 1
+    end do
+
+    unit_num = 500 + ims_pro
+    write (unit_num, 1200) trim(adjustl(tag)), itime, isub, vmax, nbad
+    flush (unit_num)
+
+    return
+
+1200 format('[MAXVALC] tag=', a, ' it=', i7, ' sub=', i3, ' max=', e14.6, ' nbad=', i12)
+
+end subroutine DNS_PRINT_MAXVAL_CPU
