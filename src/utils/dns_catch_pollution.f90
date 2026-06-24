@@ -132,8 +132,32 @@ subroutine DNS_PRINT_MAXVAL(tag, a, n, isub)
 #ifndef USE_MPI
     integer, parameter :: ims_pro = 0
 #endif
+#if defined(USE_APU) && defined(PROBE_SYNC_ONLY)
+    ! HEISENBUG ISOLATION (build with -DPROBE_SYNC_ONLY): the probe does ONLY a
+    ! GPU stream sync -- no array read, no log. Run the SAME restart three ways:
+    !   (A) probe calls removed     -> crashes (the no-sentinel baseline)
+    !   (B) full DNS_PRINT_MAXVAL   -> stable  (the masking sentinels)
+    !   (C) this sync-only variant  -> ?
+    ! C stable  => the masking agent is the device->host stream sync => the real
+    !              bug is a MISSING hipDeviceSynchronize (a GPU->HBM coherency
+    !              race), and the fix is to add that flush in production.
+    ! C crashes => the masking agent is the full-array device READ (it faults/
+    !              coheres the pages) => host->GPU page coherency or UB/OOB, NOT
+    !              a GPU->HBM flush. Then hunt uninitialized/out-of-bounds memory.
+    interface
+        function hipDeviceSynchronize() bind(C, name='hipDeviceSynchronize') result(ierr)
+            use iso_c_binding
+            integer(c_int) :: ierr
+        end function hipDeviceSynchronize
+    end interface
+    integer :: hip_sync_err
+#endif
 
     ! #######################################################################
+#if defined(USE_APU) && defined(PROBE_SYNC_ONLY)
+    hip_sync_err = hipDeviceSynchronize()
+    return
+#endif
     vmax = 0.0_wp
     nbad = 0
 

@@ -24,7 +24,14 @@ if ( NOT ACCELERATE )
 elseif( ${ACCELERATE} STREQUAL "TRUE" )
   set(USER_APU_FLAGS "-fopenmp ")#-L/opt/rh/gcc-toolset-12/root/usr/lib/gcc/x86_64-redhat-linux/12")
   add_definitions(-DUSE_APU)
-endif() 
+endif()
+
+# HEISENBUG ISOLATION: -DPROBESYNC=TRUE makes DNS_PRINT_MAXVAL do ONLY hipDeviceSynchronize() (no array
+# read, no log) instead of the full GPU reduction. Used to test whether the sentinels mask the crash via
+# the stream sync (=> missing flush) or via the full device read (=> host->GPU coherency / UB). Default off.
+if (PROBESYNC)
+  add_definitions(-DPROBE_SYNC_ONLY)
+endif ()
 
 # compiler for parallel build	  
 if ( ${BUILD_TYPE} STREQUAL "PARALLEL" )
