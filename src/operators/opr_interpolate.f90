@@ -50,9 +50,20 @@ contains
 #endif
 
 ! ###################################################################
+! grid_dt%size is the GLOBAL grid size (TLab convention), but every dst use below
+! (nx_total_dst = nx_dst*ims_npro_i, npage = nx_dst*ny_dst, TLabMPI_Trp_PlanI(nx_dst,...),
+! and the final u_dst(1:nx_dst*ny*nz)) expects the PER-RANK (local) size — exactly mirroring
+! the local source nx=imax. Under MPI the decomposed directions must therefore be divided by
+! their process counts (as transfields itself does: imax_dst = g_dst(1)%size/ims_npro_i). Without
+! this, the cubic spline writes/reads ims_npro_i× past the dst buffer and x_dst%nodes -> SIGSEGV.
+#ifdef USE_MPI
+        nx_dst = x_dst%size/ims_npro_i
+        nz_dst = z_dst%size/ims_npro_k
+#else
         nx_dst = x_dst%size
-        ny_dst = y_dst%size
         nz_dst = z_dst%size
+#endif
+        ny_dst = y_dst%size                     ! Oy is not decomposed: local == global
 
 ! This should be OPR_INTERPOLATE_INITIALIZE
 #ifdef USE_MPI
