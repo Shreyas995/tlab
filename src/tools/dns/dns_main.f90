@@ -49,7 +49,6 @@ program DNS
     use AVG_SCAL_ZT
     use AVG_PHASE
     use Avg_Spatial, only: IO_READ_AVG_SPATIAL, IO_WRITE_AVG_SPATIAL
-    use Tlab_Debug
     implicit none
     save
 #ifdef USE_APU
@@ -57,7 +56,7 @@ program DNS
 #endif
 
     ! -------------------------------------------------------------------
-    character(len=32) fname, str, dbg_string
+    character(len=32) fname, str
     integer ig
     integer, parameter :: i0 = 0, i1 = 1
     real(wp) params(2)
@@ -255,22 +254,15 @@ program DNS
 
     write (str, *) itime
     call TLab_Write_ASCII(lfile, 'Starting time integration at It'//trim(adjustl(str))//'.')
-    !call Tlab_Debug_Initialize()
 
     do
         if (itime >= nitera_last) exit
         if (int(logs_data(1)) /= 0) exit
-        WRITE(UNIT=dbg_string, FMT='(I10)') itime
 
         call TIME_RUNGEKUTTA()
 
         itime = itime + 1
         rtime = rtime + dtime
-        ! COARSE crash-localization (post-timestep): clean baseline right after TIME_RUNGEKUTTA, before any
-        ! post-step output. The crash ignites the iteration AFTER a 500-step (stats+checkpoint); these LOOP:*
-        ! brackets isolate whether q is corrupted by filter/phaseavg/stats/checkpoint vs the next timestep.
-        call DNS_PRINT_MAXVAL('LOOP:after-rk-q', q(1, 1), isize_field*inb_flow, -2)
-        if (scal_on) call DNS_PRINT_MAXVAL('LOOP:after-rk-s', s(1, 1), isize_field, -2)
         if (mod(itime - nitera_first, nitera_filter) == 0) then
             call DNS_FILTER()
             if (imode_ibm == 1) then
@@ -278,8 +270,6 @@ program DNS
                 if (scal_on) call IBM_INITIALIZE_SCAL(i0, s)
             end if
         end if
-        ! COARSE: after the filter stage (modifies q,s at filter steps).
-        call DNS_PRINT_MAXVAL('LOOP:after-filter-q', q(1, 1), isize_field*inb_flow, -2)
 
         if (flag_viscosity) then                ! Change viscosity if necessary
             visc = visc + visc_rate*dtime
@@ -290,53 +280,41 @@ program DNS
         end if
 
         call TIME_COURANT()
-        call DNS_PRINT_MAXVAL('LOOP:after-courant-q', q(1, 1), isize_field*inb_flow, -2)
 
         ! -------------------------------------------------------------------
         ! The rest: Logging, postprocessing and check-pointing
         ! -------------------------------------------------------------------
         call DNS_BOUNDS_CONTROL()
-        call DNS_PRINT_MAXVAL('LOOP:after-bounds-q', q(1, 1), isize_field*inb_flow, -2)
         call DNS_OBS_CONTROL()
-        call DNS_PRINT_MAXVAL('LOOP:after-obs-q', q(1, 1), isize_field*inb_flow, -2)
         call DNS_FILTER_CONTROL(q, s)           ! adaptive [Filter] alpha ramp (dilatation-gated)
-        call DNS_PRINT_MAXVAL('LOOP:after-filtctl-q', q(1, 1), isize_field*inb_flow, -2)
         if (mod(itime - nitera_first, nitera_log) == 0 .or. int(logs_data(1)) /= 0) then
             call DNS_LOGS()
             if (dns_obs_log /= OBS_TYPE_NONE) then
                 call DNS_OBS()
             end if
         end if
-        call DNS_PRINT_MAXVAL('LOOP:after-logs-q', q(1, 1), isize_field*inb_flow, -2)
 
         if (PhAvg%active) then
             if (mod(itime, PhAvg%stride) == 0) then
                 call AvgPhaseSpace(wrk2d, inb_flow, itime/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride, 1)
-                call DNS_PRINT_MAXVAL('LOOP:after-phspace1-q', q(1, 1), isize_field*inb_flow, -2)
                 call AvgPhaseSpace(wrk2d, inb_scal, itime/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride, 2)
-                call DNS_PRINT_MAXVAL('LOOP:after-phspace2-q', q(1, 1), isize_field*inb_flow, -2)
                 ! Pressure is taken from the RHS subroutine
                 ! call AvgPhaseSpace(wrk2d, 6       , itime/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride, 8)
                 call AvgPhaseStress(q, itime/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride)
-                call DNS_PRINT_MAXVAL('LOOP:after-phstress-q', q(1, 1), isize_field*inb_flow, -2)
                 if (mod(itime - nitera_first, nitera_save) == 0) then
                     call IO_Write_AvgPhase(avg_planes, inb_flow, IO_FLOW, nitera_save, PhAvg%stride, avgu_name, 1, avg_flow)
                     call IO_Write_AvgPhase(avg_planes, inb_scal, IO_SCAL, nitera_save, PhAvg%stride, avgs_name, 2, avg_scal)
                     call IO_Write_AvgPhase(avg_planes, 1, IO_SCAL, nitera_save, PhAvg%stride, avgp_name, 4, avg_p)
                     call IO_Write_AvgPhase(avg_planes, 6, IO_FLOW, nitera_save, PhAvg%stride, avgstr_name, 8, avg_stress)
-                    call DNS_PRINT_MAXVAL('LOOP:after-phaseIO-q', q(1, 1), isize_field*inb_flow, -2)
 
                     call AvgPhaseResetVariable()
                 end if
             end if
         end if
-        ! after the whole phase-average stage (reads q every iteration; AvgPhaseStress/Space).
-        call DNS_PRINT_MAXVAL('LOOP:after-phaseavg-q', q(1, 1), isize_field*inb_flow, -2)
 
         if (use_tower) then
             call DNS_TOWER_ACCUMULATE(q, 1, wrk1d)
             call DNS_TOWER_ACCUMULATE(s, 2, wrk1d)
-            call DNS_PRINT_MAXVAL('LOOP:after-tower-q', q(1, 1), isize_field*inb_flow, -2)
         end if
         if (imode_traj /= TRAJ_TYPE_NONE) then
             call ParticleTrajectories_Accumulate()
@@ -344,14 +322,10 @@ program DNS
         if (mod(itime - nitera_first, nitera_stats_spa) == 0) then  ! Accumulate statistics in spatially evolving cases
             if (flow_on) call AVG_FLOW_ZT_REDUCE(q, hq, txc, mean_flow)
             if (scal_on) call AVG_SCAL_ZT_REDUCE(q, s, hq, txc, mean_scal)
-            call DNS_PRINT_MAXVAL('LOOP:after-statsspa-q', q(1, 1), isize_field*inb_flow, -2)
         end if
         if (mod(itime - nitera_first, nitera_stats) == 0) then      ! Calculate statistics
             if (imode_sim == DNS_MODE_TEMPORAL) call DNS_STATISTICS_TEMPORAL()
             if (imode_sim == DNS_MODE_SPATIAL) call DNS_STATISTICS_SPATIAL()
-            ! after the statistics stage (DNS_STATISTICS_TEMPORAL at stats steps; the 250/500 suspect).
-            call DNS_PRINT_MAXVAL('LOOP:after-stats-q', q(1, 1), isize_field*inb_flow, -2)
-            if (scal_on) call DNS_PRINT_MAXVAL('LOOP:after-stats-s', s(1, 1), isize_field, -2)
         end if
         if (mod(itime - nitera_first, nitera_save) == 0 .or. &      ! Check-pointing: Save restart files
             itime == nitera_last .or. int(logs_data(1)) /= 0 .or. & ! Secure that one restart file is saved
@@ -361,17 +335,12 @@ program DNS
                 write (fname, *) itime; fname = trim(adjustl(tag_flow))//trim(adjustl(fname))
                 io_header_q(1)%params(1) = rtime
                 call IO_Write_Fields(fname, imax, jmax, kmax, itime, inb_flow, q, io_header_q(1:1))
-                ! PRIME SUSPECT: q right after the flow checkpoint write (mult-of-500 = crash precursor).
-                call DNS_PRINT_MAXVAL('LOOP:after-saveflow-q', q(1, 1), isize_field*inb_flow, -2)
             end if
 
             if (scal_on) then
                 write (fname, *) itime; fname = trim(adjustl(tag_scal))//trim(adjustl(fname))
                 io_header_s(:)%params(1) = rtime
                 call IO_Write_Fields(fname, imax, jmax, kmax, itime, inb_scal, s, io_header_s(1:inb_scal))
-                ! PRIME SUSPECT: s AND q right after the scalar checkpoint write.
-                call DNS_PRINT_MAXVAL('LOOP:after-savescal-s', s(1, 1), isize_field, -2)
-                call DNS_PRINT_MAXVAL('LOOP:after-savescal-q', q(1, 1), isize_field*inb_flow, -2)
             end if
 
             if (use_tower) then
@@ -394,13 +363,8 @@ program DNS
 
         end if
 
-        ! COARSE: after the check-pointing stage (IO_Write_Fields of q,s at 500-steps; the prime suspect).
-        call DNS_PRINT_MAXVAL('LOOP:after-save-q', q(1, 1), isize_field*inb_flow, -2)
-        if (scal_on) call DNS_PRINT_MAXVAL('LOOP:after-save-s', s(1, 1), isize_field, -2)
-
         if (mod(itime - nitera_first, nitera_pln) == 0) then
             call PLANES_SAVE()
-            call DNS_PRINT_MAXVAL('LOOP:after-planes-q', q(1, 1), isize_field*inb_flow, -2)
         end if
 
         if (wall_time > nruntime_sec) then

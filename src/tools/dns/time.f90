@@ -25,7 +25,6 @@ module TIME
     use TLab_WorkFlow, only: TLab_Write_ASCII, TLab_Stop
     use TLab_OpenMP
     use PARTICLE_VARS
-    use Tlab_Debug
 #ifdef USE_MPI
     use mpi_f08
     use TLabMPI_VARS
@@ -656,20 +655,10 @@ contains
             case (EQNS_RHS_COMBINED)
                 !_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT 1', hq(:,2))
 
-                ! COARSE crash-localization: state entering this substep (q after the low-storage hq carry-over).
-                call DNS_PRINT_MAXVAL('TIME:sub-entry-q', q(1, 1), isize_field*inb_flow, rkm_substep)
-                if (inb_scal > 0) call DNS_PRINT_MAXVAL('TIME:sub-entry-s', s(1, 1), isize_field, rkm_substep)
-
                 call TLab_Sources_Flow(q, s, hq, txc(1, 1))
                 call TLab_Sources_Scal(s, hs, txc(1, 1), txc(1, 2), txc(1, 3), txc(1, 4))
 
-                ! COARSE crash-localization: hq after the source terms (Coriolis/buoyancy), before the RHS operators.
-                call DNS_PRINT_MAXVAL('TIME:post-sources-hq', hq(1, 1), isize_field*inb_flow, rkm_substep)
-
                 call RHS_GLOBAL_INCOMPRESSIBLE_1()
-
-                ! COARSE crash-localization: full flow tendency leaving the RHS (before the q += dte*hq update).
-                call DNS_PRINT_MAXVAL('TIME:post-rhs-hq', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
             case (EQNS_RHS_NONBLOCKING)
 #ifdef USE_PSFFT
@@ -699,8 +688,6 @@ contains
 ! !$omp private (ij,  is,ij_srt,ij_end,ij_siz)
 #endif
 #endif
-        ! If hq is clean here but q explodes at TIME:post-update, the corruption is in/around the
-        ! update (or a direct memory clobber of q), not the RHS.
         call TLab_OMP_PARTITION(isize_field, ij_srt, ij_end, ij_siz)
 #ifdef USE_APU
         !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
@@ -737,9 +724,6 @@ contains
             s(ij_srt:ij_end, is) = s(ij_srt:ij_end, is) + dte*hs(ij_srt:ij_end, is)
         end do
 #endif
-
-        ! Coarse crash-localization marker: polluted-velocity check after the substep update q += dte*hq
-        call DNS_PRINT_MAXVAL('TIME:post-update', q(1, 1), isize_field*inb_flow, rkm_substep)
 
         return
     end subroutine TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT

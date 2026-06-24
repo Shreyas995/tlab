@@ -14,7 +14,6 @@ module OPR_Elliptic
     use TLab_Pointers_3D, only: p_wrk2d, p2_wrk2d
     use TLab_Grid, only: y
     use Tlab_Type
-    use Tlab_Debug
 
 #ifdef USE_MPI
     use TLabMPI_VARS, only: ims_offset_i, ims_offset_k, ims_pro_i, ims_pro
@@ -26,7 +25,6 @@ module OPR_Elliptic
     use OPR_Partial, only: OPR_Partial_Y, OPR_P1
     use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
     use Tlab_Type, only: fdm_integral_dt, fdm_integral_dt2
-    use Tlab_Debug
     implicit none
     private
 
@@ -39,7 +37,6 @@ module OPR_Elliptic
     abstract interface
         subroutine OPR_Poisson_interface(nx, ny, nz, ibc, p, tmp1, tmp2, bcs_hb, bcs_ht, dpdy)
             use TLab_Constants, only: wi, wp
-            use Tlab_Debug
             use FDM, only: fdm_dt
             integer(wi), intent(in) :: nx, ny, nz
             integer, intent(in) :: ibc                                      ! Dirichlet/Neumman BCs at jmin/jmax: BCS_DD, BCS_ND, BCS_DN, BCS_NN
@@ -93,7 +90,6 @@ contains
     subroutine OPR_Elliptic_Initialize(inifile)
         use FDM, only: g, FDM_CreatePlan
         use FDM_Derivative, only: FDM_COM4_DIRECT, FDM_COM6_DIRECT
-        use Tlab_Debug
 
         character(len=*), intent(in) :: inifile
 
@@ -390,8 +386,6 @@ contains
     !########################################################################
     subroutine OPR_Poisson_FourierXZ_Direct(nx, ny, nz, ibc, p, tmp1, tmp2, bcs_hb, bcs_ht, dpdy)
         use FDM, only: g
-        use Tlab_Debug
-        use TLab_Time, only: itime
         integer(wi), intent(in) :: nx, ny, nz
         integer, intent(in) :: ibc
         real(wp), intent(inout) :: p(nx, ny, nz)                        ! Forcing term, and solution field p
@@ -428,26 +422,14 @@ contains
         p(1:nx, 1, 1:nz) = bcs_hb(1:nx, 1:nz)       ! Passing boundary conditions in forcing array
         p(1:nx, ny, 1:nz) = bcs_ht(1:nx, 1:nz)
 
-        call TLab_Debug_Print_int('POIS-trace:0-entry', itime)
-
-        ! CRASH-LOCALIZATION: the forward FFT is the seed (clean forcing in -> blown post-fft-fwd). Bracket
-        ! the input p and the X- and Z-forward outputs separately to pin which forward FFT blows.
-        call DNS_PRINT_MAXVAL('POIS:fwd-in-p', p(1, 1, 1), nx*ny*nz, -1)
         if (fft_z_on) then
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp2)
-            call DNS_PRINT_MAXVAL('POIS:fwd-postX', tmp2(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
             call OPR_Fourier_Z_Forward(c_tmp2, c_tmp1) ! tmp2 might be overwritten; cannot use wrk3d
-            call DNS_PRINT_MAXVAL('POIS:fwd-postZ', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
         else
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp1)
-            call DNS_PRINT_MAXVAL('POIS:fwd-postX', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
         end if
 
         tmp1 = tmp1*norm
-
-        call TLab_Debug_Print_int('POIS-trace:1-after-fftfwd', itime)
-        call DNS_PRINT_MAXVAL('POIS:post-fft-fwd', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
-        call TLab_Debug_Print_int('POIS-trace:2-after-sent-fftfwd', itime)
 
         ! ###################################################################
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
@@ -467,20 +449,6 @@ contains
 #define f(j,k,i) tmp2(j,k,i)
 #define u(j,k,i) p_wrk3d(j,k,i)
 
-        ! ================================================================================
-        ! >>> SUSPECT REGION for the nondeterministic single-iteration blow-up <<<
-        ! Narrowed from crashlog (no extra run needed): RHS1:post-poisson trips on a corrupted
-        ! PRESSURE *before* any filter (it=234553, max 8.35e6), while RHS1:post-pfilter-p NEVER
-        ! trips -> the pressure filter is exonerated; the Poisson solve itself produces a
-        ! magnitude-clean-but-locally-KINKED pressure (the kink only explodes under d/dy -> dpdy).
-        ! Reviewed and currently believed CORRECT (race-free / no uninit read):
-        !   - PENTADSS_APU            (src/utils/LinearDss.f90:109)   per-(k,i) column, sequential recurrence
-        !   - MatMul_3d_APU           (src/fdm/fdm_matmul.f90:310)    writes bcs_b/bcs_t for all (k,i)
-        !   - correction block        (src/fdm/fdm_integral.f90:1282) per-column, p2_wrk2d fully written
-        !   - boundary setup below    (this routine)                  u zeroed then bcs rows set
-        ! STILL UNREVIEWED (prime remaining suspects): the FFT path OPR_Fourier_X/Z_*(hipFFT vs FFTW)
-        ! and any GPU/CPU coherency at the TLab_Transpose_COMPLEX boundaries around this solve.
-        ! ================================================================================
         select case (ibc)
         case (BCS_NN)           ! use precalculated LU factorization
             ! Compatibility constraint for singular modes. The reference value of p at bottom is set to zero
@@ -514,10 +482,6 @@ contains
             end do
         end select
 
-        call TLab_Debug_Print_int('POIS-trace:3-after-ysolve', itime)
-        call DNS_PRINT_MAXVAL('POIS:post-ysolve', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
-        call TLab_Debug_Print_int('POIS-trace:4-after-sent-ysolve', itime)
-
         ! Post-solve transpose restored to GPU (as tlab_old), bracketed by hipDeviceSynchronize so the
         ! GPU solver's writes to p_wrk3d are flushed before the transpose, and the transpose's output to
         ! c_tmp1 is flushed before the (CPU FFTW) backward FFT reads it -- no stale data in either direction.
@@ -528,28 +492,19 @@ contains
 #else
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
 #endif
-        call DNS_PRINT_MAXVAL('POIS:post-transp-back', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
 
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
         ! ###################################################################
         if (fft_z_on) then
             call OPR_Fourier_Z_Backward(c_tmp1, c_wrk3d)          ! tmp1 might be overwritten
-            call DNS_PRINT_MAXVAL('POIS:post-fftZ-bwd', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
             call OPR_Fourier_X_Backward(nx, ny, nz, c_wrk3d, p)   ! wrk3d might be overwritten
         else
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
         end if
 
-        call TLab_Debug_Print_int('POIS-trace:5-after-fftbwd', itime)
-        call DNS_PRINT_MAXVAL('POIS:post-fft-bwd', p(1, 1, 1), nx*ny*nz, -1)
-        call TLab_Debug_Print_int('POIS-trace:6-after-sent-fftbwd', itime)
-
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
-            call TLab_Debug_Print_int('POIS-trace:7-after-dpdy', itime)
-            call DNS_PRINT_MAXVAL('POIS:post-dpdy', dpdy(1, 1, 1), nx*ny*nz, -1)
-            call TLab_Debug_Print_int('POIS-trace:8-after-sent-dpdy', itime)
         end if
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)
