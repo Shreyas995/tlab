@@ -53,10 +53,14 @@ if (TRP_I_FUSEDFENCE)
   add_definitions(-DTRP_I_FUSEDFENCE)
 endif ()
 
+if (DNS_DEBUG_PROBES)
+  add add_definitions(-DNS_DEBUG_PROBES)
+endif ()
+
 # compiler for parallel build	  
 if ( ${BUILD_TYPE} STREQUAL "PARALLEL" )
    set(ENV{FC} ftn) # instead of running "export FC=ftn" in the terminal
-   add_definitions(-DUSE_MPI -DUSE_MPI_IO -DUSE_ALLTOALL) # -DUSE_NETCDF (already later defined)
+   add_definitions(-DUSE_MPI -DUSE_MPI_IO -DUSE_ALLTOALL -DNS_DEBUG_PROBES) # -DUSE_NETCDF (already later defined)
   
 # OpenMP (hybrid) flags
    if ( ${HYBRID} STREQUAL "TRUE" )
