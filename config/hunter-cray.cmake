@@ -54,7 +54,7 @@ if (TRP_I_FUSEDFENCE)
 endif ()
 
 if (DNS_DEBUG_PROBES)
-  add add_definitions(-DNS_DEBUG_PROBES)
+  add add_definitions(-DDNS_DEBUG_PROBES)
 endif ()
 
 # compiler for parallel build	  
