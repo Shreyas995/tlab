@@ -78,6 +78,7 @@ contains
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
         integer :: unit_num
+        return   ! DEBUG STRIPPED: no-op (was a flushed fort.5xx write per call; POIS-trace markers). Revert to re-enable.
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
             write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', trim(msg2), ' ', sum(var)
@@ -93,6 +94,7 @@ contains
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
         integer :: unit_num
+        return   ! DEBUG STRIPPED: no-op (was a flushed fort.5xx write per call; POIS-trace markers). Revert to re-enable.
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
             write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', trim(msg2), ' ', sum(var)
@@ -160,6 +162,7 @@ contains
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
         integer :: unit_num
+        return   ! DEBUG STRIPPED: no-op (was a flushed fort.5xx write per call; POIS-trace markers). Revert to re-enable.
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
             write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', trim(msg2), ' ', sum(var)
@@ -175,6 +178,7 @@ contains
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
         integer :: unit_num
+        return   ! DEBUG STRIPPED: no-op (was a flushed fort.5xx write per call; POIS-trace markers). Revert to re-enable.
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
             write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', trim(msg2), ' ', sum(var)
@@ -190,6 +194,7 @@ contains
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
         integer :: unit_num
+        return   ! DEBUG STRIPPED: no-op (was a flushed fort.5xx write per call; POIS-trace markers). Revert to re-enable.
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
             write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', trim(msg2), ' ', sum(var)
@@ -205,6 +210,7 @@ contains
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
         integer :: unit_num
+        return   ! DEBUG STRIPPED: no-op (was a flushed fort.5xx write per call; POIS-trace markers). Revert to re-enable.
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
             write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', trim(msg2), ' ', var
@@ -220,6 +226,7 @@ contains
         character(len=*), intent(in), optional :: msg2
         integer(wp) :: i
         integer :: unit_num
+        return   ! DEBUG STRIPPED: no-op (was a flushed fort.5xx write per call; POIS-trace markers). Revert to re-enable.
         unit_num = FILE_UNIT_BASE + ims_pro
         if (present(msg2)) then
             write(unit_num, *) trim(msg), 'DEBUG (PE', ims_pro, '): ', trim(msg2), ' ', var

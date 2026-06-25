@@ -189,19 +189,8 @@ contains
             call MINMAX(imax, jmax, kmax, txc(1, 1), d_max_loc, d_min_loc)
             d_min_loc = -d_min_loc; d_max_loc = -d_max_loc
 
-#ifdef USE_APU
-            ! AGGRESSIVE DIAG (every iteration -> fort.5xx): magnitude + grid location of the dilatation
-            ! extreme. txc(:,1) is the divergence field (the quantity that grows in the gradual fabricdirect
-            ! blow-up). If (i,j,k) is FIXED across iterations -> a localized source (IBM/wall/boundary); if it
-            ! WANDERS -> a distributed 2dx checkerboard / under-resolution mode. j is wall-normal (Jmax=784).
-            wrk3d(1:imax*jmax*kmax) = abs(txc(1:imax*jmax*kmax, 1))
-            loc_max(1:imax, 1:jmax, 1:kmax) => wrk3d(1:imax*jmax*kmax)
-            idummy = maxloc(loc_max)
-            write (500 + ims_pro, '(a,i7,a,e13.6,a,i6,a,i5,a,i6)') '[DIL] it=', itime, ' max=', &
-                maxval(wrk3d(1:imax*jmax*kmax)), ' i=', idummy(1) + ims_offset_i, ' j=', idummy(2), &
-                ' k=', idummy(3) + ims_offset_k
-            flush (500 + ims_pro)
-#endif
+            ! [DIL] per-iteration dilatation-extreme tracker STRIPPED (was 2 full-array reductions +
+            ! a flushed fort.5xx write every iteration).
 
             if (max(abs(d_min_loc), abs(d_max_loc)) > bound_d%max) then
                 call TLab_Write_ASCII(efile, 'DNS_CONTROL. Dilatation out of bounds.')

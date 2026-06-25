@@ -154,6 +154,8 @@ subroutine DNS_PRINT_MAXVAL(tag, a, n, isub)
 #endif
 
     ! #######################################################################
+    return   ! DEBUG PROBES STRIPPED: no-op in production (removes the per-call GPU max/NaN reduction
+             ! and the flushed fort.5xx write at every call site). Revert this line to re-enable.
 #if defined(USE_APU) && defined(PROBE_SYNC_ONLY)
     hip_sync_err = hipDeviceSynchronize()
     return
@@ -215,6 +217,7 @@ subroutine DNS_PRINT_MAXVAL_CPU(tag, a, n, isub)
 #endif
 
     ! #######################################################################
+    return   ! DEBUG PROBES STRIPPED: no-op (was a full host scan of the recv window + flushed fort.5xx write).
     vmax = 0.0_wp
     nbad = 0
     do ij = 1, n        ! pure host loop: reads HBM, never the GPU L2
