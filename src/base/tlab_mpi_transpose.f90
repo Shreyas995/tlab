@@ -81,7 +81,7 @@ module TLabMPI_Transpose
     type(MPI_Win)  :: node_win_i
     integer        :: node_size_i = 0
     logical        :: use_node_win_i = .false.
-    real(dp), pointer :: node_recv_fptr_i(:) => null()
+    real(dp), pointer, contiguous :: node_recv_fptr_i(:) => null()   ! contiguous: c_f_pointer'd window segment; allows element-passing to hip_invalidate_recv
     real(dp), pointer :: node_all_i(:) => null()
     complex(dp), pointer :: node_cx_recv_fptr_i(:) => null() ! complex view of our segment (Poisson cx-I)
     complex(dp), pointer :: node_cx_all_i(:) => null()       ! complex view of the fused node-window span
@@ -142,6 +142,15 @@ module TLabMPI_Transpose
         ! System-scope L2 write-back (__threadfence_system) — commits the preceding node-window push to MALL
         ! so other ranks/XCDs see the fresh data (device-scope hipDeviceSynchronize does NOT). Used by Fix 2.
         subroutine hip_system_fence() bind(C, name='hip_system_fence')
+        end subroutine
+
+        ! Reader-side L2 refresh — volatile-loads buf(1:n) from MALL before the GPU unpack reads the recv
+        ! window, so a stale L2 copy on THIS rank is not used. Fix 2 reader-side half (the writer fence alone
+        ! left a ~6-order residual = COARSE_GRAINED memory; the reader's L2 isn't invalidated by the writer).
+        subroutine hip_invalidate_recv(buf, n) bind(C, name='hip_invalidate_recv')
+            use iso_c_binding
+            real(c_double), intent(inout) :: buf(*)
+            integer(c_int), value         :: n
         end subroutine
 
         function hipHostRegister(ptr, sz, flags) bind(C, name='hipHostRegister') result(ierr)
@@ -1834,6 +1843,9 @@ contains
                         call DNS_PRINT_MAXVAL('NWFR:seg', node_recv_fptr_i(m*mas + 1), mas, m)
                     end do
                 end if
+#ifdef TRP_I_SYSFENCE
+                call hip_invalidate_recv(node_recv_fptr_i, int(size, c_int))   ! reader-side: fresh MALL before unpack
+#endif
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
                     do i = 0, nlines_p - 1
@@ -2152,6 +2164,9 @@ contains
                 call hip_system_fence()   ! FAST FIX: system-scope L2 write-back -> cross-rank push visible in MALL
 #endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
+#ifdef TRP_I_SYSFENCE
+                call hip_invalidate_recv(node_recv_fptr_i, int(2*size, c_int))   ! reader-side (real view of cx): fresh MALL before unpack
+#endif
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
                     do i = 0, nlines_p - 1
@@ -2340,6 +2355,9 @@ contains
                         call DNS_PRINT_MAXVAL('NWBR:seg', node_recv_fptr_i(m*mas + 1), mas, m)
                     end do
                 end if
+#ifdef TRP_I_SYSFENCE
+                call hip_invalidate_recv(node_recv_fptr_i, int(size, c_int))   ! reader-side: fresh MALL before unpack
+#endif
                 !$omp target teams distribute parallel do
                 do i = 1, size
                     a(i) = node_recv_fptr_i(i)
@@ -2619,6 +2637,9 @@ contains
                 call hip_system_fence()   ! FAST FIX: system-scope L2 write-back -> cross-rank push visible in MALL
 #endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
+#ifdef TRP_I_SYSFENCE
+                call hip_invalidate_recv(node_recv_fptr_i, int(2*size, c_int))   ! reader-side (real view of cx): fresh MALL before unpack
+#endif
                 !$omp target teams distribute parallel do
                 do i = 1, size
                     a(i) = node_cx_recv_fptr_i(i)
