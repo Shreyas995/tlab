@@ -46,6 +46,12 @@ endif ()
 if (TRP_I_SYSFENCE)
   add_definitions(-DTRP_I_SYSFENCE)
 endif ()
+#   -DTRP_I_FUSEDFENCE=TRUE : V1 GPU coherence fix. The cross-rank push for the real I-transposes is done by
+#                             the tested hip_write_with_fence kernel (write + __threadfence_system in ONE
+#                             wavefront), fixing the separate-fence-kernel flaw of TRP_I_SYSFENCE. ~baseline.
+if (TRP_I_FUSEDFENCE)
+  add_definitions(-DTRP_I_FUSEDFENCE)
+endif ()
 
 # compiler for parallel build	  
 if ( ${BUILD_TYPE} STREQUAL "PARALLEL" )

@@ -82,7 +82,7 @@ module TLabMPI_Transpose
     integer        :: node_size_i = 0
     logical        :: use_node_win_i = .false.
     real(dp), pointer, contiguous :: node_recv_fptr_i(:) => null()   ! contiguous: c_f_pointer'd window segment; allows element-passing to hip_invalidate_recv
-    real(dp), pointer :: node_all_i(:) => null()
+    real(dp), pointer, contiguous :: node_all_i(:) => null()   ! contiguous: c_f_pointer'd window; allows section-passing to hip_write_with_fence
     complex(dp), pointer :: node_cx_recv_fptr_i(:) => null() ! complex view of our segment (Poisson cx-I)
     complex(dp), pointer :: node_cx_all_i(:) => null()       ! complex view of the fused node-window span
     logical, allocatable :: is_intra_i(:)
@@ -1769,6 +1769,7 @@ contains
         integer(wi) :: nmax_p, nlines_p, nmax_full, flat_off, disp_nr, mas
 #ifdef USE_APU
         integer(c_int) :: hip_sync_err
+        integer(8) :: off                     ! int64 window offset for the V1 fused write+fence push
 #endif
 
         nmax_p    = trp_plan%nmax
@@ -1823,6 +1824,15 @@ contains
                 !   NWFR:wcpu/win/out all clean but self-burgX still garbage -> the FDM, not the transpose.
                 if (trp_dbg_fft) call DNS_PRINT_MAXVAL('NWFR:in', a(1), size, -1)
                 call MPI_Win_fence(0, node_win_i, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+                ! V1: each peer's contiguous slot is WRITTEN AND fenced in ONE wavefront by the tested
+                ! hip_write_with_fence kernel (write a -> peer's window slot, then __threadfence_system in the
+                ! same wavefront). a(m*mas+1:..) is contiguous per peer; node_all_i is contiguous.
+                do m = 0, ims_npro_i - 1
+                    off = int(node_lrank_i(m), 8)*int(apu_size_i, 8) + int(ims_pro_i, 8)*int(mas, 8)
+                    call hip_write_with_fence(a(m*mas + 1:m*mas + mas), node_all_i(off + 1:off + mas), int(mas, c_int))
+                end do
+#else
                 ! ONE fused GPU write over all I-peers (all intra-node) — collapse(2) over (m,i).
                 !$omp target teams distribute parallel do collapse(2)
                 do m = 0, ims_npro_i - 1
@@ -1834,6 +1844,7 @@ contains
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
 #ifdef TRP_I_SYSFENCE
                 call hip_system_fence()   ! FAST FIX: system-scope L2 write-back -> cross-rank push visible in MALL
+#endif
 #endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 if (trp_dbg_fft) then
@@ -2270,6 +2281,7 @@ contains
         integer(wi) :: size, i, j, l, m, ns, nr, ips, ipr, nmax_p, nlines_p, nmax_full, flat_off, disp_ns, mas
 #ifdef USE_APU
         integer(c_int) :: hip_sync_err
+        integer(8) :: off                     ! int64 window offset for the V1 fused write+fence push
 #endif
 
         ! #######################################################################
@@ -2326,6 +2338,26 @@ contains
                 ! recv segment, = ims_npro_i source-slots of 'mas' each (slot s pushed by source rank s).
                 if (trp_dbg_fft) call DNS_PRINT_MAXVAL('NWBR:in', b(1), size, -1)
                 call MPI_Win_fence(0, node_win_i, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+                ! V1: the backward source b is STRIDED, so gather it into a contiguous staging buffer
+                ! (wrk_mpi_dp, per-peer contiguous), then WRITE+fence each peer slot in one wavefront via the
+                ! tested hip_write_with_fence kernel. (Same data path as the !$omp push, but the cross-rank
+                ! write and its __threadfence_system live in the same wavefront -> reliable system flush.)
+                !$omp target teams distribute parallel do collapse(3)
+                do m = 0, ims_npro_i - 1
+                    do i = 0, nlines_p - 1
+                        do j = 0, nmax_p - 1
+                            wrk_mpi_dp(m*mas + i*nmax_p + j + 1) = b(m*nmax_p + i*nmax_full + j + 1)
+                        end do
+                    end do
+                end do
+                !$omp end target teams distribute parallel do
+                hip_sync_err = hipDeviceSynchronize()
+                do m = 0, ims_npro_i - 1
+                    off = int(node_lrank_i(m), 8)*int(apu_size_i, 8) + int(ims_pro_i, 8)*int(mas, 8)
+                    call hip_write_with_fence(wrk_mpi_dp(m*mas + 1:m*mas + mas), node_all_i(off + 1:off + mas), int(mas, c_int))
+                end do
+#else
                 ! ONE fused GPU push over all I-peers (all intra-node) — collapse(3) over (m,i,j).
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
@@ -2340,6 +2372,7 @@ contains
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
 #ifdef TRP_I_SYSFENCE
                 call hip_system_fence()   ! FAST FIX: system-scope L2 write-back -> cross-rank push visible in MALL
+#endif
 #endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 ! WINDOW STATE after push+fence, BEFORE the GPU read-back. Decision tree on the next crash:
