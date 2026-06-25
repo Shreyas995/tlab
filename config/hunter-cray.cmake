@@ -33,6 +33,20 @@ if (PROBESYNC)
   add_definitions(-DPROBE_SYNC_ONLY)
 endif ()
 
+# I-transpose node-window corruption fixes (fabricdirect; the cross-rank GPU push delivers stale data because
+# hipDeviceSynchronize is device-scope, not a system-scope L2 write-back). Mutually exclusive; default off
+# leaves the current node-window path unchanged.
+#   -DTRP_I_FORCE_MPI=TRUE : TEMP STABILIZER. Forces the 4 I-transposes onto the all-MPI fallback (correct,
+#                            ~1.5-2x slower). Keeps the sim running.
+#   -DTRP_I_SYSFENCE=TRUE  : FAST FIX. Adds a system-scope fence (hip_system_fence) after each node-window I
+#                            push, committing the write to MALL before the close fence. ~baseline speed.
+if (TRP_I_FORCE_MPI)
+  add_definitions(-DTRP_I_FORCE_MPI)
+endif ()
+if (TRP_I_SYSFENCE)
+  add_definitions(-DTRP_I_SYSFENCE)
+endif ()
+
 # compiler for parallel build	  
 if ( ${BUILD_TYPE} STREQUAL "PARALLEL" )
    set(ENV{FC} ftn) # instead of running "export FC=ftn" in the terminal

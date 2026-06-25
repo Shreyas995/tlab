@@ -139,11 +139,6 @@ module TLabMPI_Transpose
             integer(c_int), value       :: n
         end subroutine
 
-        ! System-scope L2 write-back (__threadfence_system) — commits the preceding node-window push to MALL
-        ! so other ranks/XCDs see the fresh data (device-scope hipDeviceSynchronize does NOT). Used by Fix 2.
-        subroutine hip_system_fence() bind(C, name='hip_system_fence')
-        end subroutine
-
         function hipHostRegister(ptr, sz, flags) bind(C, name='hipHostRegister') result(ierr)
             use iso_c_binding
             integer(c_int) :: ierr
@@ -532,12 +527,6 @@ contains
                     if (va - va0 /= int(ic, MPI_ADDRESS_KIND)*segb) ncontig = ncontig + 1
                 end do
                 use_node_win_i = (ncontig == 0)
-#ifdef TRP_I_FORCE_MPI
-                ! TEMP STABILIZER: route all 4 I-transposes onto the robust all-MPI fallback. The node-window
-                ! cross-rank GPU push delivers stale data (device-scope flush, not system-scope); the fallback
-                ! flushes GPU->HBM and moves data via reliable intra-node MPI. K-direction is untouched.
-                use_node_win_i = .false.
-#endif
                 allocate (is_intra_i(0:ims_npro_i - 1), node_lrank_i(0:ims_npro_i - 1))
                 do mpi_ = 0, ims_npro_i - 1
                     peer_world(mpi_) = ims_pro_k*ims_npro_i + mpi_        ! I-peer mpi_: pro_k fixed, pro_i = mpi_
@@ -1823,9 +1812,6 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
-#ifdef TRP_I_SYSFENCE
-                call hip_system_fence()   ! FAST FIX: system-scope L2 write-back -> cross-rank push visible in MALL
-#endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 if (trp_dbg_fft) then
                     call DNS_PRINT_MAXVAL_CPU('NWFR:wcpu', node_recv_fptr_i(1), size, -1)   ! CPU read of HBM, first
@@ -2148,9 +2134,6 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
-#ifdef TRP_I_SYSFENCE
-                call hip_system_fence()   ! FAST FIX: system-scope L2 write-back -> cross-rank push visible in MALL
-#endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
@@ -2323,9 +2306,6 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
-#ifdef TRP_I_SYSFENCE
-                call hip_system_fence()   ! FAST FIX: system-scope L2 write-back -> cross-rank push visible in MALL
-#endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 ! WINDOW STATE after push+fence, BEFORE the GPU read-back. Decision tree on the next crash:
                 !   NWBR:wcpu garbage              -> writer side: a peer pushed bad data / push mis-addressed.
@@ -2615,9 +2595,6 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
-#ifdef TRP_I_SYSFENCE
-                call hip_system_fence()   ! FAST FIX: system-scope L2 write-back -> cross-rank push visible in MALL
-#endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 !$omp target teams distribute parallel do
                 do i = 1, size

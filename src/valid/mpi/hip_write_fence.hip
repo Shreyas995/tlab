@@ -133,6 +133,35 @@ extern "C" void hip_invalidate_recv(double* buf, int n)
 }
 
 // ------------------------------------------------------------------
+// hip_system_fence()
+//   Standalone system-scope L2 write-back. Call AFTER a fused !$omp target
+//   push (whose writes are dirty in L2 once the preceding hipDeviceSynchronize
+//   has returned): __threadfence_system() emits buffer_wbl2 sc0:1 sc1:1, which
+//   writes back the L2's dirty lines to MALL so all agents (other ranks/XCDs,
+//   CPU) see the fresh data. Used by the production node-window I-transpose
+//   (Fix 2 / TRP_I_SYSFENCE), where the strided push cannot be expressed as a
+//   contiguous hip_write_with_fence.
+//
+// Fortran interface:
+//   subroutine hip_system_fence() bind(C, name='hip_system_fence')
+//   end subroutine
+// ------------------------------------------------------------------
+__global__ void hip_system_fence_kernel()
+{
+    __threadfence_system();
+}
+
+extern "C" void hip_system_fence()
+{
+    hipLaunchKernelGGL(hip_system_fence_kernel, dim3(1), dim3(1), 0, 0);
+    hipError_t err = hipDeviceSynchronize();
+    if (err != hipSuccess) {
+        fprintf(stderr, "[hip_system_fence] hipDeviceSynchronize failed: %s\n",
+                hipGetErrorString(err));
+    }
+}
+
+// ------------------------------------------------------------------
 // DIAGNOSTIC wrapper: writes a detailed trace to hip_trace_<rank>.log
 // so we can see exactly where inside the HIP layer the wedge happens.
 // Use this in place of hip_write_with_fence to debug.
