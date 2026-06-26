@@ -582,6 +582,22 @@ contains
                 call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: I FABRIC_DIRECT (node window non-contiguous; all-MPI fallback).')
             end if
         end if
+#ifdef TRP_CX_MPI
+        ! TRP_CX_MPI: route the apudirect COMPLEX transposes through the all-MPI fallback on a CLEAN comm
+        ! (the apudirect REAL transposes stay on apu_win). Build fabric_mpi_comm_i/k (fresh MPI_COMM_WORLD
+        ! splits -> no Cartesian-comm taint) and set is_intra_*=.false. so the reused fabricdirect complex
+        ! path takes its all-MPI branch (use_node_win_* is .false. in apudirect).
+        if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT .and. ims_npro_k > 1) then
+            call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_i, ims_pro_k, fabric_mpi_comm_k, ims_err)
+            if (.not. allocated(is_intra_k)) allocate (is_intra_k(0:ims_npro_k - 1))
+            is_intra_k = .false.
+        end if
+        if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT .and. ims_npro_i > 1) then
+            call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_k, ims_pro_i, fabric_mpi_comm_i, ims_err)
+            if (.not. allocated(is_intra_i)) allocate (is_intra_i(0:ims_npro_i - 1))
+            is_intra_i = .false.
+        end if
+#endif
 #endif
 
         ! -----------------------------------------------------------------------
@@ -1073,6 +1089,7 @@ contains
         ! per segment instead of apu_stride_k real elements).                  !
         ! ==================================================================== !
 #ifdef USE_APU
+#ifndef TRP_CX_MPI
         if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
             size = trp_plan%size3d
             ! Reinterpret the contiguous real window as complex; size in complex units = apu_stride_k/2
@@ -1106,6 +1123,9 @@ contains
             nullify (apu_cx_all)
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
+#else
+        if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT .or. trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
+#endif
             ! K-Forward complex FABRIC_DIRECT. Option 1 (use_node_win_k): the intra-node K-peers go via
             ! node-local complex shared-window GPU writes + MPI_Win_fence (the apudirect-complex mechanism on
             ! the node comm); the inter-node K-peers via two-sided MPI, IRECV straight into b (b is consumed
@@ -1577,6 +1597,7 @@ contains
         ! APU_DIRECT path — fused GPU kernels; inverse of K-Forward_Complex.   !
         ! ==================================================================== !
 #ifdef USE_APU
+#ifndef TRP_CX_MPI
         if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
             size = trp_plan%size3d
             call c_f_pointer(apu_peer_cptr_k(0), apu_cx_all, [apu_stride_k*ims_npro_k/2])
@@ -1614,6 +1635,9 @@ contains
             nullify (apu_cx_all)
 
         else if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
+#else
+        if (trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT .or. trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
+#endif
             ! K-Backward complex FABRIC_DIRECT. Option 1 (use_node_win_k): intra-node K-peers via node-local
             ! complex shared-window GPU push + MPI_Win_fence, then GPU-unpack our recv segment → strided a
             ! (apudirect-complex pattern); inter-node K-peers via two-sided MPI into flat c_wrk_cx, then a
@@ -2131,6 +2155,7 @@ contains
         ! APU paths — GPU direct writes between shared-memory windows.         !
         ! ==================================================================== !
 #ifdef USE_APU
+#ifndef TRP_CX_MPI
         if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
             ! a is flat I-space chunks; fused GPU kernel pushes to all peers' recv buffers,
             ! then unpacks our own recv buffer (strided) into b.
@@ -2198,6 +2223,9 @@ contains
             nullify (apu_cx_all)
 
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
+#else
+        if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT .or. trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
+#endif
             ! I-Forward complex FABRIC_DIRECT. For npro_i=6 all I-peers are intra-node (one XCD), so
             ! Option 1 (use_node_win_i .and. all intra) goes entirely through node-local complex
             ! shared-window GPU writes + MPI_Win_fence (apudirect-I pattern), zero MPI. b is GPU-unpacked
@@ -2681,6 +2709,7 @@ contains
         ! APU paths — GPU direct writes between shared-memory windows.         !
         ! ==================================================================== !
 #ifdef USE_APU
+#ifndef TRP_CX_MPI
         if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
             ! b is strided X-space. Fused collapse(3) kernel packs all peers in one HIP launch;
             ! each peer m's slot at own_rank*chunk receives this rank's strided b[m] data.
@@ -2725,6 +2754,9 @@ contains
             nullify (apu_cx_all)
 
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
+#else
+        if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT .or. trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
+#endif
             ! I-Backward complex FABRIC_DIRECT. For npro_i=6 all I-peers are intra-node, so Option 1
             ! (use_node_win_i .and. all intra) goes entirely through node-local complex shared-window GPU
             ! push + MPI_Win_fence (apudirect-I backward pattern), zero MPI; flat-copy our segment → a.
