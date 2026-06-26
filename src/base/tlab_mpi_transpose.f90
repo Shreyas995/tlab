@@ -1828,10 +1828,18 @@ contains
                 ! V1: each peer's contiguous slot is WRITTEN AND fenced in ONE wavefront by the tested
                 ! hip_write_with_fence kernel (write a -> peer's window slot, then __threadfence_system in the
                 ! same wavefront). a(m*mas+1:..) is contiguous per peer; node_all_i is contiguous.
+                ! 'a' is produced by the caller on the OpenMP offload stream; the HIP push runs on the HIP
+                ! stream -> sync first so the push reads the final 'a', not an in-flight value.
+                hip_sync_err = hipDeviceSynchronize()
                 do m = 0, ims_npro_i - 1
                     off = int(node_lrank_i(m), 8)*int(apu_size_i, 8) + int(ims_pro_i, 8)*int(mas, 8)
                     call hip_write_with_fence(a(m*mas + 1:m*mas + mas), node_all_i(off + 1:off + mas), int(mas, c_int))
                 end do
+                ! CRITICAL: hip_write_with_fence is an ASYNC kernel launch. The in-kernel __threadfence_system
+                ! orders the write but does NOT make the host wait. Without this sync, the MPI_Win_fence below
+                ! (a CPU/MPI barrier that does not block on GPU kernels) closes the RMA epoch while the pushes
+                ! are still in flight -> peers read stale/partial window data. Wait for completion here.
+                hip_sync_err = hipDeviceSynchronize()
 #else
                 ! ONE fused GPU write over all I-peers (all intra-node) — collapse(2) over (m,i).
                 !$omp target teams distribute parallel do collapse(2)
@@ -2352,11 +2360,14 @@ contains
                     end do
                 end do
                 !$omp end target teams distribute parallel do
-                hip_sync_err = hipDeviceSynchronize()
+                hip_sync_err = hipDeviceSynchronize()   ! gather (OMP stream) must complete before the HIP push reads wrk_mpi_dp
                 do m = 0, ims_npro_i - 1
                     off = int(node_lrank_i(m), 8)*int(apu_size_i, 8) + int(ims_pro_i, 8)*int(mas, 8)
                     call hip_write_with_fence(wrk_mpi_dp(m*mas + 1:m*mas + mas), node_all_i(off + 1:off + mas), int(mas, c_int))
                 end do
+                ! CRITICAL: same async-launch race as ExecI_Forward_Real -- wait for the push+fence kernels to
+                ! COMPLETE before the MPI_Win_fence closes the RMA epoch (CPU barrier does not block GPU kernels).
+                hip_sync_err = hipDeviceSynchronize()
 #else
                 ! ONE fused GPU push over all I-peers (all intra-node) — collapse(3) over (m,i,j).
                 !$omp target teams distribute parallel do collapse(3)
