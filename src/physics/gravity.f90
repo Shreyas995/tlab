@@ -24,6 +24,7 @@ module Gravity
     end type term_dt
     type(term_dt), public, protected :: buoyancy
     real(wp), allocatable, public :: bbackground(:)
+    real(wp) :: gravity_vector_raw(3) = 0.0_wp      ! raw gravity vector (pre-Froude), for the BuoyTime ramp
 
     integer, parameter, public :: EQNS_BOD_NONE = 0
     integer, parameter, public :: EQNS_BOD_EXPLICIT = 4
@@ -37,6 +38,7 @@ module Gravity
     public :: Gravity_Initialize
     public :: Gravity_Hydrostatic_Enthalpy
     public :: Gravity_Buoyancy, Gravity_Buoyancy_Source
+    public :: Gravity_Update_Froude
 
 contains
     !########################################################################
@@ -93,6 +95,7 @@ contains
         if (abs(buoyancy%vector(2)) > 0.0_wp) then; buoyancy%active(2) = .true.; call TLab_Write_ASCII(lfile, 'Gravity along Oy.'); end if
         if (abs(buoyancy%vector(3)) > 0.0_wp) then; buoyancy%active(3) = .true.; call TLab_Write_ASCII(lfile, 'Gravity along Oz.'); end if
 
+        gravity_vector_raw(:) = buoyancy%vector(:)         ! keep the raw vector for the BuoyTime ramp
         if (froude > 0.0_wp) then
             buoyancy%vector(:) = buoyancy%vector(:)/froude ! adding the froude number into the vector g
         else
@@ -113,6 +116,17 @@ contains
 
         return
     end subroutine Gravity_Initialize
+
+    !########################################################################
+    ! Recompute buoyancy%vector from the raw (pre-Froude) gravity vector and the
+    ! current Froude number. Called by the in-run buoyancy ramp (BuoyTime) in
+    ! dns_main after each update of froude. On MI300A unified memory the host
+    ! update is visible to the GPU RHS without an explicit map.
+    !########################################################################
+    subroutine Gravity_Update_Froude()
+        if (froude > 0.0_wp) buoyancy%vector(:) = gravity_vector_raw(:)/froude
+        return
+    end subroutine Gravity_Update_Froude
 
     !########################################################################
     ! Compute hydrostatic equilibrium from profiles s=(h,q_t) where h is the enthalpy

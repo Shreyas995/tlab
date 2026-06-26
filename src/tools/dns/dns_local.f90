@@ -51,6 +51,13 @@ module DNS_LOCAL
     logical :: flag_viscosity
     real(wp) :: visc_stop, visc_time, visc_rate
 
+! Variable buoyancy (Froude ramp)
+    logical :: flag_buoyancy
+    real(wp) :: froude_start, froude_stop, buoy_time, buoy_rate
+
+! Deferred phase-averaging (auto-enable when ramps complete)
+    logical :: phaseavg_deferred = .false.
+
 ! Tower data (why not in tower module?)
     logical :: use_tower
     integer, dimension(3) :: tower_stride

@@ -7,8 +7,9 @@ module NavierStokes
     private
 
     public :: NavierStokes_Initialize_Parameters
+    public :: NavierStokes_Set_Froude
 
-    integer, public, protected :: nse_eqns                                  ! formulation: internal energy, total energy, anelastic, Boussinesq
+    integer, public, protected :: nse_eqns                                 ! formulation: internal energy, total energy, anelastic, Boussinesq
     integer, parameter, public :: DNS_EQNS_TOTAL = 0
     integer, parameter, public :: DNS_EQNS_INTERNAL = 1
     integer, parameter, public :: DNS_EQNS_INCOMPRESSIBLE = 2
@@ -248,5 +249,15 @@ contains
 
         return
     end subroutine NavierStokes_Initialize_Parameters
+
+    !########################################################################
+    ! Runtime setter for the (otherwise protected) Froude number, used by the
+    ! in-run buoyancy ramp (BuoyTime) in dns_main.
+    !########################################################################
+    subroutine NavierStokes_Set_Froude(val)
+        real(wp), intent(in) :: val
+        froude = val
+        return
+    end subroutine NavierStokes_Set_Froude
 
 end module NavierStokes

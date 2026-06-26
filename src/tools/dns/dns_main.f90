@@ -18,7 +18,8 @@ program DNS
     use FDM, only: FDM_Initialize
     use Thermodynamics, only: Thermodynamics_Initialize_Parameters
     use NavierStokes, only: NavierStokes_Initialize_Parameters, DNS_EQNS_ANELASTIC, DNS_EQNS_INCOMPRESSIBLE
-    use Gravity, only: Gravity_Initialize
+    use NavierStokes, only: NavierStokes_Set_Froude
+    use Gravity, only: Gravity_Initialize, Gravity_Update_Froude
     use Rotation, only: Rotation_Initialize
     use Rotation, only: Rotation_Initialize
     use Radiation, only: Radiation_Initialize
@@ -121,7 +122,7 @@ program DNS
 
     call PLANES_INITIALIZE()
 
-    if (PhAvg%active) then
+    if (PhAvg%active .or. phaseavg_deferred) then
         call AvgPhaseInitializeMemory(__FILE__, nitera_save)
     end if
 
@@ -194,6 +195,23 @@ program DNS
             flag_viscosity = .true.
         else
             visc = visc_stop
+        end if
+    end if
+
+    ! ###################################################################
+    ! Initialize change in buoyancy (Froude ramp)
+    ! ###################################################################
+    flag_buoyancy = .false.
+    if (buoy_time > 0.0_wp .and. froude_start > 0.0_wp) then
+        froude_stop = froude                              ! [Parameters] Froude = final target
+        write (str, *) froude_start
+        call TLab_Write_ASCII(lfile, 'Ramping Froude from '//trim(adjustl(str))//' to the target value.')
+        call NavierStokes_Set_Froude(froude_start)        ! begin the ramp at FroudeStart
+        call Gravity_Update_Froude()
+        if (froude /= froude_stop) then
+            buoy_rate = (froude_stop - froude)/buoy_time
+            buoy_time = rtime + buoy_time                 ! Stop when this time is reached
+            flag_buoyancy = .true.
         end if
     end if
 
@@ -289,6 +307,15 @@ program DNS
             end if
         end if
 
+        if (flag_buoyancy) then                 ! Change Froude (buoyancy) if necessary
+            call NavierStokes_Set_Froude(froude + buoy_rate*dtime)
+            if (rtime > buoy_time) then
+                call NavierStokes_Set_Froude(froude_stop)   ! Fix new value without any roundoff
+                flag_buoyancy = .false.
+            end if
+            call Gravity_Update_Froude()        ! refold the new Froude into buoyancy%vector
+        end if
+
         call TIME_COURANT()
         DNS_PROBE('LOOP:after-courant-q', q(1, 1), isize_field*inb_flow, -2)
 
@@ -308,6 +335,18 @@ program DNS
             end if
         end if
         DNS_PROBE('LOOP:after-logs-q', q(1, 1), isize_field*inb_flow, -2)
+
+        ! Auto-enable phase averaging once the Reynolds & Froude ramps are complete
+        ! and the domain filter has been removed, latched at a Restart boundary.
+        if (phaseavg_deferred .and. .not. PhAvg%active) then
+            if (.not. flag_viscosity .and. .not. flag_buoyancy .and. &
+                all(FilterDomain(:)%type == DNS_FILTER_NONE) .and. &
+                mod(itime - nitera_first, nitera_save) == 0) then
+                PhAvg%active = .true.
+                write (str, *) itime
+                call TLab_Write_ASCII(lfile, 'Phase averaging auto-enabled at It'//trim(adjustl(str))//'.')
+            end if
+        end if
 
         if (PhAvg%active) then
             if (mod(itime, PhAvg%stride) == 0) then

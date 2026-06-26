@@ -407,6 +407,17 @@ subroutine DNS_READ_LOCAL(inifile)
     call ScanFile_Real(bakfile, inifile, 'ViscChange', 'Time', '0.0', visc_time)
 
 ! ###################################################################
+! Buoyancy (Froude) Control
+! ###################################################################
+    call TLab_Write_ASCII(bakfile, '#')
+    call TLab_Write_ASCII(bakfile, '#[BuoyancyChange]')
+    call TLab_Write_ASCII(bakfile, '#FroudeStart=<froude at start of ramp>')
+    call TLab_Write_ASCII(bakfile, '#Time=<time>')
+
+    call ScanFile_Real(bakfile, inifile, 'BuoyancyChange', 'FroudeStart', '-1.0', froude_start)
+    call ScanFile_Real(bakfile, inifile, 'BuoyancyChange', 'Time', '0.0', buoy_time)
+
+! ###################################################################
 ! Save planes to disk
 ! ###################################################################
     call TLab_Write_ASCII(bakfile, '#')
@@ -457,6 +468,12 @@ subroutine DNS_READ_LOCAL(inifile)
 ! ###################################################################
     call ScanFile_Int(bakfile, inifile, 'Iteration', 'PhaseAvg', '0' , PhAvg%stride)
     if ( PhAvg%stride .GT. 0 ) PhAvg%active = .true.
+
+    call ScanFile_Char(bakfile, inifile, 'Iteration', 'PhaseAvgDeferred', 'no', sRes)
+    if ( trim(adjustl(sRes)) == 'yes' .and. PhAvg%stride > 0 ) then
+        PhAvg%active = .false.          ! start OFF (override the line above)
+        phaseavg_deferred = .true.      ! but armed to auto-enable when ramps complete
+    end if
 
 ! ###################################################################
 ! Inflow forcing conditions
