@@ -657,19 +657,19 @@ contains
                 !_1D('TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT 1', hq(:,2))
 
                 ! COARSE crash-localization: state entering this substep (q after the low-storage hq carry-over).
-                call DNS_PRINT_MAXVAL('TIME:sub-entry-q', q(1, 1), isize_field*inb_flow, rkm_substep)
-                if (inb_scal > 0) call DNS_PRINT_MAXVAL('TIME:sub-entry-s', s(1, 1), isize_field, rkm_substep)
+                DNS_PROBE('TIME:sub-entry-q', q(1, 1), isize_field*inb_flow, rkm_substep)
+                if (inb_scal > 0) DNS_PROBE('TIME:sub-entry-s', s(1, 1), isize_field, rkm_substep)
 
                 call TLab_Sources_Flow(q, s, hq, txc(1, 1))
                 call TLab_Sources_Scal(s, hs, txc(1, 1), txc(1, 2), txc(1, 3), txc(1, 4))
 
                 ! COARSE crash-localization: hq after the source terms (Coriolis/buoyancy), before the RHS operators.
-                call DNS_PRINT_MAXVAL('TIME:post-sources-hq', hq(1, 1), isize_field*inb_flow, rkm_substep)
+                DNS_PROBE('TIME:post-sources-hq', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
                 call RHS_GLOBAL_INCOMPRESSIBLE_1()
 
                 ! COARSE crash-localization: full flow tendency leaving the RHS (before the q += dte*hq update).
-                call DNS_PRINT_MAXVAL('TIME:post-rhs-hq', hq(1, 1), isize_field*inb_flow, rkm_substep)
+                DNS_PROBE('TIME:post-rhs-hq', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
             case (EQNS_RHS_NONBLOCKING)
 #ifdef USE_PSFFT
@@ -739,7 +739,7 @@ contains
 #endif
 
         ! Coarse crash-localization marker: polluted-velocity check after the substep update q += dte*hq
-        call DNS_PRINT_MAXVAL('TIME:post-update', q(1, 1), isize_field*inb_flow, rkm_substep)
+        DNS_PROBE('TIME:post-update', q(1, 1), isize_field*inb_flow, rkm_substep)
 
         return
     end subroutine TIME_SUBSTEP_INCOMPRESSIBLE_EXPLICIT

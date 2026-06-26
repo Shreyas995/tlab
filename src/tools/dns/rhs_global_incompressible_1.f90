@@ -1,4 +1,5 @@
 #include "dns_const.h"
+#include "dns_error.h"
 
 !########################################################################
 !#
@@ -105,9 +106,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     ! COARSE crash-localization: per-component velocity ENTERING the RHS (u=q1, v=q2, w=q3). If one of these
     ! is already corrupt here the seed is upstream (RK update / sources / post-step output), not the RHS.
-    call DNS_PRINT_MAXVAL('RHS1:in-u', u(1), isize_field, rkm_substep)
-    call DNS_PRINT_MAXVAL('RHS1:in-v', v(1), isize_field, rkm_substep)
-    call DNS_PRINT_MAXVAL('RHS1:in-w', w(1), isize_field, rkm_substep)
+    DNS_PROBE('RHS1:in-u', u(1), isize_field, rkm_substep)
+    DNS_PROBE('RHS1:in-v', v(1), isize_field, rkm_substep)
+    DNS_PROBE('RHS1:in-w', w(1), isize_field, rkm_substep)
 
     ! #######################################################################
     ! Diffusion and advection terms
@@ -117,11 +118,11 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     if (imode_ibm == 1) ibm_burgers = .true.
 
     ! Diagonal terms and transposed velocity arrays
-#ifdef USE_APU
+#ifdef DNS_DEBUG_PROBES
     trp_dbg_fft = .true.    ! emit the NWFR/NWBR node-window I-transpose probes for THIS call (the 2026-06-24 seed)
 #endif
     call OPR_Burgers_X(OPR_B_SELF, 0, imax, jmax, kmax, bcs, u, u, tmp1, tmp4) ! store u transposed in tmp4
-#ifdef USE_APU
+#ifdef DNS_DEBUG_PROBES
     trp_dbg_fft = .false.
 #endif
 
@@ -130,9 +131,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 
     ! COARSE crash-localization: diagonal self-advection-diffusion terms (Burgers X/Y/Z SELF). tmp3 uses
     ! Burgers_Z = K-transpose, tmp1 uses Burgers_X = I-transpose; a jump here pins the faulting Burgers/transpose.
-    call DNS_PRINT_MAXVAL('RHS1:self-burgX-u', tmp1, isize_field, rkm_substep)
-    call DNS_PRINT_MAXVAL('RHS1:self-burgY-v', tmp2, isize_field, rkm_substep)
-    call DNS_PRINT_MAXVAL('RHS1:self-burgZ-w', tmp3, isize_field, rkm_substep)
+    DNS_PROBE('RHS1:self-burgX-u', tmp1, isize_field, rkm_substep)
+    DNS_PROBE('RHS1:self-burgY-v', tmp2, isize_field, rkm_substep)
+    DNS_PROBE('RHS1:self-burgZ-w', tmp3, isize_field, rkm_substep)
 
     ! Ox momentum equation
     call OPR_Burgers_Y(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, u, v, tmp7, tmp9, tmp5) ! tmp5 contains v transposed
@@ -154,7 +155,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #endif
 
     ! COARSE crash-localization: Ox momentum tendency after its advection/diffusion (Burgers X/Y/Z of u).
-    call DNS_PRINT_MAXVAL('RHS1:hq1-Ox', hq(1, 1), isize_field, rkm_substep)
+    DNS_PROBE('RHS1:hq1-Ox', hq(1, 1), isize_field, rkm_substep)
 
     ! Oy momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, v, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
@@ -178,7 +179,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #endif
 
     ! COARSE crash-localization: Oy momentum tendency after its advection/diffusion.
-    call DNS_PRINT_MAXVAL('RHS1:hq2-Oy', hq(1, 2), isize_field, rkm_substep)
+    DNS_PROBE('RHS1:hq2-Oy', hq(1, 2), isize_field, rkm_substep)
 
     ! Oz momentum equation
     call OPR_Burgers_X(OPR_B_U_IN, 0, imax, jmax, kmax, bcs, w, u, tmp7, tmp9, tmp4) ! tmp4 contains u transposed
@@ -201,10 +202,10 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #endif
 
     ! COARSE crash-localization: Oz momentum tendency after its advection/diffusion (Burgers Z = K-transpose).
-    call DNS_PRINT_MAXVAL('RHS1:hq3-Oz', hq(1, 3), isize_field, rkm_substep)
+    DNS_PROBE('RHS1:hq3-Oz', hq(1, 3), isize_field, rkm_substep)
 
     ! Sentinel: catch pollution from the advection/diffusion (OPR_Burgers) stage
-    call DNS_PRINT_MAXVAL('RHS1:post-adv', hq(1, 1), isize_field*inb_flow, rkm_substep)
+    DNS_PROBE('RHS1:post-adv', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
     ! IBM
     if (imode_ibm == 1) then
@@ -241,7 +242,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     if (imode_ibm_scal == 1) ibm_burgers = .false.
 
     ! COARSE crash-localization: scalar tendency after its advection/diffusion.
-    if (inb_scal > 0) call DNS_PRINT_MAXVAL('RHS1:scalar-hs', hs(1, 1), isize_field, rkm_substep)
+    if (inb_scal > 0) DNS_PROBE('RHS1:scalar-hs', hs(1, 1), isize_field, rkm_substep)
 
     ! #######################################################################
     ! Impose buffer zone as relaxation terms
@@ -251,7 +252,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     end if
 
     ! COARSE crash-localization: flow tendency after the buffer-relaxation stage (before the pressure step).
-    call DNS_PRINT_MAXVAL('RHS1:post-buffer', hq(1, 1), isize_field*inb_flow, rkm_substep)
+    DNS_PROBE('RHS1:post-buffer', hq(1, 1), isize_field*inb_flow, rkm_substep)
 
 
     ! #######################################################################
@@ -305,14 +306,14 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         ! Split it: provvel = input (should be clean); postX = after OPR_Partial_X (I-transpose = all-intra
         ! node-window for npro_i=6 = the COMMON mechanism, also in apudirect); postZ = after OPR_Partial_Z
         ! (K-transpose = inter-node MPI = fabricdirect-specific). Whichever first goes NaN pins the leg.
-        call DNS_PRINT_MAXVAL('RHS1:dvg-provvel', tmp2, isize_field, rkm_substep)
+        DNS_PROBE('RHS1:dvg-provvel', tmp2, isize_field, rkm_substep)
         if (stagger_on) then ! staggering on horizontal pressure nodes
             !  Oy derivative
             call OPR_Partial_X(OPR_P0_INT_VP, imax, jmax, kmax, bcs, g(1), tmp2, tmp5)
-            call DNS_PRINT_MAXVAL('RHS1:dvg-postX', tmp5, isize_field, rkm_substep)
+            DNS_PROBE('RHS1:dvg-postX', tmp5, isize_field, rkm_substep)
             call OPR_Partial_Y(OPR_P1, imax, jmax, kmax, bcs, g(2), tmp5, tmp2)
             call OPR_Partial_Z(OPR_P0_INT_VP, imax, jmax, kmax, bcs, g(3), tmp2, tmp1)
-            call DNS_PRINT_MAXVAL('RHS1:dvg-postZ', tmp1, isize_field, rkm_substep)
+            DNS_PROBE('RHS1:dvg-postZ', tmp1, isize_field, rkm_substep)
             !  Ox derivative
             call OPR_Partial_X(OPR_P1_INT_VP, imax, jmax, kmax, bcs, g(1), tmp3, tmp5)
             call OPR_Partial_Z(OPR_P0_INT_VP, imax, jmax, kmax, bcs, g(3), tmp5, tmp2)
@@ -361,7 +362,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
 #endif
     ! DIAG: provisional-velocity divergence (= Poisson forcing). If THIS stays flat while [DIL] grows, the
     ! projection is failing to clean the mode; if THIS grows, the divergence is injected upstream.
-    call DNS_PRINT_MAXVAL('RHS1:div-forcing', tmp1, isize_field, rkm_substep)
+    DNS_PROBE('RHS1:div-forcing', tmp1, isize_field, rkm_substep)
 
 
 
@@ -394,7 +395,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     ! pressure in tmp1, Oy derivative in tmp3
     call OPR_Poisson(imax, jmax, kmax, BCS_NN, tmp1, p_tmp2, tmp4, BcsFlowJmin%ref(1, 1, 2), BcsFlowJmax%ref(1, 1, 2), tmp3)
     ! DIAG: pressure out of the Poisson solve (tmp1) on the fabricdirect path.
-    call DNS_PRINT_MAXVAL('RHS1:p-poisson', tmp1, isize_field, rkm_substep)
+    DNS_PROBE('RHS1:p-poisson', tmp1, isize_field, rkm_substep)
 
 
     ! filter pressure p and its vertical gradient dpdy
@@ -460,9 +461,9 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
     call TLab_OMP_PARTITION(isize_field, srt, end, siz)
 #ifdef USE_APU
         ! DIAG: pressure-gradient components (dpdx/dpdz/dpdy) just before they are subtracted from hq.
-        call DNS_PRINT_MAXVAL('RHS1:pgrad-x', tmp2, isize_field, rkm_substep)
-        call DNS_PRINT_MAXVAL('RHS1:pgrad-y', tmp3, isize_field, rkm_substep)
-        call DNS_PRINT_MAXVAL('RHS1:pgrad-z', tmp4, isize_field, rkm_substep)
+        DNS_PROBE('RHS1:pgrad-x', tmp2, isize_field, rkm_substep)
+        DNS_PROBE('RHS1:pgrad-y', tmp3, isize_field, rkm_substep)
+        DNS_PROBE('RHS1:pgrad-z', tmp4, isize_field, rkm_substep)
         !$omp parallel do default( shared ) private ( ij ) &
         !$omp if(end > mas)
         do ij = srt, end
@@ -472,7 +473,7 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         end do
         !$omp end parallel do
         ! DIAG: corrected velocity tendency after the pressure-gradient subtraction (the projected hq).
-        call DNS_PRINT_MAXVAL('RHS1:hq-corrected', hq(1, 1), isize_field*inb_flow, rkm_substep)
+        DNS_PROBE('RHS1:hq-corrected', hq(1, 1), isize_field*inb_flow, rkm_substep)
 #elif defined(USE_ESSL)
         ilen = siz
         dummy = -1.0_wp

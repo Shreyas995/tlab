@@ -1,5 +1,15 @@
 #include "dns_error.h"
 
+! Reader-side acquire for the node/apu shared-window I-transposes. On MI300A the cross-rank push needs the FULL
+! acquire/release protocol on the COARSE-GRAINED (cacheable) MPI_Win_allocate_shared window: writer = release
+! (__threadfence_system, via the fused hip_write_with_fence or the separate hip_system_fence) AND reader =
+! acquire (hip_invalidate_recv, an L2 invalidate before the GPU unpack). MPI_Win_fence orders the processes on
+! the CPU side but does NOT invalidate the reader rank's GPU L2 -> without the acquire the unpack can read a
+! stale cached line. So whenever EITHER writer fix is on, the reader invalidate must also be on.
+#if defined(TRP_I_SYSFENCE) || defined(TRP_I_FUSEDFENCE)
+#define TRP_I_READER_ACQUIRE 1
+#endif
+
 ! Circular transposition within directional communicators
 module TLabMPI_Transpose
 #ifdef USE_APU
@@ -49,13 +59,15 @@ module TLabMPI_Transpose
     ! (apudirect is the verified bit-reference on one node).
     integer(wi) :: apu_size_k = 0_wi, apu_size_i = 0_wi
     type(MPI_Win) :: apu_win_k, apu_win_i
-    real(dp), pointer :: apu_recv_fptr_k(:) => null(), apu_recv_fptr_i(:) => null()
+    real(dp), pointer :: apu_recv_fptr_k(:) => null()
+    real(dp), pointer, contiguous :: apu_recv_fptr_i(:) => null()   ! contiguous: allows whole-array passing to hip_invalidate_recv (complex apudirect reader fix)
     type(c_ptr), allocatable :: apu_peer_cptr_k(:), apu_peer_cptr_i(:) ! per-rank pointers from Win_shared_query
     complex(dp), pointer :: apu_cx_recv_fptr_k(:) => null(), apu_cx_recv_fptr_i(:) => null()  ! complex aliases of the same windows
     ! Contiguous span over all peers' recv segments for the fused single-kernel write.
     ! apu_all_k/i(m*stride + 1 : (m+1)*stride) = rank m's recv buffer (segments are contiguous).
     integer(wi) :: apu_stride_k = 0_wi, apu_stride_i = 0_wi
-    real(dp), pointer :: apu_all_k(:) => null(), apu_all_i(:) => null()
+    real(dp), pointer :: apu_all_k(:) => null()
+    real(dp), pointer, contiguous :: apu_all_i(:) => null()   ! contiguous: allows section-passing to hip_write_with_fence (V1 apudirect I-transpose fix)
     ! FABRIC_DIRECT state (multi-node): every peer goes through plain two-sided MPI. Traffic is
     ! routed on a fresh MPI_Comm_split(MPI_COMM_WORLD, ...) comm — NOT a dup of the Cartesian
     ! ims_comm_z/x, because allocating any shared window in the job retroactively taints
@@ -68,7 +80,11 @@ module TLabMPI_Transpose
     type(MPI_Comm) :: node_comm_k                          ! NODE comm (split by hostname hash)
     type(MPI_Win)  :: node_win_k                           ! node-local shared recv window (real K)
     integer        :: node_size_k = 0
+#ifdef DNS_DEBUG_PROBES
     logical, public :: trp_dbg_fft = .false.               ! DEBUG: gate internal X-FFT-region sentinels (set by OPR_Fourier_X_Backward)
+#else
+    logical, parameter, public :: trp_dbg_fft = .false.    ! production: PARAMETER -> the compiler dead-code-eliminates every `if (trp_dbg_fft)` probe branch
+#endif
     logical        :: use_node_win_k = .false.             ! true iff the node window came up contiguous
     real(dp), pointer :: node_recv_fptr_k(:) => null()     ! our own node-window segment
     real(dp), pointer :: node_all_k(:) => null()           ! fused span over the whole node window
@@ -1580,7 +1596,7 @@ contains
             ! SYMMETRIC to the fabricdirect ZKBC probes — covers the OTHER communication branch (single-node
             ! apudirect window) so a crash on either branch is pinned internally. Input b (=ZFWD:post-fft)
             ! healthy; if this window is blown the apudirect cross-rank push/fence is the seed.
-            call DNS_PRINT_MAXVAL('ZKBC:apuwin', apu_recv_fptr_k(1), 2*size, -1)
+            DNS_PROBE('ZKBC:apuwin', apu_recv_fptr_k(1), 2*size, -1)
             ! Unpack: complex recv buffer → strided Z-space a
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_k - 1
@@ -1648,8 +1664,8 @@ contains
                 ! cwrk-inter = inter-node MPI recv (4 inter peers, c_wrk_cx); nodewin = our node-window segment
                 ! (4 intra peers pushed in). Input b (=ZFWD:post-fft) is healthy; whichever recv is blown =
                 ! the faulting leg (inter-node GPU-aware MPI vs intra node-window). Apudirect lacks the inter leg.
-                call DNS_PRINT_MAXVAL('ZKBC:cwrk-inter', wrk_mpi_dp(1), 2*size, -1)
-                call DNS_PRINT_MAXVAL('ZKBC:nodewin', node_recv_fptr_k(1), apu_size_k, -1)
+                DNS_PROBE('ZKBC:cwrk-inter', wrk_mpi_dp(1), 2*size, -1)
+                DNS_PROBE('ZKBC:nodewin', node_recv_fptr_k(1), apu_size_k, -1)
                 ! 6a. intra peers: ONE fused GPU unpack of our recv segment → strided a (inter masked out) —
                 !     collapse(3) over (m,i,j); one kernel instead of one per intra peer. (6b inter stays CPU.)
                 !$omp target teams distribute parallel do collapse(3)
@@ -1788,6 +1804,18 @@ contains
             ! -- Push: a is flat; one fused kernel writes our chunk to ALL peers simultaneously.
             size = trp_plan%size3d
             call MPI_Win_fence(0, apu_win_i, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+            ! V1 (apudirect): cross-rank push via the fused hip_write_with_fence (write + __threadfence_system
+            ! in ONE wavefront = system-scope L2 write-back), mirroring the fabricdirect node-window fix. The
+            ! source a(m*mas+1:..) is contiguous per peer; apu_all_i is contiguous. Sync BEFORE (order 'a' from
+            ! the caller's OMP stream) and AFTER (wait for the ASYNC push kernels before the close fence).
+            hip_sync_err = hipDeviceSynchronize()
+            do m = 0, ims_npro_i - 1
+                off = int(m, 8)*int(apu_stride_i, 8) + int(ims_pro_i, 8)*int(mas, 8)
+                call hip_write_with_fence(a(m*mas + 1:m*mas + mas), apu_all_i(off + 1:off + mas), int(mas, c_int))
+            end do
+            hip_sync_err = hipDeviceSynchronize()
+#else
             !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_i - 1
                 do i = 1, nmax_p * nlines_p
@@ -1797,7 +1825,11 @@ contains
             end do
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
+#endif
             call MPI_Win_fence(0, apu_win_i, ims_err)   ! barrier: recv buffer fully populated
+#ifdef TRP_I_FUSEDFENCE
+            call hip_invalidate_recv(apu_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with the fused writer release)
+#endif
             ! -- Unpack: recv buffer holds sorted flat chunks; scatter to strided b in one fused kernel.
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
@@ -1822,7 +1854,7 @@ contains
                 !   NWFR:in clean on ALL I-comm peers but NWFR:wcpu/seg garbage -> the cross-rank GPU PUSH
                 !       corrupts healthy data (node-window WRITE bug); seg index = which source slot.
                 !   NWFR:wcpu/win/out all clean but self-burgX still garbage -> the FDM, not the transpose.
-                if (trp_dbg_fft) call DNS_PRINT_MAXVAL('NWFR:in', a(1), size, -1)
+                if (trp_dbg_fft) DNS_PROBE('NWFR:in', a(1), size, -1)
                 call MPI_Win_fence(0, node_win_i, ims_err)
 #ifdef TRP_I_FUSEDFENCE
                 ! V1: each peer's contiguous slot is WRITTEN AND fenced in ONE wavefront by the tested
@@ -1856,14 +1888,14 @@ contains
 #endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 if (trp_dbg_fft) then
-                    call DNS_PRINT_MAXVAL_CPU('NWFR:wcpu', node_recv_fptr_i(1), size, -1)   ! CPU read of HBM, first
-                    call DNS_PRINT_MAXVAL('NWFR:win', node_recv_fptr_i(1), size, -1)
+                    DNS_PROBE_CPU('NWFR:wcpu', node_recv_fptr_i(1), size, -1)   ! CPU read of HBM, first
+                    DNS_PROBE('NWFR:win', node_recv_fptr_i(1), size, -1)
                     do m = 0, ims_npro_i - 1
-                        call DNS_PRINT_MAXVAL('NWFR:seg', node_recv_fptr_i(m*mas + 1), mas, m)
+                        DNS_PROBE('NWFR:seg', node_recv_fptr_i(m*mas + 1), mas, m)
                     end do
                 end if
-#ifdef TRP_I_SYSFENCE
-                call hip_invalidate_recv(node_recv_fptr_i, int(size, c_int))   ! reader-side: fresh MALL before unpack
+#ifdef TRP_I_READER_ACQUIRE
+                call hip_invalidate_recv(node_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with SYSFENCE or FUSEDFENCE writer release)
 #endif
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
@@ -1874,7 +1906,7 @@ contains
                     end do
                 end do
                 !$omp end target teams distribute parallel do
-                if (trp_dbg_fft) call DNS_PRINT_MAXVAL('NWFR:out', b(1), size, -1)
+                if (trp_dbg_fft) DNS_PROBE('NWFR:out', b(1), size, -1)
             else
                 ! Fallback: all-MPI on fabric_mpi_comm_i (clean MPI_COMM_WORLD split). hip_write_with_fence
                 ! flushes GPU L2 -> HBM before the CPU ISENDs.
@@ -2111,7 +2143,7 @@ contains
             ! DEBUG (crash hunt): window state BEFORE our push (right after open fence). If this is already
             ! corrupt (>5) the bad value is a PRE-EXISTING clobber/leftover (a prior apu_win_i user, or a
             ! coverage gap), NOT produced by this epoch's push/fence. If clean, the corruption is born here.
-            if (trp_dbg_fft) call DNS_PRINT_MAXVAL('X-FWC-pre', apu_recv_fptr_i(1), 2*size, -1)
+            if (trp_dbg_fft) DNS_PROBE('X-FWC-pre', apu_recv_fptr_i(1), 2*size, -1)
             ! Push: write each peer's flat chunk into peer m's buffer at slot own_rank*chunk.
             !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_i - 1
@@ -2125,11 +2157,17 @@ contains
             ! does NOT flush GPU writes on MI300A, so peers would read our cross-rank window writes stale
             ! -> the intermittent FFT blow-up. hipDeviceSynchronize makes it HBM-visible.
             hip_sync_err = hipDeviceSynchronize()
+#ifdef TRP_I_FUSEDFENCE
+            ! apudirect complex (the originally-documented apudirect seed, ExecI_Forward_Complex): device-scope
+            ! hipDeviceSynchronize is NOT a system-scope L2 write-back, so commit L2->MALL before the close
+            ! fence. The unpack below is already on the CPU (reads fresh HBM), so no reader invalidate is needed.
+            call hip_system_fence()
+#endif
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! DEBUG (X-FFT region): recv window AFTER cross-rank push+fence, BEFORE unpack. If this jumps the
             ! corruption is in the push/fence even WITH the flush (apu_recv_fptr_i = real alias; 2*size reals).
-            if (trp_dbg_fft) call DNS_PRINT_MAXVAL('X-FWC-win', apu_recv_fptr_i(1), 2*size, -1)
+            if (trp_dbg_fft) DNS_PROBE('X-FWC-win', apu_recv_fptr_i(1), 2*size, -1)
             ! DEBUG (crash hunt): per-peer-segment window max, sub=segment index l. OUR window is npro_i
             ! contiguous complex segments of mas=nmax_p*nlines_p each; segment l holds the chunk pushed by
             ! I-rank l. All sources are <=5, so a >5 segment localizes the faulting push: l==ims_pro_i is our
@@ -2137,7 +2175,7 @@ contains
             ! fence/visibility race). Real view: segment l spans reals [2*l*mas+1 .. 2*(l+1)*mas].
             if (trp_dbg_fft) then
                 do l = 0, ims_npro_i - 1
-                    call DNS_PRINT_MAXVAL('X-FWC-seg', apu_recv_fptr_i(2*l*mas + 1), 2*mas, l)
+                    DNS_PROBE('X-FWC-seg', apu_recv_fptr_i(2*l*mas + 1), 2*mas, l)
                 end do
             end if
             ! Unpack: scatter recv buffer (flat m*chunk+i layout) → b (strided m*nmax_p + i*nmax_full + j).
@@ -2308,10 +2346,30 @@ contains
             ! kernel covers all m in one HIP launch, eliminating per-peer launch overhead.
             size = trp_plan%size3d
             ! DEBUG (X-FFT region): input b BEFORE the transpose (if this jumps, the corruption is upstream).
-            if (trp_dbg_fft) call DNS_PRINT_MAXVAL('X-BWR-in', b(1), size, -1)
+            if (trp_dbg_fft) DNS_PROBE('X-BWR-in', b(1), size, -1)
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! Push: pack strided b[m] → peer m's recv buffer at slot own_rank*chunk (flat).
+#ifdef TRP_I_FUSEDFENCE
+            ! V1 (apudirect): strided source b -> GPU-gather into contiguous staging (wrk_mpi_dp), then fused
+            ! hip_write_with_fence per peer (write + __threadfence_system in one wavefront). Sync after the
+            ! gather (so the push reads final staging) and after the push (wait for the async kernels).
+            !$omp target teams distribute parallel do collapse(3)
+            do m = 0, ims_npro_i - 1
+                do i = 0, nlines_p - 1
+                    do j = 0, nmax_p - 1
+                        wrk_mpi_dp(m*mas + i*nmax_p + j + 1) = b(m*nmax_p + i*nmax_full + j + 1)
+                    end do
+                end do
+            end do
+            !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! gather (OMP stream) must complete before the HIP push reads wrk_mpi_dp
+            do m = 0, ims_npro_i - 1
+                off = int(m, 8)*int(apu_stride_i, 8) + int(ims_pro_i, 8)*int(mas, 8)
+                call hip_write_with_fence(wrk_mpi_dp(m*mas + 1:m*mas + mas), apu_all_i(off + 1:off + mas), int(mas, c_int))
+            end do
+            hip_sync_err = hipDeviceSynchronize()
+#else
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
                 do i = 0, nlines_p - 1
@@ -2323,10 +2381,14 @@ contains
             end do
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
+#endif
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+            call hip_invalidate_recv(apu_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with the fused writer release)
+#endif
             ! DEBUG (X-FFT region): recv window AFTER push+fence (if this jumps but X-BWR-in was clean -> push/fence).
-            if (trp_dbg_fft) call DNS_PRINT_MAXVAL('X-BWR-win', apu_recv_fptr_i(1), size, -1)
+            if (trp_dbg_fft) DNS_PROBE('X-BWR-win', apu_recv_fptr_i(1), size, -1)
             ! Flat copy: recv buffer layout is flat and matches a 1:1.
             !$omp target teams distribute parallel do
             do i = 1, size
@@ -2334,7 +2396,7 @@ contains
             end do
             !$omp end target teams distribute parallel do
             ! DEBUG (X-FFT region): output a AFTER unpack (if X-BWR-win clean and this jumps -> unpack kernel).
-            if (trp_dbg_fft) call DNS_PRINT_MAXVAL('X-BWR-out', a(1), size, -1)
+            if (trp_dbg_fft) DNS_PROBE('X-BWR-out', a(1), size, -1)
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
             size = trp_plan%size3d
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
@@ -2344,7 +2406,7 @@ contains
                 ! not in the per-substep OPR_Partial_X calls (keeps log volume sane). 'NWBR' = Node-Window
                 ! Backward Real. b is the (flushed) c2r FFTW output = healthy input; node_recv_fptr_i is MY
                 ! recv segment, = ims_npro_i source-slots of 'mas' each (slot s pushed by source rank s).
-                if (trp_dbg_fft) call DNS_PRINT_MAXVAL('NWBR:in', b(1), size, -1)
+                if (trp_dbg_fft) DNS_PROBE('NWBR:in', b(1), size, -1)
                 call MPI_Win_fence(0, node_win_i, ims_err)
 #ifdef TRP_I_FUSEDFENCE
                 ! V1: the backward source b is STRIDED, so gather it into a contiguous staging buffer
@@ -2393,21 +2455,21 @@ contains
                 !                                     correct); NWBR:seg index = which source slot is stale.
                 ! NWBR:wcpu MUST come first (CPU read of HBM, uncontaminated by any GPU read of the window).
                 if (trp_dbg_fft) then
-                    call DNS_PRINT_MAXVAL_CPU('NWBR:wcpu', node_recv_fptr_i(1), size, -1)
-                    call DNS_PRINT_MAXVAL('NWBR:win', node_recv_fptr_i(1), size, -1)
+                    DNS_PROBE_CPU('NWBR:wcpu', node_recv_fptr_i(1), size, -1)
+                    DNS_PROBE('NWBR:win', node_recv_fptr_i(1), size, -1)
                     do m = 0, ims_npro_i - 1
-                        call DNS_PRINT_MAXVAL('NWBR:seg', node_recv_fptr_i(m*mas + 1), mas, m)
+                        DNS_PROBE('NWBR:seg', node_recv_fptr_i(m*mas + 1), mas, m)
                     end do
                 end if
-#ifdef TRP_I_SYSFENCE
-                call hip_invalidate_recv(node_recv_fptr_i, int(size, c_int))   ! reader-side: fresh MALL before unpack
+#ifdef TRP_I_READER_ACQUIRE
+                call hip_invalidate_recv(node_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with SYSFENCE or FUSEDFENCE writer release)
 #endif
                 !$omp target teams distribute parallel do
                 do i = 1, size
                     a(i) = node_recv_fptr_i(i)
                 end do
                 !$omp end target teams distribute parallel do
-                if (trp_dbg_fft) call DNS_PRINT_MAXVAL('NWBR:out', a(1), size, -1)
+                if (trp_dbg_fft) DNS_PROBE('NWBR:out', a(1), size, -1)
             else
                 ! Fallback: all-MPI on fabric_mpi_comm_i (clean MPI_COMM_WORLD split).
                 call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_dp, shape=[size])
@@ -2640,8 +2702,17 @@ contains
             end do
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
+#ifdef TRP_I_FUSEDFENCE
+            ! apudirect complex backward: writer-side system-scope commit (L2->MALL) before the close fence.
+            call hip_system_fence()
+#endif
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+            ! ...and reader-side: this unpack reads the window on the GPU, so invalidate its L2 first
+            ! (apu_recv_fptr_i = real alias of the complex window; 2*size reals).
+            call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))
+#endif
             ! Flat copy: recv buffer is flat and matches a layout 1:1.
             !$omp target teams distribute parallel do
             do i = 1, size

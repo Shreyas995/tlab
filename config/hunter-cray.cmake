@@ -60,7 +60,9 @@ endif ()
 # compiler for parallel build	  
 if ( ${BUILD_TYPE} STREQUAL "PARALLEL" )
    set(ENV{FC} ftn) # instead of running "export FC=ftn" in the terminal
-   add_definitions(-DUSE_MPI -DUSE_MPI_IO -DUSE_ALLTOALL -DNS_DEBUG_PROBES) # -DUSE_NETCDF (already later defined)
+   add_definitions(-DUSE_MPI -DUSE_MPI_IO -DUSE_ALLTOALL) # -DUSE_NETCDF (already later defined)
+   # NOTE: debug probes are toggled ONLY by the `if(DNS_DEBUG_PROBES)` block above (-DDNS_DEBUG_PROBES=TRUE).
+   # Do NOT hard-add -DDNS_DEBUG_PROBES here — that would force probes always-on and defeat the toggle.
   
 # OpenMP (hybrid) flags
    if ( ${HYBRID} STREQUAL "TRUE" )

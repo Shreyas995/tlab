@@ -428,26 +428,26 @@ contains
         p(1:nx, 1, 1:nz) = bcs_hb(1:nx, 1:nz)       ! Passing boundary conditions in forcing array
         p(1:nx, ny, 1:nz) = bcs_ht(1:nx, 1:nz)
 
-        call TLab_Debug_Print_int('POIS-trace:0-entry', itime)
+        DNS_TRACE('POIS-trace:0-entry', itime)
 
         ! CRASH-LOCALIZATION: the forward FFT is the seed (clean forcing in -> blown post-fft-fwd). Bracket
         ! the input p and the X- and Z-forward outputs separately to pin which forward FFT blows.
-        call DNS_PRINT_MAXVAL('POIS:fwd-in-p', p(1, 1, 1), nx*ny*nz, -1)
+        DNS_PROBE('POIS:fwd-in-p', p(1, 1, 1), nx*ny*nz, -1)
         if (fft_z_on) then
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp2)
-            call DNS_PRINT_MAXVAL('POIS:fwd-postX', tmp2(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
+            DNS_PROBE('POIS:fwd-postX', tmp2(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
             call OPR_Fourier_Z_Forward(c_tmp2, c_tmp1) ! tmp2 might be overwritten; cannot use wrk3d
-            call DNS_PRINT_MAXVAL('POIS:fwd-postZ', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
+            DNS_PROBE('POIS:fwd-postZ', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
         else
             call OPR_Fourier_X_Forward(nx, ny, nz, p, c_tmp1)
-            call DNS_PRINT_MAXVAL('POIS:fwd-postX', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
+            DNS_PROBE('POIS:fwd-postX', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
         end if
 
         tmp1 = tmp1*norm
 
-        call TLab_Debug_Print_int('POIS-trace:1-after-fftfwd', itime)
-        call DNS_PRINT_MAXVAL('POIS:post-fft-fwd', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
-        call TLab_Debug_Print_int('POIS-trace:2-after-sent-fftfwd', itime)
+        DNS_TRACE('POIS-trace:1-after-fftfwd', itime)
+        DNS_PROBE('POIS:post-fft-fwd', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
+        DNS_TRACE('POIS-trace:2-after-sent-fftfwd', itime)
 
         ! ###################################################################
         ! Solve FDE \hat{p}''-\lambda \hat{p} = \hat{f}
@@ -514,9 +514,9 @@ contains
             end do
         end select
 
-        call TLab_Debug_Print_int('POIS-trace:3-after-ysolve', itime)
-        call DNS_PRINT_MAXVAL('POIS:post-ysolve', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
-        call TLab_Debug_Print_int('POIS-trace:4-after-sent-ysolve', itime)
+        DNS_TRACE('POIS-trace:3-after-ysolve', itime)
+        DNS_PROBE('POIS:post-ysolve', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
+        DNS_TRACE('POIS-trace:4-after-sent-ysolve', itime)
 
         ! Post-solve transpose restored to GPU (as tlab_old), bracketed by hipDeviceSynchronize so the
         ! GPU solver's writes to p_wrk3d are flushed before the transpose, and the transpose's output to
@@ -528,28 +528,28 @@ contains
 #else
         call TLab_Transpose_COMPLEX(c_wrk3d, ny*nz, isize_line, ny*nz, c_tmp1, isize_line)
 #endif
-        call DNS_PRINT_MAXVAL('POIS:post-transp-back', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
+        DNS_PROBE('POIS:post-transp-back', tmp1(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
 
         ! ###################################################################
         ! Fourier field p (based on array tmp1)
         ! ###################################################################
         if (fft_z_on) then
             call OPR_Fourier_Z_Backward(c_tmp1, c_wrk3d)          ! tmp1 might be overwritten
-            call DNS_PRINT_MAXVAL('POIS:post-fftZ-bwd', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
+            DNS_PROBE('POIS:post-fftZ-bwd', p_wrk3d(1, 1, 1), (2*ny)*nz*(nx/2 + 1), -1)
             call OPR_Fourier_X_Backward(nx, ny, nz, c_wrk3d, p)   ! wrk3d might be overwritten
         else
             call OPR_Fourier_X_Backward(nx, ny, nz, c_tmp1, p)    ! tmp1 might be overwritten
         end if
 
-        call TLab_Debug_Print_int('POIS-trace:5-after-fftbwd', itime)
-        call DNS_PRINT_MAXVAL('POIS:post-fft-bwd', p(1, 1, 1), nx*ny*nz, -1)
-        call TLab_Debug_Print_int('POIS-trace:6-after-sent-fftbwd', itime)
+        DNS_TRACE('POIS-trace:5-after-fftbwd', itime)
+        DNS_PROBE('POIS:post-fft-bwd', p(1, 1, 1), nx*ny*nz, -1)
+        DNS_TRACE('POIS-trace:6-after-sent-fftbwd', itime)
 
         if (present(dpdy)) then
             call OPR_Partial_Y(OPR_P1, nx, ny, nz, bcs_p, g(2), p, dpdy)
-            call TLab_Debug_Print_int('POIS-trace:7-after-dpdy', itime)
-            call DNS_PRINT_MAXVAL('POIS:post-dpdy', dpdy(1, 1, 1), nx*ny*nz, -1)
-            call TLab_Debug_Print_int('POIS-trace:8-after-sent-dpdy', itime)
+            DNS_TRACE('POIS-trace:7-after-dpdy', itime)
+            DNS_PROBE('POIS:post-dpdy', dpdy(1, 1, 1), nx*ny*nz, -1)
+            DNS_TRACE('POIS-trace:8-after-sent-dpdy', itime)
         end if
 
         nullify (c_tmp1, c_tmp2, p_wrk3d)

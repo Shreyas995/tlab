@@ -128,4 +128,27 @@
 
 #define DNS_ERROR_AVG_PHASE         600
 
+/* ---------------------------------------------------------------------------------------- */
+/* Compile-time debug-probe gate.                                                            */
+/*                                                                                           */
+/* The per-iteration crash-localization probes (DNS_PRINT_MAXVAL / DNS_PRINT_MAXVAL_CPU) are */
+/* EXTERNAL subroutine calls. Even with the probe body stripped to an early return, each call*/
+/* still costs argument marshalling AND acts as an optimization barrier (the compiler must   */
+/* assume the callee may read/modify the passed arrays, which blocks fusion/vectorization in */
+/* the RHS hot loops). For a truly zero-cost production build, wrap every probe call so it is */
+/* PHYSICALLY ABSENT unless built with -DDNS_DEBUG_PROBES (cmake: -DDNS_DEBUG_PROBES=TRUE).   */
+/*                                                                                           */
+/* The OFF expansion is `continue` (a no-op statement, removed by the optimizer) rather than */
+/* empty, so the macro is valid both standalone (`DNS_PROBE(...)`) and as the body of a       */
+/* logical-if (`if (trp_dbg_fft) DNS_PROBE(...)`). All probe call sites use exactly 4 args.  */
+#ifdef DNS_DEBUG_PROBES
+#define DNS_PROBE(t, a, n, s)     call DNS_PRINT_MAXVAL(t, a, n, s)
+#define DNS_PROBE_CPU(t, a, n, s) call DNS_PRINT_MAXVAL_CPU(t, a, n, s)
+#define DNS_TRACE(t, v)           call TLab_Debug_Print_int(t, v)
+#else
+#define DNS_PROBE(t, a, n, s)     continue
+#define DNS_PROBE_CPU(t, a, n, s) continue
+#define DNS_TRACE(t, v)           continue
+#endif
+
 #endif
