@@ -53,6 +53,15 @@ if (TRP_I_FUSEDFENCE)
   add_definitions(-DTRP_I_FUSEDFENCE)
 endif ()
 
+#   -DTRP_CX_MPI=TRUE : route the apudirect COMPLEX (Poisson) transposes off the GPU shared-window onto the
+#                       clean fabric_mpi_comm_i/k (MPI), as the old fast apudirect did. Removes ~half the
+#                       MPI_Win_fence calls on a single node. REAL transposes stay on the GPU; fabricdirect is
+#                       unaffected. Uses a fresh MPI_COMM_WORLD split (no Cartesian-comm taint). FFTW + hipFFT
+#                       both supported (the reused fallback flushes the GPU before the ISEND).
+if (TRP_CX_MPI)
+  add_definitions(-DTRP_CX_MPI)
+endif ()
+
 if (DNS_DEBUG_PROBES)
   add_definitions(-DDNS_DEBUG_PROBES)
 endif ()
