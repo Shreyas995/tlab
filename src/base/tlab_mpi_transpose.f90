@@ -781,6 +781,7 @@ contains
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_ns, mas
 #ifdef USE_APU
         integer(c_int) :: hip_sync_err
+        integer(8) :: off                     ! int64 window offset for the fused write+fence real-K push (2026-06-27)
 #endif
 #ifdef PROFILE_ON
         real(wp) :: time_loc_1, time_loc_2
@@ -808,6 +809,28 @@ contains
             ! Eliminates per-peer kernel-launch overhead (npro separate launches → 1).
             size = trp_plan%size3d
             call MPI_Win_fence(0, apu_win_k, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+            ! Real-K fused-fence push (2026-06-27, the real-K-transpose coherence fix). The source a is STRIDED,
+            ! so gather each peer's chunk into contiguous staging (wrk_mpi_dp, free in apudirect K), then
+            ! WRITE+per-workgroup __threadfence_system per peer via hip_write_with_fence (write and system fence
+            ! in the same wavefront -> reliable cross-XCD visibility; the bare !$omp push + device-scope
+            ! hipDeviceSynchronize is NOT a system-scope L2 write-back to MALL).
+            !$omp target teams distribute parallel do collapse(3)
+            do m = 0, ims_npro_k - 1
+                do i = 0, nmax_p - 1
+                    do j = 0, nlines_p - 1
+                        wrk_mpi_dp(m*mas + i*nlines_p + j + 1) = a(m*nlines_p + i*npage + j + 1)
+                    end do
+                end do
+            end do
+            !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! gather (OMP stream) complete before the HIP push reads staging
+            do m = 0, ims_npro_k - 1
+                off = int(m, 8)*int(apu_stride_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
+                call hip_write_with_fence(wrk_mpi_dp(m*mas + 1:m*mas + mas), apu_all_k(off + 1:off + mas), int(mas, c_int))
+            end do
+            hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+#else
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_k - 1         ! peer rank (0-based)
                 do i = 0, nmax_p - 1          ! element along K axis (kmax total)
@@ -820,7 +843,11 @@ contains
             end do
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
+#endif
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: our recv buffer is now fully populated
+#ifdef TRP_I_FUSEDFENCE
+            call hip_invalidate_recv(apu_recv_fptr_k, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL
+#endif
             ! -- Unpack: recv buffer is already in the flat K-space layout; one-to-one copy to b.
             !$omp target teams distribute parallel do
             do i = 1, size
@@ -846,6 +873,43 @@ contains
                 end do
                 ! 2. open node-window epoch.
                 call MPI_Win_fence(0, node_win_k, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+                ! 3+4. Real-K fused-fence push (2026-06-27, the real-K-transpose coherence fix). ONE kernel
+                !      routes each (m,i,j): intra peers gather their STRIDED source chunk into contiguous
+                !      staging (wrk_mpi_dp third quarter; offset 2*size clears c_wrk_dp[0:size] inter-pack and
+                !      the inter IRECV target [size:2*size]); inter peers pack into c_wrk_dp as before.
+                !$omp target teams distribute parallel do collapse(3)
+                do m = 0, ims_npro_k - 1
+                    do i = 0, nmax_p - 1
+                        do j = 0, nlines_p - 1
+                            if (is_intra_k(m)) then
+                                wrk_mpi_dp(2*size + m*mas + i*nlines_p + j + 1) = a(m*nlines_p + i*npage + j + 1)
+                            else
+                                c_wrk_dp(m*mas + i*nlines_p + j + 1) = a(m*nlines_p + i*npage + j + 1)
+                            end if
+                        end do
+                    end do
+                end do
+                !$omp end target teams distribute parallel do
+                hip_sync_err = hipDeviceSynchronize()   ! gather + inter-pack complete before the HIP push reads staging and before ISEND
+                ! inter peers: ISEND the GPU-packed slot (now committed to HBM).
+                do m = 0, ims_npro_k - 1
+                    if (is_intra_k(m)) cycle
+                    l = l + 1
+                    call MPI_ISEND(c_wrk_dp(m*mas + 1), mas, &
+                                   trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
+                end do
+                ! intra peers: WRITE+per-workgroup __threadfence_system per peer (system-scope visibility in one
+                ! wavefront; the bare !$omp push + device-scope hipDeviceSynchronize is NOT a system-scope L2
+                ! write-back to MALL -> this is the fix for the cross-XCD real-K push race seen at it=235100).
+                do m = 0, ims_npro_k - 1
+                    if (.not. is_intra_k(m)) cycle
+                    off = int(node_lrank_k(m), 8)*int(apu_size_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
+                    call hip_write_with_fence(wrk_mpi_dp(2*size + m*mas + 1:2*size + m*mas + mas), &
+                                              node_all_k(off + 1:off + mas), int(mas, c_int))
+                end do
+                hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+#else
                 ! 3. intra-node peers: ONE fused cross-XCD GPU write over all K-peers (inter masked out) —
                 !    collapse(3) over (m,i,j); one kernel launch instead of one per intra peer.
                 !$omp target teams distribute parallel do collapse(3)
@@ -881,9 +945,13 @@ contains
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
                 end do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
+#endif
                 ! 5. close epoch (intra writes committed) then wait for inter MPI.
                 call MPI_Win_fence(0, node_win_k, ims_err)
                 if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+                call hip_invalidate_recv(node_recv_fptr_k, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL before assemble
+#endif
                 ! 6. assemble b per slot m in ONE fused kernel: intra from our node segment, inter from
                 !    wrk_mpi_dp — collapse(2) over (m,i), branch inside (was 2 kernels per peer).
                 !$omp target teams distribute parallel do collapse(2)
@@ -1301,6 +1369,7 @@ contains
         integer(wi) :: nmax_p, nlines_p, npage, flat_off, disp_nr, mas
 #ifdef USE_APU
         integer(c_int) :: hip_sync_err
+        integer(8) :: off                     ! int64 window offset for the fused write+fence real-K push (2026-06-27)
 #endif
 #ifdef PROFILE_ON
         real(wp) :: time_loc_1, time_loc_2
@@ -1323,6 +1392,17 @@ contains
             ! -- Push: b is flat K-space; push our chunk to all peers' recv buffers in one fused kernel.
             size = trp_plan%size3d
             call MPI_Win_fence(0, apu_win_k, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+            ! Real-K fused-fence push (2026-06-27): b is flat (contiguous mas per peer), so WRITE+per-workgroup
+            ! __threadfence_system per peer directly via hip_write_with_fence (no gather needed). System-scope
+            ! L2 write-back in one wavefront -> reliable cross-XCD visibility (vs the device-scope bare push).
+            hip_sync_err = hipDeviceSynchronize()   ! b produced on the OMP stream; sync before the HIP push reads it
+            do m = 0, ims_npro_k - 1
+                off = int(m, 8)*int(apu_stride_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
+                call hip_write_with_fence(b(m*mas + 1:m*mas + mas), apu_all_k(off + 1:off + mas), int(mas, c_int))
+            end do
+            hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+#else
             !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_k - 1
                 do i = 1, nmax_p * nlines_p
@@ -1332,7 +1412,11 @@ contains
             end do
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
+#endif
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: all peers have written to our buffer
+#ifdef TRP_I_FUSEDFENCE
+            call hip_invalidate_recv(apu_recv_fptr_k, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL
+#endif
             ! -- Unpack: recv buffer holds sorted chunks; scatter to strided a in one fused kernel.
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_k - 1
@@ -1361,6 +1445,26 @@ contains
                 end do
                 ! 2. open node-window epoch.
                 call MPI_Win_fence(0, node_win_k, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+                ! 3+4. Real-K fused-fence push (2026-06-27, the real-K-transpose coherence fix). b is flat
+                !      (contiguous mas per peer). Sync first (b is produced on the OMP stream and is also the
+                !      inter ISEND source), then WRITE+per-workgroup __threadfence_system per intra peer via
+                !      hip_write_with_fence (system-scope L2 write-back in one wavefront -> fixes the cross-XCD
+                !      real-K push race). Inter peers ISEND b directly as before.
+                hip_sync_err = hipDeviceSynchronize()
+                do m = 0, ims_npro_k - 1
+                    if (is_intra_k(m)) cycle
+                    l = l + 1
+                    call MPI_ISEND(b(m*mas + 1), mas, &
+                                   trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
+                end do
+                do m = 0, ims_npro_k - 1
+                    if (.not. is_intra_k(m)) cycle
+                    off = int(node_lrank_k(m), 8)*int(apu_size_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
+                    call hip_write_with_fence(b(m*mas + 1:m*mas + mas), node_all_k(off + 1:off + mas), int(mas, c_int))
+                end do
+                hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+#else
                 ! 3. intra peers: ONE fused GPU push of b into each peer's segment (inter masked out) —
                 !    collapse(2) over (m,i); one kernel instead of one per intra peer.
                 !$omp target teams distribute parallel do collapse(2)
@@ -1380,9 +1484,13 @@ contains
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
                 end do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
+#endif
                 ! 5. close epoch then wait.
                 call MPI_Win_fence(0, node_win_k, ims_err)
                 if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+                call hip_invalidate_recv(node_recv_fptr_k, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL before scatter
+#endif
                 ! 6. scatter to strided a in ONE fused kernel: intra from our node segment, inter from
                 !    c_wrk_dp — collapse(3) over (m,i,j), branch inside (was a kernel per peer).
                 !$omp target teams distribute parallel do collapse(3)
