@@ -129,6 +129,7 @@ module TLabMPI_Transpose
     real(dp), allocatable, target :: wrk_mpi_dp(:)
     real(dp), pointer, contiguous    :: c_wrk_dp(:) => null()   ! contiguous: MPI must see the real buffer, not a temporary
     complex(dp), pointer, contiguous :: c_wrk_cx(:) => null()
+    complex(dp), pointer, contiguous :: c_wrk_send_cx(:) => null()   ! SEND staging (2nd half of wrk_mpi_dp): GPU-packed send buffer for the complex K-backward inter leg (must be GPU-written, not the CPU-FFTW b, for GPU-aware MPI)
     type(MPI_Status) status(128)
     type(MPI_Request) request(128)
 
@@ -375,8 +376,10 @@ contains
         if (trp_mode_i == TLAB_MPI_TRP_ASYNCHRONOUS .or. trp_mode_k == TLAB_MPI_TRP_ASYNCHRONOUS .or. &
             trp_mode_i == TLAB_MPI_TRP_APU_DIRECT   .or. trp_mode_k == TLAB_MPI_TRP_APU_DIRECT   .or. &
             trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT .or. trp_mode_k == TLAB_MPI_TRP_FABRIC_DIRECT) then
-            allocate (wrk_mpi_dp(2*imax*jmax*kmax))
-            call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated dp flat-MPI staging buffer (2 x size3d).')
+            allocate (wrk_mpi_dp(4*imax*jmax*kmax))   ! 4x (was 2x): 1st half = recv c_wrk_cx, 2nd half = GPU-packed SEND staging c_wrk_send_cx (complex K-backward inter leg)
+            wrk_mpi_dp = 0.0_dp   ! INIT: not zeroing left UNFILLED staging slots as garbage (6.46e208). A cross-rank
+                                  ! write that does not land coherently then reads that garbage -> overflow. Zero = bounded.
+            call TLab_Write_ASCII(lfile, 'TLabMPI_Trp_Initialize: allocated dp flat-MPI staging buffer (4 x size3d).')
         end if
 
 #ifdef USE_APU
@@ -404,6 +407,7 @@ contains
             end if
             call c_f_pointer(win_baseptr, apu_recv_fptr_k, [apu_size_k])
             call c_f_pointer(win_baseptr, apu_cx_recv_fptr_k, [apu_size_k/2])
+            apu_recv_fptr_k = 0.0_dp   ! INIT: a cross-rank push that misses a slot then reads 0 (bounded), not allocation-garbage
             allocate (apu_peer_cptr_k(0:ims_npro_k - 1))
             do ip = 0, ims_npro_k - 1
                 call MPI_Win_shared_query(apu_win_k, ip, win_query_size, win_disp_unit, apu_peer_cptr_k(ip), ims_err)
@@ -424,6 +428,7 @@ contains
             end if
             call c_f_pointer(win_baseptr, apu_recv_fptr_i, [apu_size_i])
             call c_f_pointer(win_baseptr, apu_cx_recv_fptr_i, [apu_size_i/2])
+            apu_recv_fptr_i = 0.0_dp   ! INIT (see apu_recv_fptr_k)
             allocate (apu_peer_cptr_i(0:ims_npro_i - 1))
             do ip = 0, ims_npro_i - 1
                 call MPI_Win_shared_query(apu_win_i, ip, win_query_size, win_disp_unit, apu_peer_cptr_i(ip), ims_err)
@@ -481,6 +486,7 @@ contains
                 call MPI_Win_shared_query(node_win_k, my_lrank, win_query_size, win_disp_unit, seg_cptr, ims_err)
                 call c_f_pointer(seg_cptr, node_recv_fptr_k, [apu_size_k])
                 call c_f_pointer(seg_cptr, node_cx_recv_fptr_k, [apu_size_k/2])   ! complex view (Poisson cx-K)
+                node_recv_fptr_k = 0.0_dp   ! INIT (see apu_recv_fptr_k): un-landed cross-rank push reads 0, not garbage
                 call MPI_Win_shared_query(node_win_k, 0, win_query_size, win_disp_unit, win_baseptr, ims_err)
                 call c_f_pointer(win_baseptr, node_all_k, [int(apu_size_k, 8)*int(node_size_k, 8)])
                 call c_f_pointer(win_baseptr, node_cx_all_k, [int(apu_size_k, 8)*int(node_size_k, 8)/2])
@@ -546,6 +552,7 @@ contains
                 call MPI_Win_shared_query(node_win_i, my_lrank, win_query_size, win_disp_unit, seg_cptr, ims_err)
                 call c_f_pointer(seg_cptr, node_recv_fptr_i, [apu_size_i])
                 call c_f_pointer(seg_cptr, node_cx_recv_fptr_i, [apu_size_i/2])   ! complex view (Poisson cx-I)
+                node_recv_fptr_i = 0.0_dp   ! INIT (see apu_recv_fptr_k)
                 call MPI_Win_shared_query(node_win_i, 0, win_query_size, win_disp_unit, win_baseptr, ims_err)
                 call c_f_pointer(win_baseptr, node_all_i, [int(apu_size_i, 8)*int(node_size_i, 8)])
                 call c_f_pointer(win_baseptr, node_cx_all_i, [int(apu_size_i, 8)*int(node_size_i, 8)/2])
@@ -1647,9 +1654,13 @@ contains
             ! precedents). Else: all-MPI complex fallback (original path).
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
-            ! Option 2: the inter-node leg ISENDs b directly via GPU-aware MPI (b is GPU-resident), so no
-            ! hipDeviceSynchronize is needed (the real-K-backward leg already ISENDs b this way without a flush;
-            ! MPICH_GPU_SUPPORT orders the GPU stream — vmpi_gpuaware M2, vmpi_nodewin window+GPU-aware PASS).
+            call c_f_pointer(c_loc(wrk_mpi_dp(2*size + 1)), c_wrk_send_cx, shape=[size])   ! GPU-packed SEND staging (2nd half)
+            ! BUGFIX [2026-06-27]: the inter-node leg must ISEND a GPU-WRITTEN buffer for GPU-aware MPI to be
+            ! coherent. The FORWARD complex K GPU-packs its input into c_wrk_cx then ISENDs that (correct); this
+            ! BACKWARD used to ISEND b DIRECTLY, but b is the CPU-FFTW z2z output, NOT GPU-written -> GPU-aware
+            ! MPI shipped uninitialized garbage (the 235056 NaN seed: ZKBC:cwrk-inter 6.46e208 from a healthy b).
+            ! Fix: GPU-pack b's inter chunks into c_wrk_send_cx (GPU-written) in the SAME kernel as the intra
+            ! push, then ISEND c_wrk_send_cx (stream-ordered, exactly like the forward).
             if (use_node_win_k) then
                 ! 1. IRECV inter-node peers into flat c_wrk_cx slots (m*mas).
                 l = 0
@@ -1661,23 +1672,26 @@ contains
                 end do
                 ! 2. open node-window epoch.
                 call MPI_Win_fence(0, node_win_k, ims_err)
-                ! 3. intra-node peers: ONE fused GPU push of b into each peer's complex segment (inter
-                !    masked out) — collapse(2) over (m,i); one kernel instead of one per intra peer.
+                ! 3. ONE fused GPU kernel: intra peers -> node-window segment; inter peers -> c_wrk_send_cx
+                !    (GPU-written send staging). Both read b on the GPU (coherent), so the ISEND'd inter buffer
+                !    is GPU-written and GPU-aware MPI is valid (the whole point of the bugfix above).
                 !$omp target teams distribute parallel do collapse(2)
                 do m = 0, ims_npro_k - 1
                     do i = 1, mas
                         if (is_intra_k(m)) then
                             node_cx_all_k(int(node_lrank_k(m),8)*int(apu_size_k/2,8) + ims_pro_k*mas + i) = &
                                 b(m*mas + i)
+                        else
+                            c_wrk_send_cx(m*mas + i) = b(m*mas + i)
                         end if
                     end do
                 end do
                 !$omp end target teams distribute parallel do
-                ! 4. inter-node peers: ISEND our b[m*mas] chunk (overlaps the window writes).
+                ! 4. inter-node peers: ISEND our GPU-packed c_wrk_send_cx[m*mas] chunk (overlaps the window writes).
                 do m = 0, ims_npro_k - 1
                     if (is_intra_k(m)) cycle
                     l = l + 1
-                    call MPI_ISEND(b(m*mas + 1), mas, &
+                    call MPI_ISEND(c_wrk_send_cx(m*mas + 1), mas, &
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
                 end do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
