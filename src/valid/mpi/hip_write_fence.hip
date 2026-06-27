@@ -8,14 +8,18 @@
 //
 // PERFORMANCE NOTE (fixed 2026-06-26)
 // -----------------------------------
-// The previous hip_write_fence_kernel ran __threadfence_system() in EVERY thread. On
-// MI300A (GFX94) that compiles to  buffer_wbl2 sc0:1 sc1:1 + s_waitcnt  — a *full*
-// system-scope L2 write-back — so a million-element copy issued a million full-L2
-// write-backs (~71 ms/call, 42% of all GPU time in a pat_report). A single
-// __threadfence_system() already writes back the WHOLE L2, so it only needs to run ONCE,
-// after the copy completes. hip_write_with_fence now does: copy kernel (no fence) -> a
-// 1-thread fence kernel on the SAME in-order stream (runs after the copy, flushes the
-// copied lines) -> one hipDeviceSynchronize. This is the cheap SYSFENCE mechanism.
+// THREE variants of the fence, only the last is both correct AND fast:
+//   (1) per-THREAD fence (original hip_write_fence_kernel): __threadfence_system() in every
+//       thread -> a million-element copy issued a million full-L2 write-backs (buffer_wbl2
+//       sc0:1 sc1:1), ~71 ms/call = 42% of GPU time. Correct but catastrophically slow.
+//   (2) single <<<1,1>>> fence in a SEPARATE kernel after the copy (the 2026-06-26 perf
+//       "fix"): O(1) and fast, but this IS the SYSFENCE mechanism — a separate single-thread
+//       fence that only CUT (~20x) and never eliminated the cross-rank push race (the writer-
+//       side window corruption returned: Re125000 fabricdirect crashed again at ~31-53 iters).
+//   (3) FUSED copy + PER-WORKGROUP fence in ONE kernel (hip_copy_fence_kernel, current):
+//       each workgroup copies then ONE thread fences after __syncthreads. ~n/256 fences (fast),
+//       fused with the write (no inter-kernel L1->L2 gap), and spread across CUs (covers every
+//       L2 slice). This is the correct-and-cheap middle ground. hip_write_with_fence uses it.
 
 #include <hip/hip_runtime.h>
 #include <stdio.h>
@@ -32,6 +36,30 @@ __global__ void hip_copy_kernel(const double* __restrict__ src,
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         dst[idx] = src[idx];
+    }
+}
+
+// FUSED copy + PER-WORKGROUP system-scope fence (the correct+fast middle ground).
+// Each workgroup copies its chunk, __syncthreads() so the whole workgroup's stores are
+// issued, then ONE thread (threadIdx.x==0) does __threadfence_system() (buffer_wbl2 sc0:1
+// sc1:1 = whole-L2 write-back to MALL). So every store is followed, within its own
+// workgroup, by a system fence -> all copied lines are made cross-rank/CPU visible BEFORE
+// the host's hipDeviceSynchronize returns. Cost = (n/256) fences, not n (per-thread, the
+// 71 ms/call catastrophe) and not 1 (a single <<<1,1>>> fence in a SEPARATE kernel = the
+// SYSFENCE mechanism that only CUT, never eliminated, the cross-rank push race). Being in
+// the SAME kernel as the copy removes the inter-kernel L1->L2 timing gap, and running on
+// many CUs covers every L2 slice that took a write.
+__global__ void hip_copy_fence_kernel(const double* __restrict__ src,
+                                      double* __restrict__ dst,
+                                      int n)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        dst[idx] = src[idx];
+    }
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        __threadfence_system();
     }
 }
 
@@ -81,13 +109,13 @@ extern "C" void hip_write_with_fence(const double* src, double* dst, int n)
     if (n <= 0) return;
     const int threads = 256;
     const int blocks  = (n + threads - 1) / threads;
-    // 1. copy (no per-thread fence)
-    hipLaunchKernelGGL(hip_copy_kernel, dim3(blocks), dim3(threads), 0, 0, src, dst, n);
-    // 2. ONE system-scope L2 write-back, same default stream -> runs after the copy,
-    //    flushes the copied lines to MALL. O(1) instead of O(n) fences.
-    hipLaunchKernelGGL(hip_system_fence_kernel, dim3(1), dim3(1), 0, 0);
-    // 3. block until the copy + fence complete (callers — node-window push, all-MPI
-    //    fallback flush — rely on this being synchronous before MPI_Win_fence / ISEND).
+    // FUSED copy + per-workgroup system fence in ONE kernel: correct (every store is
+    // system-fenced within its workgroup, no inter-kernel L1->L2 gap, all L2 slices covered)
+    // AND fast (~n/256 fences, not n and not 1). Replaces the copy + separate <<<1,1>>> fence
+    // (= SYSFENCE) that only cut, never eliminated, the cross-rank push race.
+    hipLaunchKernelGGL(hip_copy_fence_kernel, dim3(blocks), dim3(threads), 0, 0, src, dst, n);
+    // block until the copy+fence kernel completes (callers — node-window/apudirect push and
+    // the all-MPI fallback flush — rely on this being synchronous before MPI_Win_fence/ISEND).
     hipError_t err = hipDeviceSynchronize();
     if (err != hipSuccess) {
         fprintf(stderr, "[hip_write_with_fence] hipDeviceSynchronize failed: %s\n",
