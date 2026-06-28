@@ -835,7 +835,9 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
-            hip_sync_err = hipDeviceSynchronize()   ! gather (OMP stream) complete before the HIP push reads staging
+            ! No hipDeviceSynchronize: the blocking !$omp end target above already completed the gather, and
+            ! hip_write_with_fence/hip_memcpy_push are themselves synchronous, so the push reads committed staging
+            ! and the epoch closes after it. (Re-add a sync ONLY if these target regions become nowait.)
             do m = 0, ims_npro_k - 1
                 off = int(m, 8)*int(apu_stride_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
 #ifdef TRP_I_MEMCPY
@@ -844,7 +846,6 @@ contains
                 call hip_write_with_fence(wrk_mpi_dp(m*mas + 1:m*mas + mas), apu_all_k(off + 1:off + mas), int(mas, c_int))
 #endif
             end do
-            hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
 #else
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_k - 1         ! peer rank (0-based)
@@ -1469,7 +1470,9 @@ contains
             ! Real-K fused-fence push (2026-06-27): b is flat (contiguous mas per peer), so WRITE+per-workgroup
             ! __threadfence_system per peer directly via hip_write_with_fence (no gather needed). System-scope
             ! L2 write-back in one wavefront -> reliable cross-XCD visibility (vs the device-scope bare push).
-            hip_sync_err = hipDeviceSynchronize()   ! b produced on the OMP stream; sync before the HIP push reads it
+            ! No hipDeviceSynchronize: b is produced by the caller's blocking !$omp target (the codebase uses no
+            ! nowait), and hip_write_with_fence/hip_memcpy_push are themselves synchronous, so the push reads
+            ! committed b and the epoch closes after it. (Re-add a sync ONLY if the producer/these targets go nowait.)
             do m = 0, ims_npro_k - 1
                 off = int(m, 8)*int(apu_stride_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
 #ifdef TRP_I_MEMCPY
@@ -1478,7 +1481,6 @@ contains
                 call hip_write_with_fence(b(m*mas + 1:m*mas + mas), apu_all_k(off + 1:off + mas), int(mas, c_int))
 #endif
             end do
-            hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
 #else
             !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_k - 1
@@ -2087,14 +2089,14 @@ contains
 #ifdef TRP_I_FUSEDFENCE
             ! V1 (apudirect): cross-rank push via the fused hip_write_with_fence (write + __threadfence_system
             ! in ONE wavefront = system-scope L2 write-back), mirroring the fabricdirect node-window fix. The
-            ! source a(m*mas+1:..) is contiguous per peer; apu_all_i is contiguous. Sync BEFORE (order 'a' from
-            ! the caller's OMP stream) and AFTER (wait for the ASYNC push kernels before the close fence).
-            hip_sync_err = hipDeviceSynchronize()
+            ! source a(m*mas+1:..) is contiguous per peer; apu_all_i is contiguous. No hipDeviceSynchronize: a is
+            ! produced by the caller's blocking !$omp target (no nowait in the codebase) and hip_write_with_fence
+            ! is itself synchronous, so the push reads committed a and the epoch closes after it. (Re-add a sync
+            ! ONLY if the producer/these targets go nowait.)
             do m = 0, ims_npro_i - 1
                 off = int(m, 8)*int(apu_stride_i, 8) + int(ims_pro_i, 8)*int(mas, 8)
                 call hip_write_with_fence(a(m*mas + 1:m*mas + mas), apu_all_i(off + 1:off + mas), int(mas, c_int))
             end do
-            hip_sync_err = hipDeviceSynchronize()
 #else
             !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_i - 1
@@ -2636,8 +2638,10 @@ contains
             ! Push: pack strided b[m] → peer m's recv buffer at slot own_rank*chunk (flat).
 #ifdef TRP_I_FUSEDFENCE
             ! V1 (apudirect): strided source b -> GPU-gather into contiguous staging (wrk_mpi_dp), then fused
-            ! hip_write_with_fence per peer (write + __threadfence_system in one wavefront). Sync after the
-            ! gather (so the push reads final staging) and after the push (wait for the async kernels).
+            ! hip_write_with_fence per peer (write + __threadfence_system in one wavefront). No hipDeviceSynchronize:
+            ! the blocking !$omp end target below already completed the gather and hip_write_with_fence is itself
+            ! synchronous, so the push reads committed staging and the epoch closes after it. (Re-add a sync ONLY
+            ! if these target regions become nowait.)
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
                 do i = 0, nlines_p - 1
@@ -2647,12 +2651,10 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
-            hip_sync_err = hipDeviceSynchronize()   ! gather (OMP stream) must complete before the HIP push reads wrk_mpi_dp
             do m = 0, ims_npro_i - 1
                 off = int(m, 8)*int(apu_stride_i, 8) + int(ims_pro_i, 8)*int(mas, 8)
                 call hip_write_with_fence(wrk_mpi_dp(m*mas + 1:m*mas + mas), apu_all_i(off + 1:off + mas), int(mas, c_int))
             end do
-            hip_sync_err = hipDeviceSynchronize()
 #else
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
