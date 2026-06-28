@@ -1211,9 +1211,6 @@ contains
             ! apu_size_k/2 complex units per segment. Else: all-MPI complex fallback (original path).
             size = trp_plan%size3d
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
-#ifdef TRP_I_FUSEDFENCE
-            call c_f_pointer(c_loc(wrk_mpi_dp(2*size + 1)), c_wrk_send_cx, shape=[size])   ! intra gather staging (complex-K fused-fence)
-#endif
             ! Option 2: the inter-node leg is GPU-aware (GPU pack + ISEND of the GPU buffer), so no
             ! hipDeviceSynchronize is needed (MPICH_GPU_SUPPORT orders the GPU stream — vmpi_gpuaware M2,
             ! vmpi_nodewin window+GPU-aware PASS). Frees the CPU pack the old flush+CPU-pack path required.
@@ -1229,17 +1226,18 @@ contains
                 ! 2. open node-window epoch.
                 call MPI_Win_fence(0, node_win_k, ims_err)
 #ifdef TRP_I_FUSEDFENCE
-                ! 3+4. Complex-K fused-fence push (2026-06-28). ONE kernel gathers the STRIDED source a per peer:
-                !      intra peers -> c_wrk_send_cx (contiguous staging), inter peers -> c_wrk_cx. Then sync,
-                !      ISEND inter, and WRITE+per-workgroup __threadfence_system the intra peers into the node
-                !      window via hip_write_with_fence on the REAL view (system-scope L2 write-back; the bare
-                !      !$omp push to node_cx_all_k had only a device-scope sync = the cross-XCD complex race).
+                ! 3+4. Complex-K fused-fence push (2026-06-28). ONE kernel gathers the STRIDED source a per peer.
+                !      DEVICE-POINTER RULE (see ExecK_Backward_Complex): write and read a buffer through the SAME
+                !      handle on the device. So intra peers gather into wrk_mpi_dp BY NAME (real/imag, 2 reals/elt)
+                !      and hip_write_with_fence reads wrk_mpi_dp BY NAME (one handle, like the proven real-K push).
+                !      Inter peers stay on c_wrk_cx (gathered AND ISEND'd via that one pointer = self-consistent).
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_k - 1
                     do i = 0, nmax_p - 1
                         do j = 0, nlines_p - 1
                             if (is_intra_k(m)) then
-                                c_wrk_send_cx(m*mas + i*nlines_p + j + 1) = a(m*nlines_p + i*npage + j + 1)
+                                wrk_mpi_dp(2*size + 2*(m*mas + i*nlines_p + j + 1) - 1) = real(a(m*nlines_p + i*npage + j + 1), dp)
+                                wrk_mpi_dp(2*size + 2*(m*mas + i*nlines_p + j + 1))     = aimag(a(m*nlines_p + i*npage + j + 1))
                             else
                                 c_wrk_cx(m*mas + i*nlines_p + j + 1) = a(m*nlines_p + i*npage + j + 1)
                             end if
@@ -1824,18 +1822,24 @@ contains
                 ! 2. open node-window epoch.
                 call MPI_Win_fence(0, node_win_k, ims_err)
 #ifdef TRP_I_FUSEDFENCE
-                ! 3+4. Complex-K fused-fence push (2026-06-28, the complex-K-transpose coherence fix). The bare
-                !      !$omp push to node_cx_all_k had ONLY a device-scope hipDeviceSynchronize, NO system fence
-                !      -> the cross-XCD complex push intermittently delivered stale data (the it=235201 Poisson
-                !      seed: p-poisson corrupt at sub3 from a CLEAN div-forcing). Fix = pack b for ALL peers into
-                !      c_wrk_send_cx (contiguous per peer), sync, ISEND inter, then WRITE+per-workgroup
-                !      __threadfence_system the intra peers via hip_write_with_fence on the REAL view
-                !      (c_wrk_send_cx's real backing = wrk_mpi_dp(2*size+..); node_all_k = real view of the same
-                !      complex window). Real arithmetic on 2 reals/complex is bit-exact.
+                ! 3+4. Complex-K fused-fence push (2026-06-28, the complex-K coherence fix). The bare !$omp push
+                !      to node_cx_all_k had ONLY a device-scope sync, NO system fence -> stale cross-XCD data (the
+                !      it=235201 Poisson seed). DEVICE-POINTER RULE: a buffer must be WRITTEN and READ through the
+                !      SAME handle on the device — a Fortran pointer (c_wrk_send_cx) and the array it aliases
+                !      (wrk_mpi_dp) have DIFFERENT device addresses on MI300A. So the intra leg gathers b into
+                !      wrk_mpi_dp BY NAME (real/imag of each complex, 2 reals/elt) and hip_write_with_fence reads
+                !      wrk_mpi_dp BY NAME (one handle, exactly like the proven real-K push); node_all_k is the real
+                !      view of the same window. The inter leg stays on c_wrk_send_cx (written AND ISEND'd via that
+                !      one pointer = self-consistent).
                 !$omp target teams distribute parallel do collapse(2)
                 do m = 0, ims_npro_k - 1
                     do i = 1, mas
-                        c_wrk_send_cx(m*mas + i) = b(m*mas + i)
+                        if (is_intra_k(m)) then
+                            wrk_mpi_dp(2*size + 2*(m*mas + i) - 1) = real(b(m*mas + i), dp)
+                            wrk_mpi_dp(2*size + 2*(m*mas + i))     = aimag(b(m*mas + i))
+                        else
+                            c_wrk_send_cx(m*mas + i) = b(m*mas + i)
+                        end if
                     end do
                 end do
                 !$omp end target teams distribute parallel do
@@ -1847,7 +1851,7 @@ contains
                     call MPI_ISEND(c_wrk_send_cx(m*mas + 1), mas, &
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
                 end do
-                ! intra peers: WRITE+per-workgroup system fence on the real view (2*mas reals/peer).
+                ! intra peers: WRITE+per-workgroup system fence; src = wrk_mpi_dp BY NAME (same handle as written).
                 do m = 0, ims_npro_k - 1
                     if (is_intra_k(m)) cycle
                     off = int(node_lrank_k(m),8)*int(apu_size_k,8) + int(ims_pro_k,8)*int(2*mas,8)   ! real offset = cx offset * 2
