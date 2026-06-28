@@ -109,6 +109,7 @@ subroutine DNS_READ_LOCAL(inifile)
     call TLab_Write_ASCII(bakfile, '#RunAvera=<yes/no>')
     call TLab_Write_ASCII(bakfile, '#Runtime=<seconds>')
     call TLab_Write_ASCII(bakfile, '#ObsLog=<None/Ekman>')
+    call TLab_Write_ASCII(bakfile, '#RampLog=<yes/no>')
 
     call ScanFile_Int(bakfile, inifile, 'Iteration', 'Start', '0', nitera_first)
     call ScanFile_Int(bakfile, inifile, 'Iteration', 'End', '0', nitera_last)
@@ -132,6 +133,9 @@ subroutine DNS_READ_LOCAL(inifile)
         call TLab_Write_ASCII(efile, 'DNS_READ_LOCAL. ObsLog.')
         call TLab_Stop(DNS_ERROR_OPTION)
     end if
+
+    call ScanFile_Char(bakfile, inifile, 'Iteration', 'RampLog', 'no', sRes)
+    ramp_log = (trim(adjustl(sRes)) == 'yes')
 
 ! ###################################################################
 ! Control Limits

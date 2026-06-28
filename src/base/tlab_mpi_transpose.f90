@@ -1138,7 +1138,8 @@ contains
 #ifdef USE_APU
         complex(dp), pointer :: apu_cx_all(:) => null()   ! complex view of apu_all_k across all peers
         integer(c_int) :: hip_sync_err                    ! flush GPU-assembled b before the CPU FFTW reads it
-        integer(8) :: off                                 ! int64 real-view window offset for the fused write+fence complex-K push (2026-06-28)
+        integer(8) :: off                                 ! int64 real-view window offset (complex-K fused-fence localization)
+        real(dp) :: dbg1(1)                               ! 1-elt CPU scratch for DNS_PROBE_CPU localization markers
 #endif
         type(MPI_Comm) :: trp_comm_k   ! fabric_mpi_comm_k (MPI_COMM_WORLD split) or ims_comm_z
 #ifdef USE_APU
@@ -1226,11 +1227,13 @@ contains
                 ! 2. open node-window epoch.
                 call MPI_Win_fence(0, node_win_k, ims_err)
 #ifdef TRP_I_FUSEDFENCE
-                ! 3+4. Complex-K fused-fence push (2026-06-28). ONE kernel gathers the STRIDED source a per peer.
-                !      DEVICE-POINTER RULE (see ExecK_Backward_Complex): write and read a buffer through the SAME
-                !      handle on the device. So intra peers gather into wrk_mpi_dp BY NAME (real/imag, 2 reals/elt)
-                !      and hip_write_with_fence reads wrk_mpi_dp BY NAME (one handle, like the proven real-K push).
-                !      Inter peers stay on c_wrk_cx (gathered AND ISEND'd via that one pointer = self-consistent).
+                ! ===== INSTRUMENTED complex-K forward fused-fence (LOCALIZATION; last CXKF:* in the dead rank's
+                !       fort.5xx = the faulting op; 'max=' = index/bound, 'sub=' = peer m). =====
+                dbg1(1) = real(apu_size_k,dp)*real(node_size_k,dp); DNS_PROBE_CPU('CXKF:bnd-nodeall', dbg1, 1, -1)
+                dbg1(1) = real(4,dp)*real(imax,dp)*real(jmax,dp)*real(kmax,dp); DNS_PROBE_CPU('CXKF:bnd-wrk', dbg1, 1, -1)
+                dbg1(1) = real(2*size + 2*ims_npro_k*mas,dp);       DNS_PROBE_CPU('CXKF:stage-end', dbg1, 1, -1)
+                dbg1(1) = real(mas,dp);                             DNS_PROBE_CPU('CXKF:0-enter', dbg1, 1, ims_pro_k)
+                ! gather strided a: intra -> wrk_mpi_dp BY NAME (real/imag, one device handle); inter -> c_wrk_cx
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_k - 1
                     do i = 0, nmax_p - 1
@@ -1245,20 +1248,25 @@ contains
                     end do
                 end do
                 !$omp end target teams distribute parallel do
-                hip_sync_err = hipDeviceSynchronize()   ! gather complete before ISEND and before the HIP push read it
+                hip_sync_err = hipDeviceSynchronize()
+                DNS_PROBE_CPU('CXKF:1-post-gather', dbg1, 1, ims_pro_k)
                 do m = 0, ims_npro_k - 1
                     if (is_intra_k(m)) cycle
                     l = l + 1
                     call MPI_ISEND(c_wrk_cx(m*mas + 1), mas, &
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
                 end do
+                DNS_PROBE_CPU('CXKF:2-post-isend', dbg1, 1, l)
                 do m = 0, ims_npro_k - 1
-                    if (is_intra_k(m)) cycle
-                    off = int(node_lrank_k(m),8)*int(apu_size_k,8) + int(ims_pro_k,8)*int(2*mas,8)   ! real offset = cx offset * 2
+                    if (.not. is_intra_k(m)) cycle
+                    off = int(node_lrank_k(m),8)*int(apu_size_k,8) + int(ims_pro_k,8)*int(2*mas,8)
+                    dbg1(1) = real(off + 2*mas, dp); DNS_PROBE_CPU('CXKF:3-pre-fence-end', dbg1, 1, m)
                     call hip_write_with_fence(wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), &
                                               node_all_k(off + 1:off + 2*mas), int(2*mas, c_int))
+                    DNS_PROBE_CPU('CXKF:3-post-fence-peer', dbg1, 1, m)
                 end do
-                hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+                hip_sync_err = hipDeviceSynchronize()
+                DNS_PROBE_CPU('CXKF:4-post-fence-all', dbg1, 1, ims_pro_k)
 #else
                 ! 3. intra-node peers: ONE fused cross-XCD GPU write over all K-peers (inter masked out) —
                 !    collapse(3) over (m,i,j); one kernel instead of one per intra peer.
@@ -1300,7 +1308,9 @@ contains
                 call MPI_Win_fence(0, node_win_k, ims_err)
                 if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
 #ifdef TRP_I_FUSEDFENCE
-                call hip_invalidate_recv(node_recv_fptr_k, int(apu_size_k, c_int))   ! reader acquire (real view) before assemble
+                DNS_PROBE_CPU('CXKF:5-pre-inval', dbg1, 1, ims_pro_k)
+                call hip_invalidate_recv(node_recv_fptr_k, int(apu_size_k, c_int))   ! reader acquire (real view)
+                DNS_PROBE_CPU('CXKF:6-post-inval', dbg1, 1, ims_pro_k)
 #endif
                 ! 6. assemble intra slots of b in ONE fused kernel (inter slots already in b via IRECV) —
                 !    collapse(2) over (m,i), masked is_intra; was a kernel per intra peer.
@@ -1728,7 +1738,8 @@ contains
 #ifdef USE_APU
         complex(dp), pointer :: apu_cx_all(:) => null()
         integer(c_int) :: hip_sync_err                    ! flush GPU-assembled a before the CPU FFTW reads it
-        integer(8) :: off                                 ! int64 real-view window offset for the fused write+fence complex-K push (2026-06-28)
+        integer(8) :: off                                 ! int64 real-view window offset (complex-K fused-fence localization)
+        real(dp) :: dbg1(1)                               ! 1-elt CPU scratch for DNS_PROBE_CPU localization markers
 #endif
         type(MPI_Comm) :: trp_comm_k   ! fabric_mpi_comm_k (MPI_COMM_WORLD split) or ims_comm_z
 #ifdef USE_APU
@@ -1822,15 +1833,14 @@ contains
                 ! 2. open node-window epoch.
                 call MPI_Win_fence(0, node_win_k, ims_err)
 #ifdef TRP_I_FUSEDFENCE
-                ! 3+4. Complex-K fused-fence push (2026-06-28, the complex-K coherence fix). The bare !$omp push
-                !      to node_cx_all_k had ONLY a device-scope sync, NO system fence -> stale cross-XCD data (the
-                !      it=235201 Poisson seed). DEVICE-POINTER RULE: a buffer must be WRITTEN and READ through the
-                !      SAME handle on the device — a Fortran pointer (c_wrk_send_cx) and the array it aliases
-                !      (wrk_mpi_dp) have DIFFERENT device addresses on MI300A. So the intra leg gathers b into
-                !      wrk_mpi_dp BY NAME (real/imag of each complex, 2 reals/elt) and hip_write_with_fence reads
-                !      wrk_mpi_dp BY NAME (one handle, exactly like the proven real-K push); node_all_k is the real
-                !      view of the same window. The inter leg stays on c_wrk_send_cx (written AND ISEND'd via that
-                !      one pointer = self-consistent).
+                ! ===== INSTRUMENTED complex-K backward fused-fence (LOCALIZATION: build -DTRP_I_FUSEDFENCE
+                !       -DDNS_DEBUG_PROBES; the LAST CXKB:* line in the dead rank's fort.5xx names the faulting op,
+                !       and 'max=' carries the index/bound, 'sub=' the peer m). =====
+                dbg1(1) = real(apu_size_k,dp)*real(node_size_k,dp); DNS_PROBE_CPU('CXKB:bnd-nodeall', dbg1, 1, -1)
+                dbg1(1) = real(4,dp)*real(imax,dp)*real(jmax,dp)*real(kmax,dp); DNS_PROBE_CPU('CXKB:bnd-wrk', dbg1, 1, -1)
+                dbg1(1) = real(2*size + 2*ims_npro_k*mas,dp);       DNS_PROBE_CPU('CXKB:stage-end', dbg1, 1, -1)
+                dbg1(1) = real(mas,dp);                             DNS_PROBE_CPU('CXKB:0-enter', dbg1, 1, ims_pro_k)
+                ! gather: intra -> wrk_mpi_dp BY NAME (real/imag, one device handle); inter -> c_wrk_send_cx
                 !$omp target teams distribute parallel do collapse(2)
                 do m = 0, ims_npro_k - 1
                     do i = 1, mas
@@ -1843,22 +1853,25 @@ contains
                     end do
                 end do
                 !$omp end target teams distribute parallel do
-                hip_sync_err = hipDeviceSynchronize()   ! pack complete before ISEND and before the HIP push read it
-                ! inter peers: ISEND the GPU-packed (HBM-committed) chunk.
+                hip_sync_err = hipDeviceSynchronize()
+                DNS_PROBE_CPU('CXKB:1-post-gather', dbg1, 1, ims_pro_k)
                 do m = 0, ims_npro_k - 1
                     if (is_intra_k(m)) cycle
                     l = l + 1
                     call MPI_ISEND(c_wrk_send_cx(m*mas + 1), mas, &
                                    trp_plan%base_type, m, ims_tag, fabric_mpi_comm_k, request(l), ims_err)
                 end do
-                ! intra peers: WRITE+per-workgroup system fence; src = wrk_mpi_dp BY NAME (same handle as written).
+                DNS_PROBE_CPU('CXKB:2-post-isend', dbg1, 1, l)
                 do m = 0, ims_npro_k - 1
-                    if (is_intra_k(m)) cycle
-                    off = int(node_lrank_k(m),8)*int(apu_size_k,8) + int(ims_pro_k,8)*int(2*mas,8)   ! real offset = cx offset * 2
+                    if (.not. is_intra_k(m)) cycle
+                    off = int(node_lrank_k(m),8)*int(apu_size_k,8) + int(ims_pro_k,8)*int(2*mas,8)
+                    dbg1(1) = real(off + 2*mas, dp); DNS_PROBE_CPU('CXKB:3-pre-fence-end', dbg1, 1, m)
                     call hip_write_with_fence(wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), &
                                               node_all_k(off + 1:off + 2*mas), int(2*mas, c_int))
+                    DNS_PROBE_CPU('CXKB:3-post-fence-peer', dbg1, 1, m)
                 end do
-                hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+                hip_sync_err = hipDeviceSynchronize()
+                DNS_PROBE_CPU('CXKB:4-post-fence-all', dbg1, 1, ims_pro_k)
 #else
                 ! 3. ONE fused GPU kernel: intra peers -> node-window segment; inter peers -> c_wrk_send_cx
                 !    (GPU-written send staging). Both read b on the GPU (coherent), so the ISEND'd inter buffer
@@ -1888,7 +1901,9 @@ contains
                 call MPI_Win_fence(0, node_win_k, ims_err)
                 if (l > 0) call MPI_WAITALL(l, request, status, ims_err)
 #ifdef TRP_I_FUSEDFENCE
-                call hip_invalidate_recv(node_recv_fptr_k, int(apu_size_k, c_int))   ! reader acquire (real view) before assemble
+                DNS_PROBE_CPU('CXKB:5-pre-inval', dbg1, 1, ims_pro_k)
+                call hip_invalidate_recv(node_recv_fptr_k, int(apu_size_k, c_int))   ! reader acquire (real view)
+                DNS_PROBE_CPU('CXKB:6-post-inval', dbg1, 1, ims_pro_k)
 #endif
                 ! CRASH-LOC (fabricdirect K-bwd-cplx, 2-node): split the two recv legs to pin the faulting one.
                 ! cwrk-inter = inter-node MPI recv (4 inter peers, c_wrk_cx); nodewin = our node-window segment

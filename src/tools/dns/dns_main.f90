@@ -32,7 +32,7 @@ program DNS
     use OPR_Elliptic, only: OPR_Elliptic_Initialize
     use OPR_Burgers, only: OPR_Burgers_Initialize
     use OPR_FILTERS
-    use DNS_FILTER_CONTROL_M, only: DNS_FILTER_CONTROL_INITIALIZE, DNS_FILTER_CONTROL
+    use DNS_FILTER_CONTROL_M, only: DNS_FILTER_CONTROL_INITIALIZE, DNS_FILTER_CONTROL, DNS_FILTER_CONTROL_ALPHA
     use PARTICLE_VARS
     use PARTICLE_ARRAYS
     use PARTICLE_PROCS
@@ -515,6 +515,11 @@ contains
         line1 = line1(1:ip)//' '//' D#'; ip = ip + 1 + 10
         line1 = line1(1:ip)//' '//' visc'; ip = ip + 1 + 10
 
+        if (ramp_log) then
+            line1 = line1(1:ip)//' '//' Froude'; ip = ip + 1 + 10
+            line1 = line1(1:ip)//' '//' alpha_f'; ip = ip + 1 + 10
+        end if
+
         select case (nse_eqns)
         case (DNS_EQNS_INCOMPRESSIBLE, DNS_EQNS_ANELASTIC)
             line1 = line1(1:ip)//' '//' DilMin'; ip = ip + 1 + 13
@@ -543,7 +548,7 @@ contains
 
     subroutine DNS_LOGS()
         use Thermodynamics, only: imixture, MIXT_TYPE_AIRWATER, NEWTONRAPHSON_ERROR
-        use NavierStokes, only: damkohler
+        use NavierStokes, only: damkohler, froude
 #ifdef USE_MPI
         use mpi_f08
         use TLabMPI_VARS, only: ims_err
@@ -555,6 +560,12 @@ contains
 
         write (line1, 100) int(logs_data(1)), itime, rtime, dtime, (logs_data(ip), ip=2, 3), visc
 100     format((1x, I1), (1x, I7), (1x, E13.6), 4(1x, E10.3))
+
+        if (ramp_log) then
+            write (line2, 150) froude, DNS_FILTER_CONTROL_ALPHA()
+150         format(2(1x, E10.3))
+            line1 = trim(line1)//trim(line2)
+        end if
 
         select case (nse_eqns)
         case (DNS_EQNS_INCOMPRESSIBLE, DNS_EQNS_ANELASTIC)

@@ -31,6 +31,7 @@ module DNS_LOCAL
     real(wp) :: logs_data(20)       ! information (time, time step, cfls, dilatation...)
     real(wp) :: obs_data(20)        ! information (custom variables / insitu measurements ...)
     integer :: dns_obs_log
+    logical :: ramp_log = .false.   ! append instantaneous Froude + filter-alpha columns to dns.out
 
     integer :: imode_rhs            ! Type of implementation of the RHS of evolution equations
     logical :: remove_divergence    ! Remove residual divergence every time step

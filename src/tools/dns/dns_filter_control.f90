@@ -30,10 +30,11 @@ module DNS_FILTER_CONTROL_M
     save
     private
 
-    public :: DNS_FILTER_CONTROL_INITIALIZE, DNS_FILTER_CONTROL
+    public :: DNS_FILTER_CONTROL_INITIALIZE, DNS_FILTER_CONTROL, DNS_FILTER_CONTROL_ALPHA
 
     logical :: ctrl_active = .false.
-    real(wp) :: alpha_cur, alpha_start, alpha_end, alpha_step, rise_tol, revert_tol
+    real(wp) :: alpha_cur = -1.0_wp   ! current filter strength; <0 => adaptive control never active
+    real(wp) :: alpha_start, alpha_end, alpha_step, rise_tol, revert_tol
     integer :: win, minhold
     integer :: hold_count, buf_pos, buf_count
     real(wp), allocatable :: dil_buf(:)
@@ -194,6 +195,15 @@ contains
         return
 2000    format('DNS_FILTER_CONTROL ', A7, ' it=', I0, ' alpha=', F5.3, ' dil_avg=', ES10.3, ' trend=', F6.3)
     end subroutine DNS_FILTER_CONTROL
+
+    !########################################################################
+    ! Current compact-filter strength alpha_f (for logging). Holds the last
+    ! value even after DISABLE; -1.0 if adaptive control was never active.
+    !########################################################################
+    function DNS_FILTER_CONTROL_ALPHA() result(a)
+        real(wp) :: a
+        a = alpha_cur
+    end function DNS_FILTER_CONTROL_ALPHA
 
     !########################################################################
     ! Push alpha_cur into every active compact [Filter] direction and rebuild
