@@ -37,40 +37,52 @@ if (${PROFILE} STREQUAL "TRUE" )
    set(USER_profile_FLAGS "-g")
 endif()
 
-# ACCELERATE=TRUE -> GPU offload. flang needs the offload arch passed EXPLICITLY (--offload-arch=gfx942);
-# the Cray config gets it from the loaded craype-accel module instead, hence the difference.
+# ACCELERATE=TRUE -> GPU offload (ALL transposes on the GPU). flang needs the offload arch passed
+# EXPLICITLY (--offload-arch=gfx942); the Cray config gets it from the loaded craype-accel module.
+# A plain -DACCELERATE=TRUE gives the COMPLETE all-on-GPU build: the per-workgroup write+fence
+# coherence fix is folded in automatically (it is REQUIRED for a correct GPU run, not a choice).
+# See the matching note in config/hunter-cray.cmake: the original apudirect was fast because it had
+# NO fences/syncs, NOT because the complex transposes ran on the CPU -- a CPU/MPI transpose is always
+# slower on this unified APU, so the all-GPU fenced path is the production path.
 if ( NOT ACCELERATE )
   set(ACCELERATE "FALSE")
 elseif( ${ACCELERATE} STREQUAL "TRUE" )
   set(USER_APU_FLAGS "-fopenmp --offload-arch=gfx942")
   add_definitions(-DUSE_APU)
+
+  # Default GPU-transpose coherence fix = per-workgroup fused write+fence + reader L2 invalidate.
+  set(_TRP_FUSED_DEFAULT TRUE)
+
+  # ----- Advanced / experimental transpose overrides (default OFF; A/B diagnosis only; all slower) -----
+  if (TRP_I_SYSFENCE)         # LEGACY separate fence kernel; superseded by, and exclusive with, the fused fence
+    add_definitions(-DTRP_I_SYSFENCE)
+    set(_TRP_FUSED_DEFAULT FALSE)
+  endif ()
+  if (_TRP_FUSED_DEFAULT)
+    add_definitions(-DTRP_I_FUSEDFENCE)
+  endif ()
+  if (TRP_I_MEMCPY)           # K pushes via blocking hipMemcpy instead of the fused fence
+    add_definitions(-DTRP_I_MEMCPY)
+  endif ()
+  if (TRP_I_FORCE_MPI)        # route the intra-node I-transpose onto MPI (legacy stabilizer, slower)
+    add_definitions(-DTRP_I_FORCE_MPI)
+  endif ()
+  if (TRP_CX_MPI)             # route the complex (Poisson) transposes onto MPI (slower, A/B only)
+    add_definitions(-DTRP_CX_MPI)
+  endif ()
 endif()
 
-# HEISENBUG ISOLATION: -DPROBESYNC=TRUE makes DNS_PRINT_MAXVAL do ONLY hipDeviceSynchronize() (no array
-# read, no log). Default off. (Identical semantics to the Cray config.)
-if (PROBESYNC)
-  add_definitions(-DPROBE_SYNC_ONLY)
+# Debug probe LEVEL (-DDNS_DEBUG=<n>; default 0 = OFF, zero cost). Replaces -DDNS_DEBUG_PROBES + -DPROBESYNC.
+#   1 = full probes (NWFR/NWBR/MAXVAL/POIS-trace -> fort.5xx, "print all").
+#   2 = Heisenbug isolation (probes do ONLY hipDeviceSynchronize, no read/log).
+if (NOT DNS_DEBUG)
+  set(DNS_DEBUG 0)
 endif ()
-
-# I-transpose node-window coherence fixes (the documented cross-rank GPU-push race). Mutually exclusive;
-# default off leaves the current node-window path unchanged. For a production multinode run you almost
-# certainly want ONE of these (see CLAUDE.md "Production blow-up"):
-#   -DTRP_I_FORCE_MPI=TRUE  : always-correct STABILIZER (CPU/MPI fallback, ~1.5-2x slower on the I leg).
-#   -DTRP_I_SYSFENCE=TRUE   : separate hip_system_fence after each push + reader invalidate (~baseline).
-#   -DTRP_I_FUSEDFENCE=TRUE : V1 fused write+__threadfence_system + reader invalidate (current candidate).
-if (TRP_I_FORCE_MPI)
-  add_definitions(-DTRP_I_FORCE_MPI)
-endif ()
-if (TRP_I_SYSFENCE)
-  add_definitions(-DTRP_I_SYSFENCE)
-endif ()
-if (TRP_I_FUSEDFENCE)
-  add_definitions(-DTRP_I_FUSEDFENCE)
-endif ()
-
-# Compile-time debug probes (NWFR/NWBR/MAXVAL/POIS-trace). Default OFF = zero cost.
-if (DNS_DEBUG_PROBES)
+if (DNS_DEBUG GREATER_EQUAL 1)
   add_definitions(-DDNS_DEBUG_PROBES)
+endif ()
+if (DNS_DEBUG GREATER_EQUAL 2)
+  add_definitions(-DPROBE_SYNC_ONLY)
 endif ()
 
 # compiler for parallel build

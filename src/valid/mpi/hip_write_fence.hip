@@ -148,6 +148,28 @@ extern "C" void hip_system_fence()
     }
 }
 
+// hip_memcpy_push(dst, src, n) — V2 (TRP_I_MEMCPY): blocking, system-coherent push of n doubles
+// src -> dst via hipMemcpy(...hipMemcpyDefault). A hipMemcpy is a runtime-managed transfer that is
+// SYNCHRONOUS on the host and SYSTEM-COHERENT on completion: the destination lines are committed to
+// MALL before the call returns, so we need NO in-kernel __threadfence_system on the writer side (this
+// is the alternative to the per-workgroup fused-fence kernel hip_write_with_fence, for testing whether
+// a runtime-managed coherent copy fully closes the cross-XCD node-window push race that the GPU fence
+// only cut, never eliminated). The READER still acquires via hip_invalidate_recv before its GPU unpack
+// because another XCD's L2 may still hold a stale line for the destination window address (hipMemcpy
+// guarantees the writer's release, not the remote reader's acquire). hipMemcpyDefault dispatches on the
+// pointer attributes (both ends are MI300A unified/coarse-grained shared-window memory). Because the
+// copy is synchronous, no extra hipDeviceSynchronize is required after it.
+//   subroutine hip_memcpy_push(dst, src, n) bind(C, name='hip_memcpy_push')
+extern "C" void hip_memcpy_push(double* dst, const double* src, int n)
+{
+    if (n <= 0) return;
+    hipError_t err = hipMemcpy(dst, src, (size_t)n * sizeof(double), hipMemcpyDefault);
+    if (err != hipSuccess) {
+        fprintf(stderr, "[hip_memcpy_push] hipMemcpy failed: %s\n",
+                hipGetErrorString(err));
+    }
+}
+
 // ------------------------------------------------------------------
 // DIAGNOSTIC wrapper (debug only): per-rank trace of the HIP layer. Uses the legacy
 // per-thread fenced kernel; not for production use.
