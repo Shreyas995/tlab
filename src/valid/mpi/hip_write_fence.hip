@@ -23,6 +23,7 @@
 
 #include <hip/hip_runtime.h>
 #include <stdio.h>
+#include <stdint.h>
 
 // ------------------------------------------------------------------
 // Kernels
@@ -56,6 +57,47 @@ __global__ void hip_copy_fence_kernel(const double* __restrict__ src,
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         dst[idx] = src[idx];
+    }
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        __threadfence_system();
+    }
+}
+
+// FUSED multi-segment strided SCATTER + PER-WORKGROUP system fence in ONE kernel. This collapses
+// the per-peer hip_write_with_fence loop (and its strided staging gather) used by the apudirect /
+// node-window REAL transpose pushes: instead of N contiguous copies, each its own kernel launch
+// AND its own hipDeviceSynchronize, a single launch scatters the (possibly strided) source into all
+// N peer window-slots and fences per workgroup.
+//
+//   element (m,i,j), m in [0,n_peer), i in [0,n_rows), j in [0,n_cols):
+//     dst[m*dst_stride + dst_base + i*n_cols + j] = src[m*src_seg_stride + i*src_row_stride + j]
+//
+// Each peer's destination slot is contiguous (i*n_cols+j); the SOURCE is strided when
+// src_row_stride != n_cols (the gather-on-the-fly forward/backward transposes) or contiguous when
+// src_seg_stride = n_rows*n_cols, src_row_stride = 1, n_cols = 1 (the flat per-peer transposes).
+// Coherency is BYTE-IDENTICAL to hip_copy_fence_kernel: an unconditional __syncthreads() then a
+// thread-0 __threadfence_system() (whole-L2 write-back to MALL) per workgroup. __threadfence_system
+// is NOT address-scoped, so a scattered set of stores is committed exactly as a contiguous one is —
+// the per-peer loop / staging buffer were never the source of coherency, the per-workgroup whole-L2
+// write-back is. dst offsets are int64 (peer windows are many GB apart on the big grids).
+__global__ void hip_pushseg_fence_kernel(const double* __restrict__ src,
+                                         double* __restrict__ dst,
+                                         int n_peer, int n_rows, int n_cols,
+                                         int src_seg_stride, int src_row_stride,
+                                         int64_t dst_stride, int64_t dst_base)
+{
+    const int64_t seg_len = (int64_t)n_rows * n_cols;
+    const int64_t total   = (int64_t)n_peer * seg_len;
+    const int64_t tid     = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid < total) {
+        const int64_t m = tid / seg_len;
+        const int64_t r = tid - m * seg_len;                 // contiguous position within the peer slot
+        const int64_t i = r / n_cols;
+        const int64_t j = r - i * n_cols;
+        const int64_t s = m * src_seg_stride + i * src_row_stride + j;
+        const int64_t d = m * dst_stride + dst_base + i * (int64_t)n_cols + j;
+        dst[d] = src[s];
     }
     __syncthreads();
     if (threadIdx.x == 0) {
@@ -119,6 +161,31 @@ extern "C" void hip_write_with_fence(const double* src, double* dst, int n)
     hipError_t err = hipDeviceSynchronize();
     if (err != hipSuccess) {
         fprintf(stderr, "[hip_write_with_fence] hipDeviceSynchronize failed: %s\n",
+                hipGetErrorString(err));
+    }
+}
+
+// hip_pushseg_fence(...) — fused multi-segment scatter + per-workgroup system fence (ONE launch,
+// ONE sync). Drop-in replacement for the per-peer hip_write_with_fence loop on the real transposes.
+//   subroutine hip_pushseg_fence(src, dst, n_peer, n_rows, n_cols, src_seg_stride, src_row_stride,
+//                                dst_stride, dst_base) bind(C, name='hip_pushseg_fence')
+extern "C" void hip_pushseg_fence(const double* src, double* dst,
+                                  int n_peer, int n_rows, int n_cols,
+                                  int src_seg_stride, int src_row_stride,
+                                  int64_t dst_stride, int64_t dst_base)
+{
+    const int64_t total = (int64_t)n_peer * n_rows * n_cols;
+    if (total <= 0) return;
+    const int threads = 256;
+    const int64_t blocks = (total + threads - 1) / threads;
+    hipLaunchKernelGGL(hip_pushseg_fence_kernel, dim3((unsigned int)blocks), dim3(threads), 0, 0,
+                       src, dst, n_peer, n_rows, n_cols,
+                       src_seg_stride, src_row_stride, dst_stride, dst_base);
+    // block until the scatter+fence kernel completes (caller relies on this being synchronous before
+    // MPI_Win_fence closes the RMA epoch — the V1 iter-53 lesson: the fence does not wait on GPU work).
+    hipError_t err = hipDeviceSynchronize();
+    if (err != hipSuccess) {
+        fprintf(stderr, "[hip_pushseg_fence] hipDeviceSynchronize failed: %s\n",
                 hipGetErrorString(err));
     }
 }
