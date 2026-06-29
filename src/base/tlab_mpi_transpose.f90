@@ -193,6 +193,18 @@ module TLabMPI_Transpose
             integer(c_int), value       :: n
         end subroutine
 
+        ! F1 (TRP_I_MEMCPY_ASYNC): pipelined node push. hip_memcpy_push_async queues a coherent copy on a
+        ! persistent stream WITHOUT blocking; hip_memcpy_push_sync drains the whole batch once after the loop.
+        ! Same MALL commit as the blocking hip_memcpy_push (see hip_write_fence.hip).
+        subroutine hip_memcpy_push_async(dst, src, n) bind(C, name='hip_memcpy_push_async')
+            use iso_c_binding
+            real(c_double), intent(out) :: dst(*)
+            real(c_double), intent(in)  :: src(*)
+            integer(c_int), value       :: n
+        end subroutine
+        subroutine hip_memcpy_push_sync() bind(C, name='hip_memcpy_push_sync')
+        end subroutine
+
         function hipHostRegister(ptr, sz, flags) bind(C, name='hipHostRegister') result(ierr)
             use iso_c_binding
             integer(c_int) :: ierr
@@ -848,8 +860,15 @@ contains
             hip_sync_err = hipDeviceSynchronize()   ! order the OMP gather before the HIP hipMemcpy reads wrk_mpi_dp (OMP offload stream != HIP stream; mirrors the FUSEDFENCE pre-sync)
             do m = 0, ims_npro_k - 1
                 off = int(m, 8)*int(apu_stride_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
+#ifdef TRP_I_MEMCPY_ASYNC
+                call hip_memcpy_push_async(apu_all_k(off + 1:off + mas), wrk_mpi_dp(m*mas + 1:m*mas + mas), int(mas, c_int))
+#else
                 call hip_memcpy_push(apu_all_k(off + 1:off + mas), wrk_mpi_dp(m*mas + 1:m*mas + mas), int(mas, c_int))
+#endif
             end do
+#ifdef TRP_I_MEMCPY_ASYNC
+            call hip_memcpy_push_sync()   ! F1: drain the async push batch before the close fence
+#endif
 #else
             ! FUSED single-kernel push (real-K, 2026-06-29): hip_pushseg_fence scatters the STRIDED source a
             ! DIRECTLY into every peer's window slot with the per-workgroup __threadfence_system (same writer
@@ -935,14 +954,18 @@ contains
                 do m = 0, ims_npro_k - 1
                     if (.not. is_intra_k(m)) cycle
                     off = int(node_lrank_k(m), 8)*int(apu_size_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
-#ifdef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                    call hip_memcpy_push_async(node_all_k(off + 1:off + mas), wrk_mpi_dp(2*size + m*mas + 1:2*size + m*mas + mas), int(mas, c_int))
+#elif defined(TRP_I_MEMCPY)
                     call hip_memcpy_push(node_all_k(off + 1:off + mas), wrk_mpi_dp(2*size + m*mas + 1:2*size + m*mas + mas), int(mas, c_int))
 #else
                     call hip_write_with_fence(wrk_mpi_dp(2*size + m*mas + 1:2*size + m*mas + mas), &
                                               node_all_k(off + 1:off + mas), int(mas, c_int))
 #endif
                 end do
-#ifndef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                call hip_memcpy_push_sync()             ! F1: one stream-sync for the whole async push batch
+#elif !defined(TRP_I_MEMCPY)
                 hip_sync_err = hipDeviceSynchronize()   ! FUSEDFENCE: drain the ASYNC hip_write_with_fence push before the close fence. Skipped under TRP_I_MEMCPY (blocking hipMemcpy already self-drained).
 #endif
 #else
@@ -1327,7 +1350,9 @@ contains
                     if (.not. is_intra_k(m)) cycle
                     off = int(node_lrank_k(m),8)*int(apu_size_k,8) + int(ims_pro_k,8)*int(2*mas,8)
                     dbg1(1) = real(off + 2*mas, dp); DNS_PROBE_CPU('CXKF:3-pre-fence-end', dbg1, 1, m)
-#ifdef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                    call hip_memcpy_push_async(node_all_k(off + 1:off + 2*mas), wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), int(2*mas, c_int))
+#elif defined(TRP_I_MEMCPY)
                     call hip_memcpy_push(node_all_k(off + 1:off + 2*mas), wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), int(2*mas, c_int))
 #else
                     call hip_write_with_fence(wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), &
@@ -1335,7 +1360,9 @@ contains
 #endif
                     DNS_PROBE_CPU('CXKF:3-post-fence-peer', dbg1, 1, m)
                 end do
-#ifndef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                call hip_memcpy_push_sync()             ! F1: one stream-sync for the whole async push batch
+#elif !defined(TRP_I_MEMCPY)
                 hip_sync_err = hipDeviceSynchronize()   ! FUSEDFENCE: drain the ASYNC hip_write_with_fence push before the close fence. Skipped under TRP_I_MEMCPY (blocking hipMemcpy already self-drained).
 #endif
                 DNS_PROBE_CPU('CXKF:4-post-fence-all', dbg1, 1, ims_pro_k)
@@ -1520,8 +1547,15 @@ contains
             hip_sync_err = hipDeviceSynchronize()   ! order the caller's b (OMP offload stream) before the HIP hipMemcpy reads it (OMP stream != HIP stream; mirrors the FUSEDFENCE pre-sync at the #else branch)
             do m = 0, ims_npro_k - 1
                 off = int(m, 8)*int(apu_stride_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
+#ifdef TRP_I_MEMCPY_ASYNC
+                call hip_memcpy_push_async(apu_all_k(off + 1:off + mas), b(m*mas + 1:m*mas + mas), int(mas, c_int))
+#else
                 call hip_memcpy_push(apu_all_k(off + 1:off + mas), b(m*mas + 1:m*mas + mas), int(mas, c_int))
+#endif
             end do
+#ifdef TRP_I_MEMCPY_ASYNC
+            call hip_memcpy_push_sync()   ! F1: drain the async push batch before the close fence
+#endif
 #else
             ! FUSED single-kernel push (real-K backward, 2026-06-29): b is flat per peer, so hip_pushseg_fence
             ! scatters it directly into every peer's window slot (n_cols=1) with the per-workgroup
@@ -1590,13 +1624,17 @@ contains
                 do m = 0, ims_npro_k - 1
                     if (.not. is_intra_k(m)) cycle
                     off = int(node_lrank_k(m), 8)*int(apu_size_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
-#ifdef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                    call hip_memcpy_push_async(node_all_k(off + 1:off + mas), b(m*mas + 1:m*mas + mas), int(mas, c_int))
+#elif defined(TRP_I_MEMCPY)
                     call hip_memcpy_push(node_all_k(off + 1:off + mas), b(m*mas + 1:m*mas + mas), int(mas, c_int))
 #else
                     call hip_write_with_fence(b(m*mas + 1:m*mas + mas), node_all_k(off + 1:off + mas), int(mas, c_int))
 #endif
                 end do
-#ifndef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                call hip_memcpy_push_sync()             ! F1: one stream-sync for the whole async push batch
+#elif !defined(TRP_I_MEMCPY)
                 hip_sync_err = hipDeviceSynchronize()   ! FUSEDFENCE: drain the ASYNC hip_write_with_fence push before the close fence. Skipped under TRP_I_MEMCPY (blocking hipMemcpy already self-drained).
 #endif
 #else
@@ -1978,7 +2016,9 @@ contains
                     if (.not. is_intra_k(m)) cycle
                     off = int(node_lrank_k(m),8)*int(apu_size_k,8) + int(ims_pro_k,8)*int(2*mas,8)
                     dbg1(1) = real(off + 2*mas, dp); DNS_PROBE_CPU('CXKB:3-pre-fence-end', dbg1, 1, m)
-#ifdef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                    call hip_memcpy_push_async(node_all_k(off + 1:off + 2*mas), wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), int(2*mas, c_int))
+#elif defined(TRP_I_MEMCPY)
                     call hip_memcpy_push(node_all_k(off + 1:off + 2*mas), wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), int(2*mas, c_int))
 #else
                     call hip_write_with_fence(wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), &
@@ -1986,7 +2026,9 @@ contains
 #endif
                     DNS_PROBE_CPU('CXKB:3-post-fence-peer', dbg1, 1, m)
                 end do
-#ifndef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                call hip_memcpy_push_sync()             ! F1: one stream-sync for the whole async push batch
+#elif !defined(TRP_I_MEMCPY)
                 hip_sync_err = hipDeviceSynchronize()   ! FUSEDFENCE: drain the ASYNC hip_write_with_fence push before the close fence. Skipped under TRP_I_MEMCPY (blocking hipMemcpy already self-drained).
 #endif
                 DNS_PROBE_CPU('CXKB:4-post-fence-all', dbg1, 1, ims_pro_k)
@@ -2228,7 +2270,9 @@ contains
                 hip_sync_err = hipDeviceSynchronize()
                 do m = 0, ims_npro_i - 1
                     off = int(node_lrank_i(m), 8)*int(apu_size_i, 8) + int(ims_pro_i, 8)*int(mas, 8)
-#ifdef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                    call hip_memcpy_push_async(node_all_i(off + 1:off + mas), a(m*mas + 1:m*mas + mas), int(mas, c_int))
+#elif defined(TRP_I_MEMCPY)
                     ! V2: blocking, system-coherent hipMemcpy push -- synchronous on the host and committed to
                     ! MALL on return, so it does NOT depend on the manual __threadfence_system the per-wg fence
                     ! only cut ~14x (the _750 it=236601 writer-side residual: a healthy peer push landed as
@@ -2243,7 +2287,9 @@ contains
                 ! MPI_Win_fence below (a CPU/MPI barrier that does not block on GPU kernels) would close the RMA
                 ! epoch while the pushes are still in flight -> peers read stale/partial window data. Under
                 ! TRP_I_MEMCPY the push is a BLOCKING hipMemcpy that already self-drained, so this sync is skipped.
-#ifndef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                call hip_memcpy_push_sync()             ! F1: one stream-sync for the whole async push batch
+#elif !defined(TRP_I_MEMCPY)
                 hip_sync_err = hipDeviceSynchronize()
 #endif
 #else
@@ -2627,7 +2673,10 @@ contains
                 hip_sync_err = hipDeviceSynchronize()   ! order the gather before the HIP push reads wrk_mpi_dp
                 do m = 0, ims_npro_i - 1
                     off = int(node_lrank_i(m),8)*int(apu_size_i,8) + int(2*ims_pro_i,8)*int(mas,8)
-#ifdef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                    call hip_memcpy_push_async(node_all_i(off + 1:off + 2*mas), &
+                                               wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), int(2*mas, c_int))
+#elif defined(TRP_I_MEMCPY)
                     call hip_memcpy_push(node_all_i(off + 1:off + 2*mas), &
                                          wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), int(2*mas, c_int))
 #else
@@ -2635,7 +2684,9 @@ contains
                                               node_all_i(off + 1:off + 2*mas), int(2*mas, c_int))
 #endif
                 end do
-#ifndef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                call hip_memcpy_push_sync()             ! F1: one stream-sync for the whole async push batch
+#elif !defined(TRP_I_MEMCPY)
                 hip_sync_err = hipDeviceSynchronize()   ! FUSEDFENCE: drain the ASYNC hip_write_with_fence push before the close fence. Skipped under TRP_I_MEMCPY (blocking hipMemcpy already self-drained).
 #endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
@@ -2851,7 +2902,9 @@ contains
                 hip_sync_err = hipDeviceSynchronize()   ! gather (OMP stream) must complete before the HIP push reads wrk_mpi_dp
                 do m = 0, ims_npro_i - 1
                     off = int(node_lrank_i(m), 8)*int(apu_size_i, 8) + int(ims_pro_i, 8)*int(mas, 8)
-#ifdef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                    call hip_memcpy_push_async(node_all_i(off + 1:off + mas), wrk_mpi_dp(m*mas + 1:m*mas + mas), int(mas, c_int))
+#elif defined(TRP_I_MEMCPY)
                     ! V2: blocking, system-coherent hipMemcpy push (commits to MALL on return, no manual
                     ! __threadfence_system) -- the writer-side fix for the _750 it=236601 seed (NWBR backward
                     ! real-I push: healthy peer rank 38 -> garbage in rank 39 seg2, committed to HBM). dst, src.
@@ -2863,7 +2916,9 @@ contains
                 ! FUSEDFENCE path: same async-launch race as ExecI_Forward_Real -- drain the push+fence kernels
                 ! before the MPI_Win_fence closes the RMA epoch (CPU barrier does not block GPU kernels). Under
                 ! TRP_I_MEMCPY the blocking hipMemcpy already self-drained, so this sync is skipped.
-#ifndef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                call hip_memcpy_push_sync()             ! F1: one stream-sync for the whole async push batch
+#elif !defined(TRP_I_MEMCPY)
                 hip_sync_err = hipDeviceSynchronize()
 #endif
 #else
@@ -3215,7 +3270,10 @@ contains
                 hip_sync_err = hipDeviceSynchronize()   ! order the gather before the HIP push reads wrk_mpi_dp
                 do m = 0, ims_npro_i - 1
                     off = int(node_lrank_i(m),8)*int(apu_size_i,8) + int(2*ims_pro_i,8)*int(mas,8)
-#ifdef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                    call hip_memcpy_push_async(node_all_i(off + 1:off + 2*mas), &
+                                               wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), int(2*mas, c_int))
+#elif defined(TRP_I_MEMCPY)
                     call hip_memcpy_push(node_all_i(off + 1:off + 2*mas), &
                                          wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), int(2*mas, c_int))
 #else
@@ -3223,7 +3281,9 @@ contains
                                               node_all_i(off + 1:off + 2*mas), int(2*mas, c_int))
 #endif
                 end do
-#ifndef TRP_I_MEMCPY
+#if defined(TRP_I_MEMCPY_ASYNC)
+                call hip_memcpy_push_sync()             ! F1: one stream-sync for the whole async push batch
+#elif !defined(TRP_I_MEMCPY)
                 hip_sync_err = hipDeviceSynchronize()   ! FUSEDFENCE: drain the ASYNC hip_write_with_fence push before the close fence. Skipped under TRP_I_MEMCPY (blocking hipMemcpy already self-drained).
 #endif
                 call MPI_Win_fence(0, node_win_i, ims_err)

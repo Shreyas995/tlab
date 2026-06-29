@@ -229,6 +229,49 @@ extern "C" void hip_memcpy_push(double* dst, const double* src, int n)
     }
 }
 
+// F1 (TRP_I_MEMCPY_ASYNC): pipelined variant of hip_memcpy_push. The per-peer node-window push loop issues N
+// non-blocking hipMemcpyAsync onto ONE persistent stream, then drains them with a SINGLE hip_memcpy_push_sync()
+// after the loop (before MPI_Win_fence). Identical runtime DMA / MALL commit as the blocking hip_memcpy_push --
+// async vs blocking changes only when the HOST is notified, not the memory scope -- so the cross-XCD window data
+// is committed on stream-sync exactly as the blocking copy commits on return. Benefit: the host queues all N
+// copies instead of round-tripping per copy, freeing the CPU during the DMAs (and letting the K paths post the
+// inter-node MPI_ISEND while the intra copies run). One persistent stream per rank (OMP_NUM_THREADS=1 -> no
+// concurrency), lazily created, never destroyed (1 stream/run = negligible; matches the no-teardown style).
+static hipStream_t g_push_stream = nullptr;
+
+// hip_memcpy_push_async(dst, src, n) -- queue one coherent copy on g_push_stream WITHOUT blocking the host.
+// The caller MUST call hip_memcpy_push_sync() once after the per-peer loop to complete the batch.
+extern "C" void hip_memcpy_push_async(double* dst, const double* src, int n)
+{
+    if (n <= 0) return;
+    if (g_push_stream == nullptr) {
+        hipError_t cerr = hipStreamCreate(&g_push_stream);
+        if (cerr != hipSuccess) {
+            fprintf(stderr, "[hip_memcpy_push_async] hipStreamCreate failed: %s\n",
+                    hipGetErrorString(cerr));
+            return;
+        }
+    }
+    hipError_t err = hipMemcpyAsync(dst, src, (size_t)n * sizeof(double),
+                                    hipMemcpyDefault, g_push_stream);
+    if (err != hipSuccess) {
+        fprintf(stderr, "[hip_memcpy_push_async] hipMemcpyAsync failed: %s\n",
+                hipGetErrorString(err));
+    }
+}
+
+// hip_memcpy_push_sync() -- block until ALL queued async pushes on g_push_stream have completed and committed
+// to MALL. Pairs with hip_memcpy_push_async; safe no-op if the stream was never created.
+extern "C" void hip_memcpy_push_sync()
+{
+    if (g_push_stream == nullptr) return;
+    hipError_t err = hipStreamSynchronize(g_push_stream);
+    if (err != hipSuccess) {
+        fprintf(stderr, "[hip_memcpy_push_sync] hipStreamSynchronize failed: %s\n",
+                hipGetErrorString(err));
+    }
+}
+
 // ------------------------------------------------------------------
 // DIAGNOSTIC wrapper (debug only): per-rank trace of the HIP layer. Uses the legacy
 // per-thread fenced kernel; not for production use.

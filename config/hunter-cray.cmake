@@ -76,6 +76,9 @@ elseif( ${ACCELERATE} STREQUAL "TRUE" )
   if (_TRP_FUSED_DEFAULT)
     add_definitions(-DTRP_I_FUSEDFENCE)  # staging/reader-acquire scaffolding + apudirect fence commit.
   endif ()
+  if (TRP_I_MEMCPY_ASYNC)     # A/B (F1): pipeline the node-window pushes -- N hipMemcpyAsync on ONE stream + 1
+    add_definitions(-DTRP_I_MEMCPY -DTRP_I_MEMCPY_ASYNC)   # stream-sync, vs N blocking hipMemcpy. Implies MEMCPY.
+  endif ()                                                 # Default OFF; do NOT combine with FENCE_ONLY/SYSFENCE.
   if (TRP_I_FORCE_MPI)        # route the single-XCD intra-node I-transpose onto MPI; legacy stabilizer,
     add_definitions(-DTRP_I_FORCE_MPI)   # now unnecessary -- hipMemcpy fixes the real-I push on the GPU.
   endif ()
