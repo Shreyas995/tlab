@@ -2530,12 +2530,19 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
-#ifdef TRP_I_SYSFENCE
-                call hip_system_fence()   ! FAST FIX: system-scope L2 write-back -> cross-rank push visible in MALL
+#if defined(TRP_I_SYSFENCE) || defined(TRP_I_FUSEDFENCE)
+                ! writer release: device-scope hipDeviceSynchronize is NOT a system-scope L2 write-back, so commit
+                ! the cross-rank push to MALL before the close fence. AUDIT FIX [2026-06-29]: this + the reader
+                ! acquire below were gated SYSFENCE-only, so under the PRODUCTION -DTRP_I_FUSEDFENCE build the
+                ! complex-I node-window push ran with NO system fence and NO acquire (only a device sync) = the
+                ! documented "next latent complex-I" gap. Now active under FUSEDFENCE too.
+                call hip_system_fence()
 #endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
-#ifdef TRP_I_SYSFENCE
-                call hip_invalidate_recv(node_recv_fptr_i, int(2*size, c_int))   ! reader-side (real view of cx): fresh MALL before unpack
+#if defined(TRP_I_SYSFENCE) || defined(TRP_I_FUSEDFENCE)
+                ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real view
+                ! of the complex node window, 2*size reals) -> reloads fresh MALL data, not a stale line.
+                call hip_invalidate_recv(node_recv_fptr_i, int(2*size, c_int))
 #endif
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
@@ -3065,12 +3072,19 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
-#ifdef TRP_I_SYSFENCE
-                call hip_system_fence()   ! FAST FIX: system-scope L2 write-back -> cross-rank push visible in MALL
+#if defined(TRP_I_SYSFENCE) || defined(TRP_I_FUSEDFENCE)
+                ! writer release: device-scope hipDeviceSynchronize is NOT a system-scope L2 write-back, so commit
+                ! the cross-rank push to MALL before the close fence. AUDIT FIX [2026-06-29]: this + the reader
+                ! acquire below were gated SYSFENCE-only, so under the PRODUCTION -DTRP_I_FUSEDFENCE build the
+                ! complex-I node-window push ran with NO system fence and NO acquire (only a device sync) = the
+                ! documented "next latent complex-I" gap. Now active under FUSEDFENCE too.
+                call hip_system_fence()
 #endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
-#ifdef TRP_I_SYSFENCE
-                call hip_invalidate_recv(node_recv_fptr_i, int(2*size, c_int))   ! reader-side (real view of cx): fresh MALL before unpack
+#if defined(TRP_I_SYSFENCE) || defined(TRP_I_FUSEDFENCE)
+                ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real view
+                ! of the complex node window, 2*size reals) -> reloads fresh MALL data, not a stale line.
+                call hip_invalidate_recv(node_recv_fptr_i, int(2*size, c_int))
 #endif
                 !$omp target teams distribute parallel do
                 do i = 1, size
