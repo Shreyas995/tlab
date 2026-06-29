@@ -2207,16 +2207,26 @@ contains
                 !   NWFR:wcpu/win/out all clean but self-burgX still garbage -> the FDM, not the transpose.
                 if (trp_dbg_fft) DNS_PROBE('NWFR:in', a(1), size, -1)
                 call MPI_Win_fence(0, node_win_i, ims_err)
-#ifdef TRP_I_FUSEDFENCE
-                ! V1: each peer's contiguous slot is WRITTEN AND fenced in ONE wavefront by the tested
-                ! hip_write_with_fence kernel (write a -> peer's window slot, then __threadfence_system in the
-                ! same wavefront). a(m*mas+1:..) is contiguous per peer; node_all_i is contiguous.
+#if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY)
+                ! Writer release of the cross-XCD node-window push. Per peer, the contiguous slot is committed
+                ! either by the per-workgroup fused write+fence kernel (FUSEDFENCE) OR, under TRP_I_MEMCPY, by a
+                ! blocking system-coherent hipMemcpy (hip_memcpy_push). a(m*mas+1:..) is contiguous per peer;
+                ! node_all_i is contiguous. (The I push gets the SAME hipMemcpy option the K pushes already have
+                ! -- the writer-side per-wg fence only cut, never closed, the cross-rank push residual.)
                 ! 'a' is produced by the caller on the OpenMP offload stream; the HIP push runs on the HIP
                 ! stream -> sync first so the push reads the final 'a', not an in-flight value.
                 hip_sync_err = hipDeviceSynchronize()
                 do m = 0, ims_npro_i - 1
                     off = int(node_lrank_i(m), 8)*int(apu_size_i, 8) + int(ims_pro_i, 8)*int(mas, 8)
+#ifdef TRP_I_MEMCPY
+                    ! V2: blocking, system-coherent hipMemcpy push -- synchronous on the host and committed to
+                    ! MALL on return, so it does NOT depend on the manual __threadfence_system the per-wg fence
+                    ! only cut ~14x (the _750 it=236601 writer-side residual: a healthy peer push landed as
+                    ! garbage in a peer's window, NWBR:wcpu==win confirmed it in HBM). dst first, then src.
+                    call hip_memcpy_push(node_all_i(off + 1:off + mas), a(m*mas + 1:m*mas + mas), int(mas, c_int))
+#else
                     call hip_write_with_fence(a(m*mas + 1:m*mas + mas), node_all_i(off + 1:off + mas), int(mas, c_int))
+#endif
                 end do
                 ! CRITICAL: hip_write_with_fence is an ASYNC kernel launch. The in-kernel __threadfence_system
                 ! orders the write but does NOT make the host wait. Without this sync, the MPI_Win_fence below
@@ -2245,8 +2255,8 @@ contains
                         DNS_PROBE('NWFR:seg', node_recv_fptr_i(m*mas + 1), mas, m)
                     end do
                 end if
-#ifdef TRP_I_READER_ACQUIRE
-                call hip_invalidate_recv(node_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with SYSFENCE or FUSEDFENCE writer release)
+#if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY) || defined(TRP_I_READER_ACQUIRE)
+                call hip_invalidate_recv(node_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with the FUSEDFENCE/MEMCPY/SYSFENCE writer release)
 #endif
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
@@ -2586,12 +2596,13 @@ contains
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
                 call MPI_Win_fence(0, node_win_i, ims_err)
-#ifdef TRP_I_FUSEDFENCE
-                ! STRONG per-workgroup fence (2026-06-29 audit fix: the node complex-I push was the LAST cross-rank
-                ! GPU window push still on the weak <<<1,1>>> hip_system_fence). Mirror the complex-K node / apudirect
-                ! complex-I mechanism: gather the flat complex a into contiguous real staging (wrk_mpi_dp BY NAME,
-                ! 2 reals/complex, offset 2*size clears c_wrk_cx), then push to the window's REAL view (node_all_i)
-                ! via the per-workgroup-fenced hip_write_with_fence. All-intra (npro_i=6 = one XCD) -> no inter leg.
+#if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY)
+                ! Writer release of the complex-I node push. Gather the flat complex a into contiguous real staging
+                ! (wrk_mpi_dp BY NAME, 2 reals/complex, offset 2*size clears c_wrk_cx), then commit to the window's
+                ! REAL view (node_all_i): per-workgroup fused write+fence (FUSEDFENCE) OR a blocking system-coherent
+                ! hipMemcpy (TRP_I_MEMCPY). All-intra (npro_i=6 = one XCD) -> no inter leg. This is the LAST node
+                ! push to gain the hipMemcpy option, so -DTRP_I_MEMCPY now removes the per-wg fence residual on
+                ! EVERY cross-XCD transpose (real I/K + complex I/K) -- ending the seed-migration whack-a-mole.
                 !$omp target teams distribute parallel do collapse(2)
                 do m = 0, ims_npro_i - 1
                     do i = 1, mas
@@ -2603,8 +2614,13 @@ contains
                 hip_sync_err = hipDeviceSynchronize()   ! order the gather before the HIP push reads wrk_mpi_dp
                 do m = 0, ims_npro_i - 1
                     off = int(node_lrank_i(m),8)*int(apu_size_i,8) + int(2*ims_pro_i,8)*int(mas,8)
+#ifdef TRP_I_MEMCPY
+                    call hip_memcpy_push(node_all_i(off + 1:off + 2*mas), &
+                                         wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), int(2*mas, c_int))
+#else
                     call hip_write_with_fence(wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), &
                                               node_all_i(off + 1:off + 2*mas), int(2*mas, c_int))
+#endif
                 end do
                 hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
                 call MPI_Win_fence(0, node_win_i, ims_err)
@@ -2802,11 +2818,12 @@ contains
                 ! recv segment, = ims_npro_i source-slots of 'mas' each (slot s pushed by source rank s).
                 if (trp_dbg_fft) DNS_PROBE('NWBR:in', b(1), size, -1)
                 call MPI_Win_fence(0, node_win_i, ims_err)
-#ifdef TRP_I_FUSEDFENCE
-                ! V1: the backward source b is STRIDED, so gather it into a contiguous staging buffer
-                ! (wrk_mpi_dp, per-peer contiguous), then WRITE+fence each peer slot in one wavefront via the
-                ! tested hip_write_with_fence kernel. (Same data path as the !$omp push, but the cross-rank
-                ! write and its __threadfence_system live in the same wavefront -> reliable system flush.)
+#if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY)
+                ! The backward source b is STRIDED, so gather it into a contiguous staging buffer (wrk_mpi_dp,
+                ! per-peer contiguous), then commit each peer slot to the window: either WRITE+fence in one
+                ! wavefront (FUSEDFENCE) OR a blocking system-coherent hipMemcpy (TRP_I_MEMCPY). The gather is
+                ! the same; only the per-peer push call differs. (The I push gets the SAME hipMemcpy option the
+                ! K pushes already have -- the per-wg fence is the writer-side residual that seeded the _750 crash.)
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
                     do i = 0, nlines_p - 1
@@ -2819,7 +2836,14 @@ contains
                 hip_sync_err = hipDeviceSynchronize()   ! gather (OMP stream) must complete before the HIP push reads wrk_mpi_dp
                 do m = 0, ims_npro_i - 1
                     off = int(node_lrank_i(m), 8)*int(apu_size_i, 8) + int(ims_pro_i, 8)*int(mas, 8)
+#ifdef TRP_I_MEMCPY
+                    ! V2: blocking, system-coherent hipMemcpy push (commits to MALL on return, no manual
+                    ! __threadfence_system) -- the writer-side fix for the _750 it=236601 seed (NWBR backward
+                    ! real-I push: healthy peer rank 38 -> garbage in rank 39 seg2, committed to HBM). dst, src.
+                    call hip_memcpy_push(node_all_i(off + 1:off + mas), wrk_mpi_dp(m*mas + 1:m*mas + mas), int(mas, c_int))
+#else
                     call hip_write_with_fence(wrk_mpi_dp(m*mas + 1:m*mas + mas), node_all_i(off + 1:off + mas), int(mas, c_int))
+#endif
                 end do
                 ! CRITICAL: same async-launch race as ExecI_Forward_Real -- wait for the push+fence kernels to
                 ! COMPLETE before the MPI_Win_fence closes the RMA epoch (CPU barrier does not block GPU kernels).
@@ -2855,8 +2879,8 @@ contains
                         DNS_PROBE('NWBR:seg', node_recv_fptr_i(m*mas + 1), mas, m)
                     end do
                 end if
-#ifdef TRP_I_READER_ACQUIRE
-                call hip_invalidate_recv(node_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with SYSFENCE or FUSEDFENCE writer release)
+#if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY) || defined(TRP_I_READER_ACQUIRE)
+                call hip_invalidate_recv(node_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with the FUSEDFENCE/MEMCPY/SYSFENCE writer release)
 #endif
                 !$omp target teams distribute parallel do
                 do i = 1, size
@@ -3156,10 +3180,10 @@ contains
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
                 call MPI_Win_fence(0, node_win_i, ims_err)
-#ifdef TRP_I_FUSEDFENCE
-                ! STRONG per-workgroup fence (2026-06-29 audit fix; node complex-I backward). Gather the STRIDED
-                ! complex b into contiguous real staging (wrk_mpi_dp BY NAME, 2 reals/complex, offset 2*size),
-                ! then push to the window's REAL view (node_all_i) via the per-workgroup-fenced hip_write_with_fence.
+#if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY)
+                ! Writer release of the complex-I node push (backward). Gather the STRIDED complex b into contiguous
+                ! real staging (wrk_mpi_dp BY NAME, 2 reals/complex, offset 2*size), then commit to the window's REAL
+                ! view (node_all_i): per-workgroup fused write+fence (FUSEDFENCE) OR blocking hipMemcpy (TRP_I_MEMCPY).
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
                     do i = 0, nlines_p - 1
@@ -3173,8 +3197,13 @@ contains
                 hip_sync_err = hipDeviceSynchronize()   ! order the gather before the HIP push reads wrk_mpi_dp
                 do m = 0, ims_npro_i - 1
                     off = int(node_lrank_i(m),8)*int(apu_size_i,8) + int(2*ims_pro_i,8)*int(mas,8)
+#ifdef TRP_I_MEMCPY
+                    call hip_memcpy_push(node_all_i(off + 1:off + 2*mas), &
+                                         wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), int(2*mas, c_int))
+#else
                     call hip_write_with_fence(wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), &
                                               node_all_i(off + 1:off + 2*mas), int(2*mas, c_int))
+#endif
                 end do
                 hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
                 call MPI_Win_fence(0, node_win_i, ims_err)

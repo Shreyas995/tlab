@@ -23,44 +23,61 @@ endif()
 #  GPU / APU acceleration  (-DACCELERATE=TRUE)  --  ALL TRANSPOSES RUN ON THE GPU
 # ============================================================================
 # A plain -DACCELERATE=TRUE gives the COMPLETE, coherent, all-on-GPU build: every
-# transpose (real I/K and complex I/K) runs on the GPU shared window, with the
-# per-workgroup write+fence coherence fix folded in automatically -- it is REQUIRED
-# for a correct GPU run, so there is no separate flag to remember (was -DTRP_I_FUSEDFENCE).
+# transpose (real I/K and complex I/K) runs on the GPU shared window, with the node-window
+# cross-XCD push coherence fix folded in automatically -- it is REQUIRED for a correct GPU
+# run, so there is no separate flag to remember (was -DTRP_I_FUSEDFENCE, then -DTRP_I_MEMCPY).
+# The fix lives entirely in #ifdef USE_APU code, which compiles ONLY under ACCELERATE, so it
+# belongs here -- nothing to merge or pass on the command line.
 #
-# DESIGN NOTE -- why everything stays on the GPU (do NOT "optimize" by moving transposes
-# to the CPU/MPI): the original apudirect was fast NOT because the complex/Poisson
-# transposes ran on the CPU -- they did not, every transpose ran on the GPU shared
-# window -- but because it carried NO per-push system fences or synchronizations. The
-# fences added later are a CORRECTNESS tax: the cross-rank node-window push needs a
-# system-scope __threadfence_system + a reader-side L2 invalidate, or it delivers stale
-# data and the run blows up. So the optimization target is a CHEAPER fence (the fused
-# per-workgroup kernel), NEVER routing transposes through the CPU. On this unified APU a
-# CPU/MPI transpose is always slower; the all-GPU fenced path IS the production path.
+# Two mechanisms, both folded in:
+#   * TRP_I_MEMCPY  (writer commit, DEFAULT) -- a BLOCKING, system-coherent hipMemcpy for every
+#       node-window cross-XCD push (real I/K + complex I/K). Committed to MALL on return, so it
+#       does NOT rely on a manual fence. The per-workgroup fence only CUT the writer-side push
+#       race ~14x, never closed it (the _750 it=236601 real-I blow-up: held ~1600 iters then a
+#       1-iter detonation at CFL 0.516). hipMemcpy closes it. ~0.01-0.05 s/iter, still on-GPU.
+#   * TRP_I_FUSEDFENCE (per-workgroup write+fence + reader L2 invalidate) -- kept ON: it provides
+#       the staging/reader-acquire scaffolding the memcpy reuses, AND is the commit for the
+#       apudirect-only paths that have no memcpy branch (hip_pushseg_fence).
+#
+# DESIGN NOTE -- why everything stays on the GPU (do NOT "optimize" by moving transposes to the
+# CPU/MPI): the original apudirect was fast NOT because the complex/Poisson transposes ran on the
+# CPU -- they did not, every transpose ran on the GPU shared window -- but because it carried NO
+# per-push system fences or synchronizations. The coherence machinery added later is a CORRECTNESS
+# tax: the cross-rank node-window push needs a system-scope commit (the blocking hipMemcpy, or a
+# __threadfence_system) + a reader-side L2 invalidate, or it delivers stale data and the run blows
+# up. The optimization target is a CHEAPER on-GPU commit, NEVER routing transposes through the CPU.
+# On this unified APU a CPU/MPI transpose is always slower; the all-GPU path IS the production path.
 if ( NOT ACCELERATE )
   set(ACCELERATE "FALSE")
 elseif( ${ACCELERATE} STREQUAL "TRUE" )
   set(USER_APU_FLAGS "-fopenmp ")#-L/opt/rh/gcc-toolset-12/root/usr/lib/gcc/x86_64-redhat-linux/12")
   add_definitions(-DUSE_APU)
 
-  # Default GPU-transpose coherence fix = the per-workgroup fused write+fence (real I/K +
-  # complex-K) + reader L2 invalidate. Always on for an APU build (see the note above).
+  # Default GPU-transpose coherence fix, BOTH folded into -DACCELERATE (see the note above):
+  #   _TRP_MEMCPY_DEFAULT -> blocking system-coherent hipMemcpy on every node-window push (the fix).
+  #   _TRP_FUSED_DEFAULT  -> per-workgroup write+fence + reader L2 invalidate (scaffolding + apudirect).
   set(_TRP_FUSED_DEFAULT TRUE)
+  set(_TRP_MEMCPY_DEFAULT TRUE)
 
   # ----- Advanced / experimental transpose overrides (default OFF; A/B diagnosis only) -----
   # Every one of these is SLOWER than, or equal to, the all-GPU default -- keep them OFF for
-  # production. Kept here only so a failing GPU run can be bisected against a CPU/MPI leg.
-  if (TRP_I_SYSFENCE)         # LEGACY separate hip_system_fence kernel; superseded by the
-    add_definitions(-DTRP_I_SYSFENCE)    # fused fence and mutually exclusive with it.
+  # production. Kept here only so a failing GPU run can be bisected against a fence/CPU/MPI leg.
+  if (TRP_I_FENCE_ONLY)       # A/B: drop the hipMemcpy, keep the per-wg fence (to measure the memcpy
+    set(_TRP_MEMCPY_DEFAULT FALSE)        # cost / show it closes the residual the fence leaks).
+  endif ()
+  if (TRP_I_SYSFENCE)         # LEGACY weak separate hip_system_fence kernel (A/B only); disables BOTH
+    add_definitions(-DTRP_I_SYSFENCE)    # GPU defaults so the weak raw-push path is actually exercised.
     set(_TRP_FUSED_DEFAULT FALSE)
+    set(_TRP_MEMCPY_DEFAULT FALSE)
+  endif ()
+  if (_TRP_MEMCPY_DEFAULT)
+    add_definitions(-DTRP_I_MEMCPY)      # writer commit = blocking hipMemcpy (real I/K + complex I/K).
   endif ()
   if (_TRP_FUSED_DEFAULT)
-    add_definitions(-DTRP_I_FUSEDFENCE)
+    add_definitions(-DTRP_I_FUSEDFENCE)  # staging/reader-acquire scaffolding + apudirect fence commit.
   endif ()
-  if (TRP_I_MEMCPY)           # K pushes via a blocking system-coherent hipMemcpy instead of
-    add_definitions(-DTRP_I_MEMCPY)      # the fused fence (combines with the fused I fence).
-  endif ()
-  if (TRP_I_FORCE_MPI)        # route the single-XCD intra-node I-transpose onto MPI; legacy
-    add_definitions(-DTRP_I_FORCE_MPI)   # stabilizer, slower than the GPU fence.
+  if (TRP_I_FORCE_MPI)        # route the single-XCD intra-node I-transpose onto MPI; legacy stabilizer,
+    add_definitions(-DTRP_I_FORCE_MPI)   # now unnecessary -- hipMemcpy fixes the real-I push on the GPU.
   endif ()
   if (TRP_CX_MPI)             # route the complex (Poisson) transposes onto MPI; slower, A/B
     add_definitions(-DTRP_CX_MPI)        # only (real transposes stay on the GPU).
