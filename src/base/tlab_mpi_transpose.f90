@@ -1205,27 +1205,49 @@ contains
             ! Reinterpret the contiguous real window as complex; size in complex units = apu_stride_k/2
             call c_f_pointer(apu_peer_cptr_k(0), apu_cx_all, [apu_stride_k*ims_npro_k/2])
             call MPI_Win_fence(0, apu_win_k, ims_err)
-            ! Push: strided gather from a into all peers' recv buffers in one fused kernel
+#ifdef TRP_I_FUSEDFENCE
+            ! STRONG per-workgroup fence (2026-06-29 fix for the apudirect complex-K coherence race pinned at
+            ! it=266668 sub4: the weak <<<1,1>>> hip_system_fence did NOT close the cross-XCD push residual, the
+            ! stale complex push fed garbage to the CPU FFTW and the Poisson blew). Mirror the complex-K NODE
+            ! mechanism: gather the strided complex a into contiguous real staging (wrk_mpi_dp, 2 reals/complex,
+            ! ONE device handle), then push to the window's REAL view (apu_all_k) via the per-workgroup-fenced
+            ! hip_write_with_fence (2*mas reals/peer) -- the same fence that works for the real transposes.
+            call c_f_pointer(apu_peer_cptr_k(0), apu_all_k, [apu_stride_k*ims_npro_k])
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_k - 1
                 do i = 0, nmax_p - 1
                     do j = 0, nlines_p - 1
-                        ! apu_stride_k/2 = segment size in complex units; own rank writes at slot own_rank*chunk
+                        wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*(i*nlines_p + j) + 1) = real(a(m*nlines_p + i*npage + j + 1), dp)
+                        wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*(i*nlines_p + j) + 2) = aimag(a(m*nlines_p + i*npage + j + 1))
+                    end do
+                end do
+            end do
+            !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! order the gather before the HIP push reads wrk_mpi_dp
+            do m = 0, ims_npro_k - 1
+                off = int(m, 8)*int(apu_stride_k, 8) + int(2*ims_pro_k, 8)*int(nmax_p*nlines_p, 8)
+                call hip_write_with_fence(wrk_mpi_dp(m*2*nmax_p*nlines_p + 1:m*2*nmax_p*nlines_p + 2*nmax_p*nlines_p), &
+                                          apu_all_k(off + 1:off + 2*nmax_p*nlines_p), int(2*nmax_p*nlines_p, c_int))
+            end do
+            hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+            call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
+            ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real alias of
+            ! the complex K window, 2*size reals) -> reloads fresh MALL data, not a stale line from a prior substep.
+            call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))
+#else
+            ! Push: strided gather from a directly into all peers' complex window slots (non-fused-fence build).
+            !$omp target teams distribute parallel do collapse(3)
+            do m = 0, ims_npro_k - 1
+                do i = 0, nmax_p - 1
+                    do j = 0, nlines_p - 1
                         apu_cx_all(m*(apu_stride_k/2) + ims_pro_k*nmax_p*nlines_p + i*nlines_p + j + 1) = &
                             a(m*nlines_p + i*npage + j + 1)
                     end do
                 end do
             end do
             !$omp end target teams distribute parallel do
-            hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
-#ifdef TRP_I_FUSEDFENCE
-            call hip_system_fence()   ! writer release: system-scope L2 write-back to MALL (device sync is NOT system-scope)
-#endif
+            hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
-#ifdef TRP_I_FUSEDFENCE
-            ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real alias of
-            ! the complex K window, 2*size reals) -> reloads fresh MALL data, not a stale line from a prior substep.
-            call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))
 #endif
             ! Unpack: flat copy from complex-typed recv alias to b
             !$omp target teams distribute parallel do
@@ -1824,7 +1846,33 @@ contains
             size = trp_plan%size3d
             call c_f_pointer(apu_peer_cptr_k(0), apu_cx_all, [apu_stride_k*ims_npro_k/2])
             call MPI_Win_fence(0, apu_win_k, ims_err)
-            ! Push: b is flat K-space; write our chunk (b[m*chunk]) to every peer
+#ifdef TRP_I_FUSEDFENCE
+            ! STRONG per-workgroup fence (2026-06-29 apudirect complex-K coherence fix): gather the flat complex b
+            ! into contiguous real staging (wrk_mpi_dp, 2 reals/complex, ONE device handle), then push to the
+            ! window's REAL view (apu_all_k) via the per-workgroup-fenced hip_write_with_fence (replaces the weak
+            ! <<<1,1>>> hip_system_fence). Reader acquires via hip_invalidate_recv.
+            call c_f_pointer(apu_peer_cptr_k(0), apu_all_k, [apu_stride_k*ims_npro_k])
+            !$omp target teams distribute parallel do collapse(2)
+            do m = 0, ims_npro_k - 1
+                do i = 1, nmax_p * nlines_p
+                    wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*i - 1) = real(b(m*nmax_p*nlines_p + i), dp)
+                    wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*i)     = aimag(b(m*nmax_p*nlines_p + i))
+                end do
+            end do
+            !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! order the gather before the HIP push reads wrk_mpi_dp
+            do m = 0, ims_npro_k - 1
+                off = int(m, 8)*int(apu_stride_k, 8) + int(2*ims_pro_k, 8)*int(nmax_p*nlines_p, 8)
+                call hip_write_with_fence(wrk_mpi_dp(m*2*nmax_p*nlines_p + 1:m*2*nmax_p*nlines_p + 2*nmax_p*nlines_p), &
+                                          apu_all_k(off + 1:off + 2*nmax_p*nlines_p), int(2*nmax_p*nlines_p, c_int))
+            end do
+            hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+            call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
+            ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real alias of
+            ! the complex K window, 2*size reals) -> reloads fresh MALL data, not a stale line from a prior substep.
+            call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))
+#else
+            ! Push: b is flat K-space; write our chunk directly into every peer's complex window slot (non-FF build).
             !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_k - 1
                 do i = 1, nmax_p * nlines_p
@@ -1833,15 +1881,8 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
-            hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
-#ifdef TRP_I_FUSEDFENCE
-            call hip_system_fence()   ! writer release: system-scope L2 write-back to MALL (device sync is NOT system-scope)
-#endif
+            hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
-#ifdef TRP_I_FUSEDFENCE
-            ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real alias of
-            ! the complex K window, 2*size reals) -> reloads fresh MALL data, not a stale line from a prior substep.
-            call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))
 #endif
             ! CRASH-LOC (apudirect K-bwd-cplx): our recv window AFTER cross-rank push+fence, BEFORE the unpack.
             ! SYMMETRIC to the fabricdirect ZKBC probes — covers the OTHER communication branch (single-node
@@ -2417,6 +2458,7 @@ contains
         complex(dp), pointer :: apu_cx_all(:) => null()
         integer(wi) :: mas
         integer(c_int) :: hip_sync_err   ! FABRIC_DIRECT fallback flush
+        integer(8) :: off                ! int64 window offset for the apudirect complex per-wg-fence push
 #endif
         type(MPI_Comm) :: trp_comm_i   ! MPI_COMM_WORLD for FABRIC_DIRECT (see K-Forward_Complex comment).
 #ifdef USE_APU
@@ -2456,6 +2498,33 @@ contains
             ! coverage gap), NOT produced by this epoch's push/fence. If clean, the corruption is born here.
             if (trp_dbg_fft) DNS_PROBE('X-FWC-pre', apu_recv_fptr_i(1), 2*size, -1)
             ! Push: write each peer's flat chunk into peer m's buffer at slot own_rank*chunk.
+#ifdef TRP_I_FUSEDFENCE
+            ! STRONG per-workgroup fence (2026-06-29 apudirect complex-I coherence fix; the originally-documented
+            ! apudirect seed): gather the flat complex a into contiguous real staging (wrk_mpi_dp, 2 reals/complex,
+            ! ONE device handle), then push to the window's REAL view (apu_all_i) via the per-workgroup-fenced
+            ! hip_write_with_fence (replaces the weak <<<1,1>>> hip_system_fence). Reader acquires below.
+            call c_f_pointer(apu_peer_cptr_i(0), apu_all_i, [apu_stride_i*ims_npro_i])
+            !$omp target teams distribute parallel do collapse(2)
+            do m = 0, ims_npro_i - 1
+                do i = 1, nmax_p * nlines_p
+                    wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*i - 1) = real(a(m*nmax_p*nlines_p + i), dp)
+                    wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*i)     = aimag(a(m*nmax_p*nlines_p + i))
+                end do
+            end do
+            !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! order the gather before the HIP push reads wrk_mpi_dp
+            do m = 0, ims_npro_i - 1
+                off = int(m, 8)*int(apu_stride_i, 8) + int(2*ims_pro_i, 8)*int(nmax_p*nlines_p, 8)
+                call hip_write_with_fence(wrk_mpi_dp(m*2*nmax_p*nlines_p + 1:m*2*nmax_p*nlines_p + 2*nmax_p*nlines_p), &
+                                          apu_all_i(off + 1:off + 2*nmax_p*nlines_p), int(2*nmax_p*nlines_p, c_int))
+            end do
+            hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+            ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
+            call MPI_Win_fence(0, apu_win_i, ims_err)
+            ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real alias of
+            ! the complex I window, 2*size reals) -> reloads fresh MALL data, not a stale line from a prior substep.
+            call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))
+#else
             !$omp target teams distribute parallel do collapse(2)
             do m = 0, ims_npro_i - 1
                 do i = 1, nmax_p * nlines_p
@@ -2464,25 +2533,9 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
-            ! ROOT FIX: flush the GPU push to HBM BEFORE the fence. MPI_Win_fence orders the RMA epoch but
-            ! does NOT flush GPU writes on MI300A, so peers would read our cross-rank window writes stale
-            ! -> the intermittent FFT blow-up. hipDeviceSynchronize makes it HBM-visible.
-            hip_sync_err = hipDeviceSynchronize()
-#ifdef TRP_I_FUSEDFENCE
-            ! apudirect complex (the originally-documented apudirect seed, ExecI_Forward_Complex): device-scope
-            ! hipDeviceSynchronize is NOT a system-scope L2 write-back, so commit L2->MALL before the close
-            ! fence (writer release). The unpack below now reads the window on the GPU, paired with a reader-side
-            ! hip_invalidate_recv acquire after the close fence (the all-GPU replacement for the old CPU read).
-            call hip_system_fence()
-#endif
+            hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
-#ifdef TRP_I_FUSEDFENCE
-            ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window, so it reloads
-            ! the freshly-committed MALL data instead of a stale line from a previous substep. This is the proper
-            ! GPU fix that supersedes the 2026-06-22 CPU-read workaround; mirrors ExecI_Backward_Complex. Real
-            ! alias of the complex window, 2*size reals.
-            call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))
 #endif
             ! DEBUG (X-FFT region): recv window AFTER cross-rank push+fence, BEFORE unpack. If this jumps the
             ! corruption is in the push/fence even WITH the flush (apu_recv_fptr_i = real alias; 2*size reals).
@@ -2533,6 +2586,32 @@ contains
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
                 call MPI_Win_fence(0, node_win_i, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+                ! STRONG per-workgroup fence (2026-06-29 audit fix: the node complex-I push was the LAST cross-rank
+                ! GPU window push still on the weak <<<1,1>>> hip_system_fence). Mirror the complex-K node / apudirect
+                ! complex-I mechanism: gather the flat complex a into contiguous real staging (wrk_mpi_dp BY NAME,
+                ! 2 reals/complex, offset 2*size clears c_wrk_cx), then push to the window's REAL view (node_all_i)
+                ! via the per-workgroup-fenced hip_write_with_fence. All-intra (npro_i=6 = one XCD) -> no inter leg.
+                !$omp target teams distribute parallel do collapse(2)
+                do m = 0, ims_npro_i - 1
+                    do i = 1, mas
+                        wrk_mpi_dp(2*size + m*2*mas + 2*i - 1) = real(a(m*mas + i), dp)
+                        wrk_mpi_dp(2*size + m*2*mas + 2*i)     = aimag(a(m*mas + i))
+                    end do
+                end do
+                !$omp end target teams distribute parallel do
+                hip_sync_err = hipDeviceSynchronize()   ! order the gather before the HIP push reads wrk_mpi_dp
+                do m = 0, ims_npro_i - 1
+                    off = int(node_lrank_i(m),8)*int(apu_size_i,8) + int(2*ims_pro_i,8)*int(mas,8)
+                    call hip_write_with_fence(wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), &
+                                              node_all_i(off + 1:off + 2*mas), int(2*mas, c_int))
+                end do
+                hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+                call MPI_Win_fence(0, node_win_i, ims_err)
+                ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real view
+                ! of the complex node window, 2*size reals) -> reloads fresh MALL data, not a stale line.
+                call hip_invalidate_recv(node_recv_fptr_i, int(2*size, c_int))
+#else
                 ! ONE fused GPU write over all I-peers (all intra-node) — collapse(2) over (m,i).
                 !$omp target teams distribute parallel do collapse(2)
                 do m = 0, ims_npro_i - 1
@@ -2542,19 +2621,13 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
-#if defined(TRP_I_SYSFENCE) || defined(TRP_I_FUSEDFENCE)
-                ! writer release: device-scope hipDeviceSynchronize is NOT a system-scope L2 write-back, so commit
-                ! the cross-rank push to MALL before the close fence. AUDIT FIX [2026-06-29]: this + the reader
-                ! acquire below were gated SYSFENCE-only, so under the PRODUCTION -DTRP_I_FUSEDFENCE build the
-                ! complex-I node-window push ran with NO system fence and NO acquire (only a device sync) = the
-                ! documented "next latent complex-I" gap. Now active under FUSEDFENCE too.
-                call hip_system_fence()
+#ifdef TRP_I_SYSFENCE
+                call hip_system_fence()   ! weak SYSFENCE alternative (only when -DTRP_I_SYSFENCE, not production)
 #endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
-#if defined(TRP_I_SYSFENCE) || defined(TRP_I_FUSEDFENCE)
-                ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real view
-                ! of the complex node window, 2*size reals) -> reloads fresh MALL data, not a stale line.
+#ifdef TRP_I_SYSFENCE
                 call hip_invalidate_recv(node_recv_fptr_i, int(2*size, c_int))
+#endif
 #endif
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
@@ -2978,6 +3051,7 @@ contains
         complex(dp), pointer :: apu_cx_all(:) => null()
         integer(wi) :: mas
         integer(c_int) :: hip_sync_err   ! flush GPU-assembled a before the CPU FFTW reads it
+        integer(8) :: off                ! int64 window offset for the apudirect complex per-wg-fence push
 #endif
         type(MPI_Comm) :: trp_comm_i   ! MPI_COMM_WORLD for FABRIC_DIRECT (see K-Forward_Complex comment).
 #ifdef USE_APU
@@ -3013,6 +3087,35 @@ contains
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! Push: pack strided b[m] → peer m's recv buffer at slot own_rank*chunk.
+#ifdef TRP_I_FUSEDFENCE
+            ! STRONG per-workgroup fence (2026-06-29 apudirect complex-I backward coherence fix): gather the
+            ! STRIDED complex b into contiguous real staging (wrk_mpi_dp, 2 reals/complex, ONE device handle),
+            ! then push to the window's REAL view (apu_all_i) via the per-workgroup-fenced hip_write_with_fence
+            ! (replaces the weak <<<1,1>>> hip_system_fence). Reader acquires below.
+            call c_f_pointer(apu_peer_cptr_i(0), apu_all_i, [apu_stride_i*ims_npro_i])
+            !$omp target teams distribute parallel do collapse(3)
+            do m = 0, ims_npro_i - 1
+                do i = 0, nlines_p - 1
+                    do j = 0, nmax_p - 1
+                        wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*(i*nmax_p + j) + 1) = real(b(m*nmax_p + i*nmax_full + j + 1), dp)
+                        wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*(i*nmax_p + j) + 2) = aimag(b(m*nmax_p + i*nmax_full + j + 1))
+                    end do
+                end do
+            end do
+            !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! order the gather before the HIP push reads wrk_mpi_dp
+            do m = 0, ims_npro_i - 1
+                off = int(m, 8)*int(apu_stride_i, 8) + int(2*ims_pro_i, 8)*int(nmax_p*nlines_p, 8)
+                call hip_write_with_fence(wrk_mpi_dp(m*2*nmax_p*nlines_p + 1:m*2*nmax_p*nlines_p + 2*nmax_p*nlines_p), &
+                                          apu_all_i(off + 1:off + 2*nmax_p*nlines_p), int(2*nmax_p*nlines_p, c_int))
+            end do
+            hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+            ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
+            call MPI_Win_fence(0, apu_win_i, ims_err)
+            ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real alias of
+            ! the complex I window, 2*size reals) -> reloads fresh MALL data, not a stale line from a prior substep.
+            call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))
+#else
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
                 do i = 0, nlines_p - 1
@@ -3023,17 +3126,9 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
-            hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
-#ifdef TRP_I_FUSEDFENCE
-            ! apudirect complex backward: writer-side system-scope commit (L2->MALL) before the close fence.
-            call hip_system_fence()
-#endif
+            hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
-#ifdef TRP_I_FUSEDFENCE
-            ! ...and reader-side: this unpack reads the window on the GPU, so invalidate its L2 first
-            ! (apu_recv_fptr_i = real alias of the complex window; 2*size reals).
-            call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))
 #endif
             ! Flat copy: recv buffer is flat and matches a layout 1:1.
             !$omp target teams distribute parallel do
@@ -3061,6 +3156,32 @@ contains
             call c_f_pointer(c_loc(wrk_mpi_dp(1)), c_wrk_cx, shape=[size])
             if (use_node_win_i .and. all(is_intra_i(0:ims_npro_i - 1))) then
                 call MPI_Win_fence(0, node_win_i, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+                ! STRONG per-workgroup fence (2026-06-29 audit fix; node complex-I backward). Gather the STRIDED
+                ! complex b into contiguous real staging (wrk_mpi_dp BY NAME, 2 reals/complex, offset 2*size),
+                ! then push to the window's REAL view (node_all_i) via the per-workgroup-fenced hip_write_with_fence.
+                !$omp target teams distribute parallel do collapse(3)
+                do m = 0, ims_npro_i - 1
+                    do i = 0, nlines_p - 1
+                        do j = 0, nmax_p - 1
+                            wrk_mpi_dp(2*size + m*2*mas + 2*(i*nmax_p + j) + 1) = real(b(m*nmax_p + i*nmax_full + j + 1), dp)
+                            wrk_mpi_dp(2*size + m*2*mas + 2*(i*nmax_p + j) + 2) = aimag(b(m*nmax_p + i*nmax_full + j + 1))
+                        end do
+                    end do
+                end do
+                !$omp end target teams distribute parallel do
+                hip_sync_err = hipDeviceSynchronize()   ! order the gather before the HIP push reads wrk_mpi_dp
+                do m = 0, ims_npro_i - 1
+                    off = int(node_lrank_i(m),8)*int(apu_size_i,8) + int(2*ims_pro_i,8)*int(mas,8)
+                    call hip_write_with_fence(wrk_mpi_dp(2*size + m*2*mas + 1:2*size + m*2*mas + 2*mas), &
+                                              node_all_i(off + 1:off + 2*mas), int(2*mas, c_int))
+                end do
+                hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+                call MPI_Win_fence(0, node_win_i, ims_err)
+                ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real view
+                ! of the complex node window, 2*size reals) -> reloads fresh MALL data, not a stale line.
+                call hip_invalidate_recv(node_recv_fptr_i, int(2*size, c_int))
+#else
                 ! ONE fused GPU push over all I-peers (all intra-node) — collapse(3) over (m,i,j).
                 !$omp target teams distribute parallel do collapse(3)
                 do m = 0, ims_npro_i - 1
@@ -3073,19 +3194,13 @@ contains
                 end do
                 !$omp end target teams distribute parallel do
                 hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
-#if defined(TRP_I_SYSFENCE) || defined(TRP_I_FUSEDFENCE)
-                ! writer release: device-scope hipDeviceSynchronize is NOT a system-scope L2 write-back, so commit
-                ! the cross-rank push to MALL before the close fence. AUDIT FIX [2026-06-29]: this + the reader
-                ! acquire below were gated SYSFENCE-only, so under the PRODUCTION -DTRP_I_FUSEDFENCE build the
-                ! complex-I node-window push ran with NO system fence and NO acquire (only a device sync) = the
-                ! documented "next latent complex-I" gap. Now active under FUSEDFENCE too.
-                call hip_system_fence()
+#ifdef TRP_I_SYSFENCE
+                call hip_system_fence()   ! weak SYSFENCE alternative (only when -DTRP_I_SYSFENCE, not production)
 #endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
-#if defined(TRP_I_SYSFENCE) || defined(TRP_I_FUSEDFENCE)
-                ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real view
-                ! of the complex node window, 2*size reals) -> reloads fresh MALL data, not a stale line.
+#ifdef TRP_I_SYSFENCE
                 call hip_invalidate_recv(node_recv_fptr_i, int(2*size, c_int))
+#endif
 #endif
                 !$omp target teams distribute parallel do
                 do i = 1, size
