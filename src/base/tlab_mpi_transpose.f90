@@ -942,7 +942,9 @@ contains
                                               node_all_k(off + 1:off + mas), int(mas, c_int))
 #endif
                 end do
-                hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+#ifndef TRP_I_MEMCPY
+                hip_sync_err = hipDeviceSynchronize()   ! FUSEDFENCE: drain the ASYNC hip_write_with_fence push before the close fence. Skipped under TRP_I_MEMCPY (blocking hipMemcpy already self-drained).
+#endif
 #else
                 ! 3. intra-node peers: ONE fused cross-XCD GPU write over all K-peers (inter masked out) —
                 !    collapse(3) over (m,i,j); one kernel launch instead of one per intra peer.
@@ -1333,7 +1335,9 @@ contains
 #endif
                     DNS_PROBE_CPU('CXKF:3-post-fence-peer', dbg1, 1, m)
                 end do
-                hip_sync_err = hipDeviceSynchronize()
+#ifndef TRP_I_MEMCPY
+                hip_sync_err = hipDeviceSynchronize()   ! FUSEDFENCE: drain the ASYNC hip_write_with_fence push before the close fence. Skipped under TRP_I_MEMCPY (blocking hipMemcpy already self-drained).
+#endif
                 DNS_PROBE_CPU('CXKF:4-post-fence-all', dbg1, 1, ims_pro_k)
 #else
                 ! 3. intra-node peers: ONE fused cross-XCD GPU write over all K-peers (inter masked out) —
@@ -1592,7 +1596,9 @@ contains
                     call hip_write_with_fence(b(m*mas + 1:m*mas + mas), node_all_k(off + 1:off + mas), int(mas, c_int))
 #endif
                 end do
-                hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+#ifndef TRP_I_MEMCPY
+                hip_sync_err = hipDeviceSynchronize()   ! FUSEDFENCE: drain the ASYNC hip_write_with_fence push before the close fence. Skipped under TRP_I_MEMCPY (blocking hipMemcpy already self-drained).
+#endif
 #else
                 ! 3. intra peers: ONE fused GPU push of b into each peer's segment (inter masked out) —
                 !    collapse(2) over (m,i); one kernel instead of one per intra peer.
@@ -1980,7 +1986,9 @@ contains
 #endif
                     DNS_PROBE_CPU('CXKB:3-post-fence-peer', dbg1, 1, m)
                 end do
-                hip_sync_err = hipDeviceSynchronize()
+#ifndef TRP_I_MEMCPY
+                hip_sync_err = hipDeviceSynchronize()   ! FUSEDFENCE: drain the ASYNC hip_write_with_fence push before the close fence. Skipped under TRP_I_MEMCPY (blocking hipMemcpy already self-drained).
+#endif
                 DNS_PROBE_CPU('CXKB:4-post-fence-all', dbg1, 1, ims_pro_k)
 #else
                 ! 3. ONE fused GPU kernel: intra peers -> node-window segment; inter peers -> c_wrk_send_cx
@@ -2230,11 +2238,14 @@ contains
                     call hip_write_with_fence(a(m*mas + 1:m*mas + mas), node_all_i(off + 1:off + mas), int(mas, c_int))
 #endif
                 end do
-                ! CRITICAL: hip_write_with_fence is an ASYNC kernel launch. The in-kernel __threadfence_system
-                ! orders the write but does NOT make the host wait. Without this sync, the MPI_Win_fence below
-                ! (a CPU/MPI barrier that does not block on GPU kernels) closes the RMA epoch while the pushes
-                ! are still in flight -> peers read stale/partial window data. Wait for completion here.
+                ! FUSEDFENCE path: hip_write_with_fence is an ASYNC kernel launch -- the in-kernel
+                ! __threadfence_system orders the write but does NOT make the host wait, so without this sync the
+                ! MPI_Win_fence below (a CPU/MPI barrier that does not block on GPU kernels) would close the RMA
+                ! epoch while the pushes are still in flight -> peers read stale/partial window data. Under
+                ! TRP_I_MEMCPY the push is a BLOCKING hipMemcpy that already self-drained, so this sync is skipped.
+#ifndef TRP_I_MEMCPY
                 hip_sync_err = hipDeviceSynchronize()
+#endif
 #else
                 ! ONE fused GPU write over all I-peers (all intra-node) — collapse(2) over (m,i).
                 !$omp target teams distribute parallel do collapse(2)
@@ -2624,7 +2635,9 @@ contains
                                               node_all_i(off + 1:off + 2*mas), int(2*mas, c_int))
 #endif
                 end do
-                hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+#ifndef TRP_I_MEMCPY
+                hip_sync_err = hipDeviceSynchronize()   ! FUSEDFENCE: drain the ASYNC hip_write_with_fence push before the close fence. Skipped under TRP_I_MEMCPY (blocking hipMemcpy already self-drained).
+#endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real view
                 ! of the complex node window, 2*size reals) -> reloads fresh MALL data, not a stale line.
@@ -2847,9 +2860,12 @@ contains
                     call hip_write_with_fence(wrk_mpi_dp(m*mas + 1:m*mas + mas), node_all_i(off + 1:off + mas), int(mas, c_int))
 #endif
                 end do
-                ! CRITICAL: same async-launch race as ExecI_Forward_Real -- wait for the push+fence kernels to
-                ! COMPLETE before the MPI_Win_fence closes the RMA epoch (CPU barrier does not block GPU kernels).
+                ! FUSEDFENCE path: same async-launch race as ExecI_Forward_Real -- drain the push+fence kernels
+                ! before the MPI_Win_fence closes the RMA epoch (CPU barrier does not block GPU kernels). Under
+                ! TRP_I_MEMCPY the blocking hipMemcpy already self-drained, so this sync is skipped.
+#ifndef TRP_I_MEMCPY
                 hip_sync_err = hipDeviceSynchronize()
+#endif
 #else
                 ! ONE fused GPU push over all I-peers (all intra-node) — collapse(3) over (m,i,j).
                 !$omp target teams distribute parallel do collapse(3)
@@ -3207,7 +3223,9 @@ contains
                                               node_all_i(off + 1:off + 2*mas), int(2*mas, c_int))
 #endif
                 end do
-                hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
+#ifndef TRP_I_MEMCPY
+                hip_sync_err = hipDeviceSynchronize()   ! FUSEDFENCE: drain the ASYNC hip_write_with_fence push before the close fence. Skipped under TRP_I_MEMCPY (blocking hipMemcpy already self-drained).
+#endif
                 call MPI_Win_fence(0, node_win_i, ims_err)
                 ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real view
                 ! of the complex node window, 2*size reals) -> reloads fresh MALL data, not a stale line.
