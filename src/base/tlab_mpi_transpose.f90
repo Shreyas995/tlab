@@ -845,6 +845,7 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! order the OMP gather before the HIP hipMemcpy reads wrk_mpi_dp (OMP offload stream != HIP stream; mirrors the FUSEDFENCE pre-sync)
             do m = 0, ims_npro_k - 1
                 off = int(m, 8)*int(apu_stride_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
                 call hip_memcpy_push(apu_all_k(off + 1:off + mas), wrk_mpi_dp(m*mas + 1:m*mas + mas), int(mas, c_int))
@@ -1512,6 +1513,7 @@ contains
 #if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY)
 #ifdef TRP_I_MEMCPY
             ! V2 (memcpy): b is flat (contiguous mas per peer) -> per-peer blocking hipMemcpy push (no gather).
+            hip_sync_err = hipDeviceSynchronize()   ! order the caller's b (OMP offload stream) before the HIP hipMemcpy reads it (OMP stream != HIP stream; mirrors the FUSEDFENCE pre-sync at the #else branch)
             do m = 0, ims_npro_k - 1
                 off = int(m, 8)*int(apu_stride_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
                 call hip_memcpy_push(apu_all_k(off + 1:off + mas), b(m*mas + 1:m*mas + mas), int(mas, c_int))
