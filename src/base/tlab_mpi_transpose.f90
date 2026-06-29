@@ -1205,7 +1205,15 @@ contains
             end do
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
+#ifdef TRP_I_FUSEDFENCE
+            call hip_system_fence()   ! writer release: system-scope L2 write-back to MALL (device sync is NOT system-scope)
+#endif
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
+#ifdef TRP_I_FUSEDFENCE
+            ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real alias of
+            ! the complex K window, 2*size reals) -> reloads fresh MALL data, not a stale line from a prior substep.
+            call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))
+#endif
             ! Unpack: flat copy from complex-typed recv alias to b
             !$omp target teams distribute parallel do
             do i = 1, size
@@ -1812,7 +1820,15 @@ contains
             end do
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
+#ifdef TRP_I_FUSEDFENCE
+            call hip_system_fence()   ! writer release: system-scope L2 write-back to MALL (device sync is NOT system-scope)
+#endif
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
+#ifdef TRP_I_FUSEDFENCE
+            ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real alias of
+            ! the complex K window, 2*size reals) -> reloads fresh MALL data, not a stale line from a prior substep.
+            call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))
+#endif
             ! CRASH-LOC (apudirect K-bwd-cplx): our recv window AFTER cross-rank push+fence, BEFORE the unpack.
             ! SYMMETRIC to the fabricdirect ZKBC probes — covers the OTHER communication branch (single-node
             ! apudirect window) so a crash on either branch is pinned internally. Input b (=ZFWD:post-fft)
