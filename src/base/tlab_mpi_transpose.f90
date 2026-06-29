@@ -2443,11 +2443,19 @@ contains
 #ifdef TRP_I_FUSEDFENCE
             ! apudirect complex (the originally-documented apudirect seed, ExecI_Forward_Complex): device-scope
             ! hipDeviceSynchronize is NOT a system-scope L2 write-back, so commit L2->MALL before the close
-            ! fence. The unpack below is already on the CPU (reads fresh HBM), so no reader invalidate is needed.
+            ! fence (writer release). The unpack below now reads the window on the GPU, paired with a reader-side
+            ! hip_invalidate_recv acquire after the close fence (the all-GPU replacement for the old CPU read).
             call hip_system_fence()
 #endif
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
+#ifdef TRP_I_FUSEDFENCE
+            ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window, so it reloads
+            ! the freshly-committed MALL data instead of a stale line from a previous substep. This is the proper
+            ! GPU fix that supersedes the 2026-06-22 CPU-read workaround; mirrors ExecI_Backward_Complex. Real
+            ! alias of the complex window, 2*size reals.
+            call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))
+#endif
             ! DEBUG (X-FFT region): recv window AFTER cross-rank push+fence, BEFORE unpack. If this jumps the
             ! corruption is in the push/fence even WITH the flush (apu_recv_fptr_i = real alias; 2*size reals).
             if (trp_dbg_fft) DNS_PROBE('X-FWC-win', apu_recv_fptr_i(1), 2*size, -1)
@@ -2461,15 +2469,15 @@ contains
                     DNS_PROBE('X-FWC-seg', apu_recv_fptr_i(2*l*mas + 1), 2*mas, l)
                 end do
             end if
-            ! Unpack: scatter recv buffer (flat m*chunk+i layout) → b (strided m*nmax_p + i*nmax_full + j).
-            ! FIX [2026-06-22]: this unpack is done on the CPU, NOT a GPU !$omp target. The apudirect GPU
-            ! shared-window cross-rank READ returns STALE GPU L2 — confirmed on Hunter: rank0->rank2 segment0
-            ! read back 204.7 from a <=5 source, c2r amplified it, the Poisson pressure blew up (it=241751
-            ! sub5, rank 502; deterministic). hipDeviceSynchronize flushes WRITES to HBM but does NOT
-            ! invalidate the reader's GPU read-cache, so the GPU unpack saw a previous substep's value. The
-            ! CPU reads the freshly-committed HBM window (the close fence + each rank's pre-fence flush
-            ! guarantee visibility), and b then feeds the CPU c2r FFTW directly, so it stays coherent.
-            ! Only the READ moves to the CPU; the cross-rank GPU push above is unchanged (its write is sound).
+            ! Unpack on the GPU: scatter recv buffer (flat m*chunk+i layout) → b (strided m*nmax_p + i*nmax_full + j).
+            ! HISTORY: the 2026-06-22 fix moved this READ to the CPU because the GPU shared-window cross-rank read
+            ! returned STALE GPU L2 (rank0->rank2 seg0 read 204.7 from a <=5 source -> deterministic blow-up at
+            ! it=241751). The writer push was SOUND; the bug was purely the reader's stale L2. The reader-side
+            ! hip_invalidate_recv acquire added after the close fence (above) refreshes that L2, so the unpack now
+            ! stays on the GPU (all-on-GPU, faster, exploits the single-node shared window) and feeds b to the CPU
+            ! c2r FFTW after the flush below. Mirrors ExecI_Backward_Complex. (Revert to the CPU loop only if a
+            ! long apudirect run past it=241751 re-blows -> the invalidate would be insufficient on this path.)
+            !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
                 do i = 0, nlines_p - 1
                     do j = 0, nmax_p - 1
@@ -2478,6 +2486,9 @@ contains
                     end do
                 end do
             end do
+            !$omp end target teams distribute parallel do
+            ! b is GPU-written, consumed by the CPU FFTW in OPR_Fourier_X_Forward -> flush for CPU coherence.
+            hip_sync_err = hipDeviceSynchronize()
             nullify (apu_cx_all)
 
         else if (trp_mode_i == TLAB_MPI_TRP_FABRIC_DIRECT) then
