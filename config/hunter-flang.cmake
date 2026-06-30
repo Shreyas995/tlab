@@ -4,12 +4,27 @@
 # It produces the SAME -D macros and the SAME build toggles; only the compiler driver and the
 # compiler-specific flags differ (Cray `-eZ`/`-h*` -> flang `-cpp`/`-O*`).
 #
+# ⚠️ STATUS [2026-06-30] — AMD-compiler build is BLOCKED on Hunter (system provisioning gap, not code):
+#   cray-mpich ships `mpi_f08.mod` ONLY for the GNU frontend (`.../ofi/gnu/11.2/include`); the AMD flavor
+#   `.../ofi/amd/6.0/include` has only the F90 `mpi.mod` (+ mpi_base/constants/sizeofs) — NO `mpi_f08.mod`
+#   in ANY mpich version (8.1.30-9.0.1, confirmed by `find /opt/cray/pe/mpich -name mpi_f08.mod`). The code
+#   requires `use mpi_f08` (tlab_mpi_vars.f90). So:
+#     * `ftn` under PrgEnv-amd + amd/6.4.1 drives `amdflang` = CLASSIC flang (flang-legacy, ROCm 6.4.1) — it
+#       both lacks mpi_f08 AND can't parse OpenMP-5 `!$omp declare mapper` (tlab_type.f90). Dead end.
+#     * The LLVM `amdflang-new` exists ONLY in un-modulized /opt/rocm-7.0.2 — it parses OpenMP-5 fine but
+#       has NO MPI module it can read (no amd mpi_f08; the amd `mpi.mod` is classic-format, and LLVM-flang
+#       and classic-flang .mod files are mutually unreadable). Also dead end.
+#   FIX = HLRS must modulize rocm-7.0.2 / amdflang-new AND build cray-mpich F2008 modules for it. Until then
+#   use CCE (config/hunter-cray.cmake, verified). Closest non-CCE alternative on the AMD GPU today is
+#   PrgEnv-gnu-amd (gfortran frontend — HAS gnu mpi_f08.mod — + AMD GPU offload), untested for this code.
+#
 # HOW TO SELECT THE AMD COMPILER ON HUNTER (Cray/HPE system):
 #   Hunter's `ftn` is the Cray compiler *wrapper*; it dispatches to whichever PrgEnv is loaded and
 #   provides Cray-MPI + module integration regardless. To make `ftn` drive AMD flang instead of CCE:
 #       module swap PrgEnv-cray PrgEnv-amd     # (or: module load PrgEnv-amd)
-#   then `ftn` wraps amdflang/amdflang-new and you still get MPI for free. This is why we keep the
-#   compiler as `ftn` below (NOT a bare `amdflang-new`, which has no MPI). Do NOT additionally
+#   then `ftn` wraps the AMD compiler and you still get MPI for free. NOTE [2026-06-30]: under PrgEnv-amd +
+#   amd/6.4.1, `ftn`->`amdflang` = CLASSIC flang, NOT amdflang-new (see the STATUS block above). This is why
+#   we keep the compiler as `ftn` below (NOT a bare `amdflang-new`, which has no MPI). Do NOT additionally
 #   `module load craype-accel-amd-gfx942` — per the project notes that reloads cce and breaks MPI
 #   predefined datatypes; the .bashrc HLRS/APU env already provides the offload toolchain.
 #   (If you ever build OUTSIDE a Cray PrgEnv, e.g. the RAC-Plano cluster, set FC to an MPI wrapper
