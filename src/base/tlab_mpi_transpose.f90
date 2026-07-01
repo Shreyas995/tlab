@@ -879,7 +879,9 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+#ifndef TRP_APU_NO_PRESYNC
             hip_sync_err = hipDeviceSynchronize()   ! order the OMP gather before the HIP hipMemcpy reads wrk_mpi_dp (OMP offload stream != HIP stream; mirrors the FUSEDFENCE pre-sync)
+#endif
 #ifdef TRP_APU_MEMCPY2D
             ! ONE strided DMA pushes ALL peers (apudirect optimization): the gathered staging is contiguous per
             ! peer (wrk_mpi_dp, spitch=mas), each peer's recv slot is at apu_stride_k stride in apu_all_k with
@@ -926,7 +928,9 @@ contains
 #endif
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: our recv buffer is now fully populated
 #if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY)
+#ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_k, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL
+#endif
 #endif
             ! -- Unpack: recv buffer is already in the flat K-space layout; one-to-one copy to b.
             !$omp target teams distribute parallel do
@@ -1279,11 +1283,15 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+#ifndef TRP_APU_NO_PRESYNC
             hip_sync_err = hipDeviceSynchronize()   ! order the gather before the DMA reads wrk_mpi_dp
+#endif
             call hip_memcpy2d_push(apu_all_k, int(2*ims_pro_k, 8)*int(mas, 8), int(apu_stride_k, 8), &
                                    wrk_mpi_dp, 0_8, int(2*mas, 8), int(2*mas, 8), int(ims_npro_k, 8))
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
+#ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))   ! reader acquire (real alias, 2*size reals)
+#endif
 #elif defined(TRP_I_FUSEDFENCE)
             ! STRONG per-workgroup fence (2026-06-29 fix for the apudirect complex-K coherence race pinned at
             ! it=266668 sub4: the weak <<<1,1>>> hip_system_fence did NOT close the cross-XCD push residual, the
@@ -1597,7 +1605,9 @@ contains
 #if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY)
 #ifdef TRP_I_MEMCPY
             ! V2 (memcpy): b is flat (contiguous mas per peer) -> per-peer blocking hipMemcpy push (no gather).
+#ifndef TRP_APU_NO_PRESYNC
             hip_sync_err = hipDeviceSynchronize()   ! order the caller's b (OMP offload stream) before the HIP hipMemcpy reads it (OMP stream != HIP stream; mirrors the FUSEDFENCE pre-sync at the #else branch)
+#endif
 #ifdef TRP_APU_MEMCPY2D
             ! ONE strided DMA pushes ALL peers (apudirect optimization): b is already flat/contiguous per peer
             ! (spitch=mas), each peer's recv slot is at apu_stride_k stride with intra-slot offset ims_pro_k*mas.
@@ -1639,7 +1649,9 @@ contains
 #endif
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: all peers have written to our buffer
 #if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY)
+#ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_k, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL
+#endif
 #endif
             ! -- Unpack: recv buffer holds sorted chunks; scatter to strided a in one fused kernel.
             !$omp target teams distribute parallel do collapse(3)
@@ -1968,11 +1980,15 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+#ifndef TRP_APU_NO_PRESYNC
             hip_sync_err = hipDeviceSynchronize()   ! order the gather before the DMA reads wrk_mpi_dp
+#endif
             call hip_memcpy2d_push(apu_all_k, int(2*ims_pro_k, 8)*int(mas, 8), int(apu_stride_k, 8), &
                                    wrk_mpi_dp, 0_8, int(2*mas, 8), int(2*mas, 8), int(ims_npro_k, 8))
             call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
+#ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))   ! reader acquire (real alias, 2*size reals)
+#endif
 #elif defined(TRP_I_FUSEDFENCE)
             ! STRONG per-workgroup fence (2026-06-29 apudirect complex-K coherence fix): gather the flat complex b
             ! into contiguous real staging (wrk_mpi_dp, 2 reals/complex, ONE device handle), then push to the
@@ -2296,7 +2312,9 @@ contains
             ! width = mas, height = npro_i), replacing the per-workgroup __threadfence_system push
             ! (hip_pushseg_fence, the profiler's 46%-of-GPU hot spot). No gather. Pre-sync orders a (caller's
             ! OMP offload stream) before the DMA reads it; hipMemcpy2D is blocking + system-coherent on return.
+#ifndef TRP_APU_NO_PRESYNC
             hip_sync_err = hipDeviceSynchronize()
+#endif
             call hip_memcpy2d_push(apu_all_i, int(ims_pro_i, 8)*int(mas, 8), int(apu_stride_i, 8), &
                                    a, 0_8, int(mas, 8), int(mas, 8), int(ims_npro_i, 8))
 #elif defined(TRP_I_FUSEDFENCE)
@@ -2321,7 +2339,9 @@ contains
 #endif
             call MPI_Win_fence(0, apu_win_i, ims_err)   ! barrier: recv buffer fully populated
 #if defined(TRP_APU_MEMCPY2D) || defined(TRP_I_FUSEDFENCE)
+#ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with the fused writer release)
+#endif
 #endif
             ! -- Unpack: recv buffer holds sorted flat chunks; scatter to strided b in one fused kernel.
             !$omp target teams distribute parallel do collapse(3)
@@ -2671,12 +2691,16 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+#ifndef TRP_APU_NO_PRESYNC
             hip_sync_err = hipDeviceSynchronize()   ! order the gather before the DMA reads wrk_mpi_dp
+#endif
             call hip_memcpy2d_push(apu_all_i, int(2*ims_pro_i, 8)*int(mas, 8), int(apu_stride_i, 8), &
                                    wrk_mpi_dp, 0_8, int(2*mas, 8), int(2*mas, 8), int(ims_npro_i, 8))
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
+#ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))   ! reader acquire (real alias, 2*size reals)
+#endif
 #elif defined(TRP_I_FUSEDFENCE)
             ! STRONG per-workgroup fence (2026-06-29 apudirect complex-I coherence fix; the originally-documented
             ! apudirect seed): gather the flat complex a into contiguous real staging (wrk_mpi_dp, 2 reals/complex,
@@ -2961,7 +2985,9 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+#ifndef TRP_APU_NO_PRESYNC
             hip_sync_err = hipDeviceSynchronize()
+#endif
             call hip_memcpy2d_push(apu_all_i, int(ims_pro_i, 8)*int(mas, 8), int(apu_stride_i, 8), &
                                    wrk_mpi_dp, 0_8, int(mas, 8), int(mas, 8), int(ims_npro_i, 8))
 #elif defined(TRP_I_FUSEDFENCE)
@@ -2988,7 +3014,9 @@ contains
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
 #if defined(TRP_APU_MEMCPY2D) || defined(TRP_I_FUSEDFENCE)
+#ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with the fused writer release)
+#endif
 #endif
             ! DEBUG (X-FFT region): recv window AFTER push+fence (if this jumps but X-BWR-in was clean -> push/fence).
             if (trp_dbg_fft) DNS_PROBE('X-BWR-win', apu_recv_fptr_i(1), size, -1)
@@ -3327,12 +3355,16 @@ contains
                 end do
             end do
             !$omp end target teams distribute parallel do
+#ifndef TRP_APU_NO_PRESYNC
             hip_sync_err = hipDeviceSynchronize()   ! order the gather before the DMA reads wrk_mpi_dp
+#endif
             call hip_memcpy2d_push(apu_all_i, int(2*ims_pro_i, 8)*int(mas, 8), int(apu_stride_i, 8), &
                                    wrk_mpi_dp, 0_8, int(2*mas, 8), int(2*mas, 8), int(ims_npro_i, 8))
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
+#ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))   ! reader acquire (real alias, 2*size reals)
+#endif
 #elif defined(TRP_I_FUSEDFENCE)
             ! STRONG per-workgroup fence (2026-06-29 apudirect complex-I backward coherence fix): gather the
             ! STRIDED complex b into contiguous real staging (wrk_mpi_dp, 2 reals/complex, ONE device handle),
