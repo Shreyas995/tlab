@@ -151,4 +151,21 @@
 #define DNS_TRACE(t, v)           continue
 #endif
 
+/* ---------------------------------------------------------------------------------------- */
+/* Aggressive transpose leak-hunt probe (2026-07-01).                                        */
+/*                                                                                           */
+/* TRP_LEAK fires the SAME lightweight GPU max+nbad reduction (DNS_PRINT_MAXVAL) but is       */
+/* placed UNCONDITIONALLY (not behind trp_dbg_fft) at in/win/out of EVERY apudirect AND       */
+/* fabricdirect real+complex transpose push -- so it catches a writer-side corruption from    */
+/* the T1-T7 hipMemcpy2D/coherence changes on the VERY call that produces it, in a single     */
+/* long run. Separate gate TRP_LEAK_PROBE so this high-frequency family can be toggled apart   */
+/* from the modest per-iteration DNS_PROBE family (both are turned on together by the cmake    */
+/* -DTRP_LEAK knob, which also defines DNS_DEBUG_PROBES so DNS_PRINT_MAXVAL actually reduces). */
+/* OFF expansion is `continue` -> physically absent, zero cost, valid as a bare statement.    */
+#ifdef TRP_LEAK_PROBE
+#define TRP_LEAK(t, a, n, s)      call DNS_PRINT_MAXVAL(t, a, n, s)
+#else
+#define TRP_LEAK(t, a, n, s)      continue
+#endif
+
 #endif
