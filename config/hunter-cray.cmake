@@ -85,6 +85,23 @@ elseif( ${ACCELERATE} STREQUAL "TRUE" )
   if (TRP_CX_MPI)             # route the complex (Poisson) transposes onto MPI; slower, A/B
     add_definitions(-DTRP_CX_MPI)        # only (real transposes stay on the GPU).
   endif ()
+
+  # apudirect push optimization (2026-07-01, DEFAULT ON): replace the per-peer writer-release loop
+  # (N blocking hipMemcpy) AND the per-workgroup __threadfence_system push (hip_pushseg_fence /
+  # hip_write_with_fence, the profiler's 46%-of-GPU hot spot) with ONE strided coherent hipMemcpy2D
+  # per apudirect transpose (real + complex). Same MALL commit (blocking, system-coherent on return),
+  # single host round-trip. apudirect-only (#ifdef USE_APU + trp_mode==APU_DIRECT); fabricdirect paths
+  # untouched. A/B: -DTRP_APU_NO_MEMCPY2D=TRUE reverts to the per-peer memcpy/fence push.
+  set(_TRP_APU_MEMCPY2D_DEFAULT TRUE)
+  if (NOT _TRP_MEMCPY_DEFAULT)   # FENCE_ONLY / SYSFENCE want the per-wg fence on ALL apudirect routines,
+    set(_TRP_APU_MEMCPY2D_DEFAULT FALSE)   # so the coherent-copy 2D path follows the memcpy default off.
+  endif ()
+  if (TRP_APU_NO_MEMCPY2D)
+    set(_TRP_APU_MEMCPY2D_DEFAULT FALSE)
+  endif ()
+  if (_TRP_APU_MEMCPY2D_DEFAULT)
+    add_definitions(-DTRP_APU_MEMCPY2D)
+  endif ()
 endif()
 
 # ============================================================================

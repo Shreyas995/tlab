@@ -272,6 +272,33 @@ extern "C" void hip_memcpy_push_sync()
     }
 }
 
+// hip_memcpy2d_push(dst, dpitch, src, spitch, width, height) — apudirect optimization (2026-07-01).
+// ONE blocking, system-coherent strided DMA (hipMemcpy2D, hipMemcpyDefault) that pushes ALL peers at once,
+// replacing (a) the per-peer hip_memcpy_push LOOP (N blocking copies -> 1) and (b) the per-workgroup
+// __threadfence_system push kernels (hip_pushseg_fence / hip_write_with_fence). The N peer recv-slots are a
+// clean 2D block: consecutive peers are dpitch doubles apart in dst, each row is 'width' contiguous doubles,
+// source rows are spitch doubles apart. hipMemcpy2D is a runtime-managed transfer: SYNCHRONOUS on the host and
+// SYSTEM-COHERENT on completion (destination committed to MALL before return) — identical writer-release
+// semantics to the 1D hip_memcpy_push, so NO manual writer-side fence is required. All pitches/width/height
+// arrive in DOUBLES and are converted to bytes here; they are int64 because peer window segments are many GB
+// apart on big grids.
+//   subroutine hip_memcpy2d_push(dst, dpitch, src, spitch, width, height) bind(C, name='hip_memcpy2d_push')
+// dst/src arrive as whole-array base pointers with 0-based element offsets (the hip_pushseg_fence idiom).
+extern "C" void hip_memcpy2d_push(double* dst, int64_t dst_off, int64_t dpitch,
+                                  const double* src, int64_t src_off, int64_t spitch,
+                                  int64_t width, int64_t height)
+{
+    if (width <= 0 || height <= 0) return;
+    hipError_t err = hipMemcpy2D(dst + dst_off, (size_t)dpitch * sizeof(double),
+                                 src + src_off, (size_t)spitch * sizeof(double),
+                                 (size_t)width * sizeof(double),
+                                 (size_t)height, hipMemcpyDefault);
+    if (err != hipSuccess) {
+        fprintf(stderr, "[hip_memcpy2d_push] hipMemcpy2D failed: %s\n",
+                hipGetErrorString(err));
+    }
+}
+
 // ------------------------------------------------------------------
 // DIAGNOSTIC wrapper (debug only): per-rank trace of the HIP layer. Uses the legacy
 // per-thread fenced kernel; not for production use.

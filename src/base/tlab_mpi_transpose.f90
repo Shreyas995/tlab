@@ -205,6 +205,28 @@ module TLabMPI_Transpose
         subroutine hip_memcpy_push_sync() bind(C, name='hip_memcpy_push_sync')
         end subroutine
 
+        ! apudirect optimization (2026-07-01): ONE strided, blocking, system-coherent push for ALL peers at
+        ! once, via hipMemcpy2D(...hipMemcpyDefault). The N peer recv-slots form a clean 2D pattern (dst stride
+        ! = apu_stride_* between peers, contiguous 'width' doubles per peer), so a single 2D DMA replaces the
+        ! per-peer hip_memcpy_push loop (N->1 host round-trips) AND the per-workgroup __threadfence_system push
+        ! (hip_pushseg_fence / hip_write_with_fence). Same MALL commit as the 1D hipMemcpy (blocking, coherent
+        ! on return). All strides/width/height are in DOUBLES (the C side multiplies by sizeof(double)); int64
+        ! because peer window segments are many GB apart on big grids. Pass the FIRST element of the dst/src
+        ! spans (assumed-size => by-reference; the wrapper strides beyond the first element).
+        ! dst/src are passed as WHOLE arrays with 0-based element offsets (dst_off/src_off) applied C-side --
+        ! the hip_pushseg_fence idiom -- so no element-of-pointer/assumed-shape actual is needed.
+        subroutine hip_memcpy2d_push(dst, dst_off, dpitch, src, src_off, spitch, width, height) bind(C, name='hip_memcpy2d_push')
+            use iso_c_binding
+            real(c_double), intent(out) :: dst(*)
+            integer(c_int64_t), value   :: dst_off
+            integer(c_int64_t), value   :: dpitch
+            real(c_double), intent(in)  :: src(*)
+            integer(c_int64_t), value   :: src_off
+            integer(c_int64_t), value   :: spitch
+            integer(c_int64_t), value   :: width
+            integer(c_int64_t), value   :: height
+        end subroutine
+
         function hipHostRegister(ptr, sz, flags) bind(C, name='hipHostRegister') result(ierr)
             use iso_c_binding
             integer(c_int) :: ierr
@@ -858,6 +880,14 @@ contains
             end do
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! order the OMP gather before the HIP hipMemcpy reads wrk_mpi_dp (OMP offload stream != HIP stream; mirrors the FUSEDFENCE pre-sync)
+#ifdef TRP_APU_MEMCPY2D
+            ! ONE strided DMA pushes ALL peers (apudirect optimization): the gathered staging is contiguous per
+            ! peer (wrk_mpi_dp, spitch=mas), each peer's recv slot is at apu_stride_k stride in apu_all_k with
+            ! the same intra-slot offset ims_pro_k*mas. Collapses the N blocking hip_memcpy_push into one
+            ! coherent hipMemcpy2D. Base = peer-0 slot (m=0 => off ims_pro_k*mas).
+            call hip_memcpy2d_push(apu_all_k, int(ims_pro_k, 8)*int(mas, 8), int(apu_stride_k, 8), &
+                                   wrk_mpi_dp, 0_8, int(mas, 8), int(mas, 8), int(ims_npro_k, 8))
+#else
             do m = 0, ims_npro_k - 1
                 off = int(m, 8)*int(apu_stride_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
 #ifdef TRP_I_MEMCPY_ASYNC
@@ -868,6 +898,7 @@ contains
             end do
 #ifdef TRP_I_MEMCPY_ASYNC
             call hip_memcpy_push_sync()   ! F1: drain the async push batch before the close fence
+#endif
 #endif
 #else
             ! FUSED single-kernel push (real-K, 2026-06-29): hip_pushseg_fence scatters the STRIDED source a
@@ -1231,7 +1262,29 @@ contains
             ! Reinterpret the contiguous real window as complex; size in complex units = apu_stride_k/2
             call c_f_pointer(apu_peer_cptr_k(0), apu_cx_all, [apu_stride_k*ims_npro_k/2])
             call MPI_Win_fence(0, apu_win_k, ims_err)
-#ifdef TRP_I_FUSEDFENCE
+#ifdef TRP_APU_MEMCPY2D
+            ! apudirect optimization (2026-07-01): gather the strided complex a into contiguous real staging
+            ! (wrk_mpi_dp, 2 reals/complex, ONE device handle), then ONE strided coherent hipMemcpy2D pushes ALL
+            ! peers to the window's REAL view (apu_all_k) -- 2*mas reals/peer, dst stride apu_stride_k, intra-slot
+            ! offset 2*ims_pro_k*mas. Replaces the per-peer per-workgroup-fenced hip_write_with_fence loop (the
+            ! profiler's 46%-of-GPU hot spot) and its extra post-loop device sync (the DMA is blocking + coherent).
+            call c_f_pointer(apu_peer_cptr_k(0), apu_all_k, [apu_stride_k*ims_npro_k])
+            !$omp target teams distribute parallel do collapse(3)
+            do m = 0, ims_npro_k - 1
+                do i = 0, nmax_p - 1
+                    do j = 0, nlines_p - 1
+                        wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*(i*nlines_p + j) + 1) = real(a(m*nlines_p + i*npage + j + 1), dp)
+                        wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*(i*nlines_p + j) + 2) = aimag(a(m*nlines_p + i*npage + j + 1))
+                    end do
+                end do
+            end do
+            !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! order the gather before the DMA reads wrk_mpi_dp
+            call hip_memcpy2d_push(apu_all_k, int(2*ims_pro_k, 8)*int(mas, 8), int(apu_stride_k, 8), &
+                                   wrk_mpi_dp, 0_8, int(2*mas, 8), int(2*mas, 8), int(ims_npro_k, 8))
+            call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
+            call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))   ! reader acquire (real alias, 2*size reals)
+#elif defined(TRP_I_FUSEDFENCE)
             ! STRONG per-workgroup fence (2026-06-29 fix for the apudirect complex-K coherence race pinned at
             ! it=266668 sub4: the weak <<<1,1>>> hip_system_fence did NOT close the cross-XCD push residual, the
             ! stale complex push fed garbage to the CPU FFTW and the Poisson blew). Mirror the complex-K NODE
@@ -1545,6 +1598,13 @@ contains
 #ifdef TRP_I_MEMCPY
             ! V2 (memcpy): b is flat (contiguous mas per peer) -> per-peer blocking hipMemcpy push (no gather).
             hip_sync_err = hipDeviceSynchronize()   ! order the caller's b (OMP offload stream) before the HIP hipMemcpy reads it (OMP stream != HIP stream; mirrors the FUSEDFENCE pre-sync at the #else branch)
+#ifdef TRP_APU_MEMCPY2D
+            ! ONE strided DMA pushes ALL peers (apudirect optimization): b is already flat/contiguous per peer
+            ! (spitch=mas), each peer's recv slot is at apu_stride_k stride with intra-slot offset ims_pro_k*mas.
+            ! No gather needed. Collapses the N blocking hip_memcpy_push into one coherent hipMemcpy2D.
+            call hip_memcpy2d_push(apu_all_k, int(ims_pro_k, 8)*int(mas, 8), int(apu_stride_k, 8), &
+                                   b, 0_8, int(mas, 8), int(mas, 8), int(ims_npro_k, 8))
+#else
             do m = 0, ims_npro_k - 1
                 off = int(m, 8)*int(apu_stride_k, 8) + int(ims_pro_k, 8)*int(mas, 8)
 #ifdef TRP_I_MEMCPY_ASYNC
@@ -1555,6 +1615,7 @@ contains
             end do
 #ifdef TRP_I_MEMCPY_ASYNC
             call hip_memcpy_push_sync()   ! F1: drain the async push batch before the close fence
+#endif
 #endif
 #else
             ! FUSED single-kernel push (real-K backward, 2026-06-29): b is flat per peer, so hip_pushseg_fence
@@ -1892,7 +1953,27 @@ contains
             size = trp_plan%size3d
             call c_f_pointer(apu_peer_cptr_k(0), apu_cx_all, [apu_stride_k*ims_npro_k/2])
             call MPI_Win_fence(0, apu_win_k, ims_err)
-#ifdef TRP_I_FUSEDFENCE
+#ifdef TRP_APU_MEMCPY2D
+            ! apudirect optimization (2026-07-01): gather the flat complex b into contiguous real staging
+            ! (wrk_mpi_dp, 2 reals/complex, ONE device handle), then ONE strided coherent hipMemcpy2D pushes ALL
+            ! peers to the window's REAL view (apu_all_k) -- 2*mas reals/peer, dst stride apu_stride_k, intra-slot
+            ! offset 2*ims_pro_k*mas. Replaces the per-peer per-workgroup-fenced hip_write_with_fence loop + its
+            ! extra post-loop device sync (hipMemcpy2D is blocking + system-coherent on return).
+            call c_f_pointer(apu_peer_cptr_k(0), apu_all_k, [apu_stride_k*ims_npro_k])
+            !$omp target teams distribute parallel do collapse(2)
+            do m = 0, ims_npro_k - 1
+                do i = 1, nmax_p * nlines_p
+                    wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*i - 1) = real(b(m*nmax_p*nlines_p + i), dp)
+                    wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*i)     = aimag(b(m*nmax_p*nlines_p + i))
+                end do
+            end do
+            !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! order the gather before the DMA reads wrk_mpi_dp
+            call hip_memcpy2d_push(apu_all_k, int(2*ims_pro_k, 8)*int(mas, 8), int(apu_stride_k, 8), &
+                                   wrk_mpi_dp, 0_8, int(2*mas, 8), int(2*mas, 8), int(ims_npro_k, 8))
+            call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
+            call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))   ! reader acquire (real alias, 2*size reals)
+#elif defined(TRP_I_FUSEDFENCE)
             ! STRONG per-workgroup fence (2026-06-29 apudirect complex-K coherence fix): gather the flat complex b
             ! into contiguous real staging (wrk_mpi_dp, 2 reals/complex, ONE device handle), then push to the
             ! window's REAL view (apu_all_k) via the per-workgroup-fenced hip_write_with_fence (replaces the weak
@@ -2209,7 +2290,16 @@ contains
             ! -- Push: a is flat; one fused kernel writes our chunk to ALL peers simultaneously.
             size = trp_plan%size3d
             call MPI_Win_fence(0, apu_win_i, ims_err)
-#ifdef TRP_I_FUSEDFENCE
+#ifdef TRP_APU_MEMCPY2D
+            ! apudirect optimization (2026-07-01): a is flat/contiguous per peer, so ONE strided coherent
+            ! hipMemcpy2D pushes ALL peers at once (dst stride = apu_stride_i, intra-slot offset ims_pro_i*mas,
+            ! width = mas, height = npro_i), replacing the per-workgroup __threadfence_system push
+            ! (hip_pushseg_fence, the profiler's 46%-of-GPU hot spot). No gather. Pre-sync orders a (caller's
+            ! OMP offload stream) before the DMA reads it; hipMemcpy2D is blocking + system-coherent on return.
+            hip_sync_err = hipDeviceSynchronize()
+            call hip_memcpy2d_push(apu_all_i, int(ims_pro_i, 8)*int(mas, 8), int(apu_stride_i, 8), &
+                                   a, 0_8, int(mas, 8), int(mas, 8), int(ims_npro_i, 8))
+#elif defined(TRP_I_FUSEDFENCE)
             ! FUSED single-kernel push (real-I forward, 2026-06-29): a is flat per peer, so hip_pushseg_fence
             ! scatters it directly into every peer's window slot (n_cols=1) with the per-workgroup
             ! __threadfence_system (same writer release). Replaces the per-peer hip_write_with_fence loop
@@ -2230,7 +2320,7 @@ contains
             hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
 #endif
             call MPI_Win_fence(0, apu_win_i, ims_err)   ! barrier: recv buffer fully populated
-#ifdef TRP_I_FUSEDFENCE
+#if defined(TRP_APU_MEMCPY2D) || defined(TRP_I_FUSEDFENCE)
             call hip_invalidate_recv(apu_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with the fused writer release)
 #endif
             ! -- Unpack: recv buffer holds sorted flat chunks; scatter to strided b in one fused kernel.
@@ -2567,7 +2657,27 @@ contains
             ! coverage gap), NOT produced by this epoch's push/fence. If clean, the corruption is born here.
             if (trp_dbg_fft) DNS_PROBE('X-FWC-pre', apu_recv_fptr_i(1), 2*size, -1)
             ! Push: write each peer's flat chunk into peer m's buffer at slot own_rank*chunk.
-#ifdef TRP_I_FUSEDFENCE
+#ifdef TRP_APU_MEMCPY2D
+            ! apudirect optimization (2026-07-01): gather the flat complex a into contiguous real staging
+            ! (wrk_mpi_dp, 2 reals/complex), then ONE strided coherent hipMemcpy2D pushes ALL peers to the
+            ! window's REAL view (apu_all_i) -- 2*mas reals/peer, dst stride apu_stride_i, intra-slot offset
+            ! 2*ims_pro_i*mas. Replaces the per-peer per-workgroup-fenced hip_write_with_fence loop + post-sync.
+            call c_f_pointer(apu_peer_cptr_i(0), apu_all_i, [apu_stride_i*ims_npro_i])
+            !$omp target teams distribute parallel do collapse(2)
+            do m = 0, ims_npro_i - 1
+                do i = 1, nmax_p * nlines_p
+                    wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*i - 1) = real(a(m*nmax_p*nlines_p + i), dp)
+                    wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*i)     = aimag(a(m*nmax_p*nlines_p + i))
+                end do
+            end do
+            !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! order the gather before the DMA reads wrk_mpi_dp
+            call hip_memcpy2d_push(apu_all_i, int(2*ims_pro_i, 8)*int(mas, 8), int(apu_stride_i, 8), &
+                                   wrk_mpi_dp, 0_8, int(2*mas, 8), int(2*mas, 8), int(ims_npro_i, 8))
+            ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
+            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))   ! reader acquire (real alias, 2*size reals)
+#elif defined(TRP_I_FUSEDFENCE)
             ! STRONG per-workgroup fence (2026-06-29 apudirect complex-I coherence fix; the originally-documented
             ! apudirect seed): gather the flat complex a into contiguous real staging (wrk_mpi_dp, 2 reals/complex,
             ! ONE device handle), then push to the window's REAL view (apu_all_i) via the per-workgroup-fenced
@@ -2837,7 +2947,24 @@ contains
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! Push: pack strided b[m] → peer m's recv buffer at slot own_rank*chunk (flat).
-#ifdef TRP_I_FUSEDFENCE
+#ifdef TRP_APU_MEMCPY2D
+            ! apudirect optimization (2026-07-01): the STRIDED source b is gathered into contiguous per-peer
+            ! staging (wrk_mpi_dp), then ONE strided coherent hipMemcpy2D pushes ALL peers (dst stride
+            ! apu_stride_i, intra-slot offset ims_pro_i*mas, width mas, height npro_i), replacing the per-workgroup
+            ! __threadfence_system scatter (hip_pushseg_fence). Pre-sync orders the gather (OMP) before the DMA.
+            !$omp target teams distribute parallel do collapse(3)
+            do m = 0, ims_npro_i - 1
+                do i = 0, nlines_p - 1
+                    do j = 0, nmax_p - 1
+                        wrk_mpi_dp(m*mas + i*nmax_p + j + 1) = b(m*nmax_p + i*nmax_full + j + 1)
+                    end do
+                end do
+            end do
+            !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()
+            call hip_memcpy2d_push(apu_all_i, int(ims_pro_i, 8)*int(mas, 8), int(apu_stride_i, 8), &
+                                   wrk_mpi_dp, 0_8, int(mas, 8), int(mas, 8), int(ims_npro_i, 8))
+#elif defined(TRP_I_FUSEDFENCE)
             ! FUSED single-kernel push (real-I backward, 2026-06-29): the STRIDED source b is scattered DIRECTLY
             ! into every peer's window slot by hip_pushseg_fence (per-workgroup __threadfence_system) -- this
             ! replaces the staging gather + the per-peer hip_write_with_fence loop (npro_i+1 launches + npro_i
@@ -2860,7 +2987,7 @@ contains
 #endif
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
             call MPI_Win_fence(0, apu_win_i, ims_err)
-#ifdef TRP_I_FUSEDFENCE
+#if defined(TRP_APU_MEMCPY2D) || defined(TRP_I_FUSEDFENCE)
             call hip_invalidate_recv(apu_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with the fused writer release)
 #endif
             ! DEBUG (X-FFT region): recv window AFTER push+fence (if this jumps but X-BWR-in was clean -> push/fence).
@@ -3184,7 +3311,29 @@ contains
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
             call MPI_Win_fence(0, apu_win_i, ims_err)
             ! Push: pack strided b[m] → peer m's recv buffer at slot own_rank*chunk.
-#ifdef TRP_I_FUSEDFENCE
+#ifdef TRP_APU_MEMCPY2D
+            ! apudirect optimization (2026-07-01): gather the STRIDED complex b into contiguous real staging
+            ! (wrk_mpi_dp, 2 reals/complex), then ONE strided coherent hipMemcpy2D pushes ALL peers to the
+            ! window's REAL view (apu_all_i) -- replaces the per-peer per-workgroup-fenced hip_write_with_fence
+            ! loop + its post-loop device sync.
+            call c_f_pointer(apu_peer_cptr_i(0), apu_all_i, [apu_stride_i*ims_npro_i])
+            !$omp target teams distribute parallel do collapse(3)
+            do m = 0, ims_npro_i - 1
+                do i = 0, nlines_p - 1
+                    do j = 0, nmax_p - 1
+                        wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*(i*nmax_p + j) + 1) = real(b(m*nmax_p + i*nmax_full + j + 1), dp)
+                        wrk_mpi_dp(m*2*nmax_p*nlines_p + 2*(i*nmax_p + j) + 2) = aimag(b(m*nmax_p + i*nmax_full + j + 1))
+                    end do
+                end do
+            end do
+            !$omp end target teams distribute parallel do
+            hip_sync_err = hipDeviceSynchronize()   ! order the gather before the DMA reads wrk_mpi_dp
+            call hip_memcpy2d_push(apu_all_i, int(2*ims_pro_i, 8)*int(mas, 8), int(apu_stride_i, 8), &
+                                   wrk_mpi_dp, 0_8, int(2*mas, 8), int(2*mas, 8), int(ims_npro_i, 8))
+            ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
+            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))   ! reader acquire (real alias, 2*size reals)
+#elif defined(TRP_I_FUSEDFENCE)
             ! STRONG per-workgroup fence (2026-06-29 apudirect complex-I backward coherence fix): gather the
             ! STRIDED complex b into contiguous real staging (wrk_mpi_dp, 2 reals/complex, ONE device handle),
             ! then push to the window's REAL view (apu_all_i) via the per-workgroup-fenced hip_write_with_fence
