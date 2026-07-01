@@ -102,6 +102,17 @@ elseif( ${ACCELERATE} STREQUAL "TRUE" )
   if (_TRP_APU_MEMCPY2D_DEFAULT)
     add_definitions(-DTRP_APU_MEMCPY2D)
   endif ()
+
+  # apudirect coherence-trim A/B switches (2026-07-01, default OFF = keep the op). Single-node apudirect is
+  # coherent via MPI_Win_fence + the blocking hipMemcpy2D writer release; these two extra ops MAY be redundant
+  # on one node (the old bit-reference apudirect had neither). Each is its own flag so a LONG Hunter run can
+  # attribute any silent corruption. Only affects apudirect (apu_win_*/apu_recv_fptr_*); fabricdirect untouched.
+  if (TRP_APU_NO_INVALIDATE)  # T5: drop the reader-side hip_invalidate_recv (L2 acquire) after the close fence.
+    add_definitions(-DTRP_APU_NO_INVALIDATE)
+  endif ()
+  if (TRP_APU_NO_PRESYNC)     # T6: drop the pre-push hipDeviceSynchronize that orders the OMP gather/caller
+    add_definitions(-DTRP_APU_NO_PRESYNC)   # data before the hipMemcpy2D (OMP target regions are host-synchronous).
+  endif ()
 endif()
 
 # ============================================================================
