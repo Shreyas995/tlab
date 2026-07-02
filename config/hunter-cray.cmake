@@ -113,6 +113,19 @@ elseif( ${ACCELERATE} STREQUAL "TRUE" )
   if (TRP_APU_NO_PRESYNC)     # T6: drop the pre-push hipDeviceSynchronize that orders the OMP gather/caller
     add_definitions(-DTRP_APU_NO_PRESYNC)   # data before the hipMemcpy2D (OMP target regions are host-synchronous).
   endif ()
+
+  # T7 (2026-07-01, DEFAULT ON): port the apudirect N->1 single-DMA push to the fabricdirect all-intra I
+  # node-window. When node_lrank_i is a constant-stride grid (runtime check node_win_i_linear), the per-peer
+  # hip_memcpy_push loop over the intra I-peers collapses to ONE strided hipMemcpy2D. Reader invalidate +
+  # writer sync + inter-node MPI + K node-window are UNCHANGED (the _750 coherence fix stays). A/B off-switch:
+  # -DTRP_FBD_NO_MEMCPY2D=TRUE reverts to the per-peer loop.
+  set(_TRP_FBD_MEMCPY2D_DEFAULT TRUE)
+  if (TRP_FBD_NO_MEMCPY2D)
+    set(_TRP_FBD_MEMCPY2D_DEFAULT FALSE)
+  endif ()
+  if (_TRP_FBD_MEMCPY2D_DEFAULT)
+    add_definitions(-DTRP_FBD_MEMCPY2D)
+  endif ()
 endif()
 
 # ============================================================================
@@ -133,6 +146,19 @@ if (DNS_DEBUG GREATER_EQUAL 1)
 endif ()
 if (DNS_DEBUG GREATER_EQUAL 2)
   add_definitions(-DPROBE_SYNC_ONLY)
+endif ()
+
+# -------- Transpose leak-hunt build  (-DTRP_LEAK=TRUE) --------
+# Single knob for the decisive long debug run that hunts a T1-T7 push-coherence seed: it turns on
+#   * DNS_DEBUG_PROBES  -> the modest per-iteration DNS_PROBE family (RHS/POIS/TIME/LOOP) + makes
+#                          DNS_PRINT_MAXVAL actually reduce (it early-returns without this).
+#   * TRP_LEAK_PROBE    -> the AGGRESSIVE TRP_LEAK probes at in/win/out of EVERY apudirect AND
+#                          fabricdirect real+complex transpose push (fires on every call).
+# Same binary works for BOTH the apudirect and the fabricdirect decisive runs (only the active branch
+# logs). Heavy fort.5xx I/O by design; grep the files for `nbad>0` to find the first NaN in exec order.
+# Independent of the DNS_DEBUG level so you don't have to also raise that.
+if (TRP_LEAK)
+  add_definitions(-DDNS_DEBUG_PROBES -DTRP_LEAK_PROBE)
 endif ()
 
 # compiler for parallel build	  
