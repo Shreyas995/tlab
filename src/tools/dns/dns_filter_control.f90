@@ -21,7 +21,7 @@ module DNS_FILTER_CONTROL_M
     use TLab_Memory, only: imax, jmax, kmax, inb_flow, inb_scal
     use TLab_WorkFlow, only: TLab_Write_ASCII
     use FDM, only: g
-    use OPR_FILTERS, only: FilterDomain, OPR_FILTER_REINIT, DNS_FILTER_COMPACT, DNS_FILTER_NONE
+    use OPR_FILTERS, only: FilterDomain, OPR_FILTER_REINIT, DNS_FILTER_COMPACT, DNS_FILTER_NONE, FLT_COMPACT_ALPHA_MAX
     use IO_Fields, only: io_header_q, io_header_s, IO_Write_Fields
     use DNS_LOCAL, only: logs_data
     use TLab_Time, only: itime, rtime
@@ -107,6 +107,15 @@ contains
         if (mod(win, 2) /= 0) win = win + 1          ! even, so the two halves are equal
         if (minhold < win) minhold = win             ! averages must reflect the current alpha
         if (alpha_step <= 0.0_wp) alpha_step = 0.03_wp
+        ! A PERIODIC compact filter is singular at |alpha| = 0.5 (Nyquist eigenvalue 1-2*alpha
+        ! -> 0), so a ramp that reaches 0.5 detonates the run (X and Z are periodic). Cap the
+        ! ramp strictly below 0.5; FLT_COMPACT_ALPHA_MAX (0.49) is the strongest well-posed value
+        ! and is what OPR_FILTER_REINIT independently enforces on the coefficients.
+        if (alpha_start > FLT_COMPACT_ALPHA_MAX) alpha_start = FLT_COMPACT_ALPHA_MAX
+        if (alpha_end > FLT_COMPACT_ALPHA_MAX) then
+            call TLab_Write_ASCII(wfile, 'DNS_FILTER_CONTROL. ParameterEnd >= 0.5 is singular for periodic compact filter; capped at 0.49.')
+            alpha_end = FLT_COMPACT_ALPHA_MAX
+        end if
         if (alpha_end < alpha_start) alpha_end = alpha_start
         if (revert_tol <= rise_tol) revert_tol = rise_tol + 0.05_wp
 

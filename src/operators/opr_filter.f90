@@ -5,7 +5,7 @@
 #endif
 
 module OPR_FILTERS
-    use TLab_Constants, only: wp, wi, big_wp, MAX_PARS, MAX_VARS
+    use TLab_Constants, only: wp, wi, big_wp, MAX_PARS, MAX_VARS, wfile
     use FDM, only: fdm_dt
     use TLab_Memory, only: isize_txc_field
     use TLab_Arrays, only: wrk1d, wrk2d, wrk3d
@@ -61,6 +61,12 @@ module OPR_FILTERS
     integer, parameter, public :: DNS_FILTER_ERF = 7
     integer, parameter, public :: DNS_FILTER_TOPHAT = 8
     integer, parameter, public :: DNS_FILTER_COMPACT_CUTOFF = 9
+
+    ! A PERIODIC compact filter LHS [alpha,1,alpha] is singular at |alpha| = 0.5 (its Nyquist
+    ! eigenvalue 1-2*alpha -> 0): the tridiagonal factorization then inverts a ~zero pivot and
+    ! the solve amplifies the field by ~1e15. Cap strictly below 0.5; 0.49 is the strongest
+    ! well-posed strength (solve amplification ~5x) and matches the production PressureFilter.
+    real(wp), parameter, public :: FLT_COMPACT_ALPHA_MAX = 0.49_wp
 
     ! -----------------------------------------------------------------------
     type(distributions_dt) :: psd
@@ -266,6 +272,8 @@ contains
         type(fdm_dt), intent(in) :: g
         type(filter_dt), intent(inout) :: f
 
+        real(wp) :: alpha_use
+
         !###################################################################
         select case (f%type)
 
@@ -276,13 +284,22 @@ contains
             call FLT_T1_COEFFS(f%size, f%bcsmin, f%bcsmax, int(f%parameters(1)), f%periodic, g%scale, g%nodes, f%coeffs, wrk1d)
 
         case (DNS_FILTER_COMPACT)
-            call FLT_C4_LHS(f%size, f%bcsmin, f%bcsmax, f%parameters(1), f%coeffs(1, 6), f%coeffs(1, 7), f%coeffs(1, 8))
+            ! Defensive: a PERIODIC compact filter is singular at |alpha| = 0.5 (Nyquist
+            ! eigenvalue 1-2*alpha -> 0). Clamp strictly below so TRIDPFS never inverts a ~zero
+            ! pivot (which amplifies the field by ~1e15 and detonates the run). The adaptive
+            ! controller caps its ramp at the same value; this backstops the static [Filter] too.
+            alpha_use = f%parameters(1)
+            if (f%periodic .and. abs(alpha_use) > FLT_COMPACT_ALPHA_MAX) then
+                alpha_use = sign(FLT_COMPACT_ALPHA_MAX, alpha_use)
+                call TLab_Write_ASCII(wfile, 'OPR_FILTER_REINIT. Periodic compact-filter alpha >= 0.5 is singular; clamped to 0.49.')
+            end if
+            call FLT_C4_LHS(f%size, f%bcsmin, f%bcsmax, alpha_use, f%coeffs(1, 6), f%coeffs(1, 7), f%coeffs(1, 8))
             if (f%periodic) then
                 call TRIDPFS(f%size, f%coeffs(1, 6), f%coeffs(1, 7), f%coeffs(1, 8), f%coeffs(1, 9), f%coeffs(1, 10))
             else
                 call TRIDFS(f%size, f%coeffs(1, 6), f%coeffs(1, 7), f%coeffs(1, 8))
             end if
-            call FLT_C4_RHS_COEFFS(f%size, f%parameters(1), f%periodic, g%jac, f%coeffs(1, 1))
+            call FLT_C4_RHS_COEFFS(f%size, alpha_use, f%periodic, g%jac, f%coeffs(1, 1))
 
         case (DNS_FILTER_COMPACT_CUTOFF)
             if (f%periodic) then
