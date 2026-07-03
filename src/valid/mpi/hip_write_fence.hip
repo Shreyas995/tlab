@@ -299,6 +299,71 @@ extern "C" void hip_memcpy2d_push(double* dst, int64_t dst_off, int64_t dpitch,
     }
 }
 
+// T30 (apudirect forward pilot, 2026-07-03): gather + 2D peer push on ONE persistent stream.
+// The forward real transpose gathers a STRIDED source into a contiguous per-peer staging buffer, then pushes
+// all peers with a strided 2D DMA. The default path runs the gather as an OMP target region (OMP offload
+// stream) and the push as hipMemcpy2D (default HIP stream), so a full-device hipDeviceSynchronize is needed
+// between them to order that cross-stream dependency. Here BOTH the gather kernel and the 2D copy run on the
+// SAME persistent stream (g_push_stream, shared with the F1 async path): HIP stream ordering makes the gather's
+// writes visible to the copy with NO explicit sync, and a single hipStreamSynchronize at the end commits the
+// coherent async DMA to MALL before the close MPI_Win_fence (identical writer-release to the blocking copy --
+// async vs blocking changes only host-return timing, not memory scope; see the F1 note above).
+// gather index (0-based, mirrors the Fortran OMP loop exactly):
+//   stage[m*mas + i*nlines_p + j] = src[m*nlines_p + i*npage + j],  mas = nmax_p*nlines_p,
+//   over m in [0,npro), i in [0,nmax_p), j in [0,nlines_p).
+__global__ void hip_gather3d_kernel(double* __restrict__ stage, const double* __restrict__ src,
+                                    int npro, int nmax_p, int nlines_p, int npage)
+{
+    const long mas = (long)nmax_p * (long)nlines_p;
+    const long total = (long)npro * mas;
+    for (long idx = (long)blockIdx.x * blockDim.x + threadIdx.x; idx < total;
+         idx += (long)gridDim.x * blockDim.x) {
+        long m = idx / mas;
+        long rem = idx - m * mas;
+        long i = rem / (long)nlines_p;
+        long j = rem - i * (long)nlines_p;
+        stage[m * mas + i * (long)nlines_p + j] = src[m * (long)nlines_p + i * (long)npage + j];
+    }
+}
+
+//   subroutine hip_gather_memcpy2d_push(dst, dst_off, dpitch, src, stage, npro, nmax_p, nlines_p, npage, width, height)
+// dst = peer window base (0-based dst_off applied C-side); dpitch = per-peer stride (doubles); src = strided
+// source; stage = contiguous staging (= the recv slot pattern); width = mas (doubles/peer), height = npro.
+extern "C" void hip_gather_memcpy2d_push(double* dst, int64_t dst_off, int64_t dpitch,
+                                         const double* src, double* stage,
+                                         int npro, int nmax_p, int nlines_p, int npage,
+                                         int64_t width, int64_t height)
+{
+    if (npro <= 0 || nmax_p <= 0 || nlines_p <= 0 || width <= 0 || height <= 0) return;
+    if (g_push_stream == nullptr) {
+        hipError_t cerr = hipStreamCreate(&g_push_stream);
+        if (cerr != hipSuccess) {
+            fprintf(stderr, "[hip_gather_memcpy2d_push] hipStreamCreate failed: %s\n",
+                    hipGetErrorString(cerr));
+            return;
+        }
+    }
+    long total = (long)npro * (long)nmax_p * (long)nlines_p;
+    int threads = 256;
+    int blocks = (int)((total + threads - 1) / threads);
+    if (blocks < 1) blocks = 1;
+    hipLaunchKernelGGL(hip_gather3d_kernel, dim3(blocks), dim3(threads), 0, g_push_stream,
+                       stage, src, npro, nmax_p, nlines_p, npage);
+    hipError_t err = hipMemcpy2DAsync(dst + dst_off, (size_t)dpitch * sizeof(double),
+                                      stage, (size_t)width * sizeof(double),
+                                      (size_t)width * sizeof(double),
+                                      (size_t)height, hipMemcpyDefault, g_push_stream);
+    if (err != hipSuccess) {
+        fprintf(stderr, "[hip_gather_memcpy2d_push] hipMemcpy2DAsync failed: %s\n",
+                hipGetErrorString(err));
+    }
+    err = hipStreamSynchronize(g_push_stream);   // drain gather+DMA; commits the coherent copy to MALL
+    if (err != hipSuccess) {
+        fprintf(stderr, "[hip_gather_memcpy2d_push] hipStreamSynchronize failed: %s\n",
+                hipGetErrorString(err));
+    }
+}
+
 // ------------------------------------------------------------------
 // DIAGNOSTIC wrapper (debug only): per-rank trace of the HIP layer. Uses the legacy
 // per-thread fenced kernel; not for production use.

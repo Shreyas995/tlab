@@ -114,6 +114,21 @@ elseif( ${ACCELERATE} STREQUAL "TRUE" )
     add_definitions(-DTRP_APU_NO_PRESYNC)   # data before the hipMemcpy2D (OMP target regions are host-synchronous).
   endif ()
 
+  # T30 (2026-07-03, default OFF): apudirect K-real forward runs the gather AND the 2D peer push on ONE
+  # persistent HIP stream (hip_gather_memcpy2d_push) so stream ordering replaces the full-device pre-push
+  # hipDeviceSynchronize. Pilot on ExecK_Forward_Real only; A/B on Hunter (Phase-A bit-match + leak probe)
+  # before extending to the other forward routines. Needs the same coherence check as any push change.
+  if (TRP_APU_STREAM_GATHER)
+    add_definitions(-DTRP_APU_STREAM_GATHER)
+  endif ()
+
+  # T40a (2026-07-03, default OFF): pass MPI_MODE_NOPUT to the apudirect MPI_Win_fence barriers (the push is a
+  # direct shared-mem store, not MPI_Put, so NOPUT is a valid hint). May let MPICH use a lighter barrier; A/B
+  # bit-match + leak probe on Hunter, keep or drop on measured payoff. NOT MPI_MODE_NOSTORE (we store).
+  if (TRP_APU_FENCE_ASSERT)
+    add_definitions(-DTRP_APU_FENCE_ASSERT)
+  endif ()
+
   # T7 (2026-07-01, DEFAULT ON): port the apudirect N->1 single-DMA push to the fabricdirect all-intra I
   # node-window. When node_lrank_i is a constant-stride grid (runtime check node_win_i_linear), the per-peer
   # hip_memcpy_push loop over the intra I-peers collapses to ONE strided hipMemcpy2D. Reader invalidate +

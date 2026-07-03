@@ -51,6 +51,16 @@ module TLabMPI_Transpose
     integer, parameter :: TLAB_MPI_TRP_APU_DIRECT = 4    ! APU single-node: fused GPU writes into peers' shared windows, MPI_Win_fence barrier
     integer, parameter :: TLAB_MPI_TRP_FABRIC_DIRECT = 5 ! APU multi-node: two-sided MPI (ISEND/IRECV) per peer over a clean MPI_COMM_WORLD-split comm
 
+    ! T40a (2026-07-03): assertion flags for the apudirect MPI_Win_fence barriers. The apudirect push is a
+    ! DIRECT shared-memory store (hipMemcpy2D), NOT an MPI_Put/Accumulate, so MPI_MODE_NOPUT is a valid hint
+    ! that MAY let MPICH use a lighter barrier. Gated -DTRP_APU_FENCE_ASSERT (default 0 = current behaviour).
+    ! NOT MPI_MODE_NOSTORE (we DO store into the window). A/B on Hunter; keep or drop on measured payoff.
+#ifdef TRP_APU_FENCE_ASSERT
+    integer, parameter :: apu_fence_flags = MPI_MODE_NOPUT
+#else
+    integer, parameter :: apu_fence_flags = 0
+#endif
+
 #ifdef USE_APU
     ! APU_DIRECT state: one shared-memory MPI window per direction. Each rank allocates its
     ! recv buffer as a shared segment (MPI_Win_allocate_shared on the full directional comm,
@@ -220,6 +230,21 @@ module TLabMPI_Transpose
         ! spans (assumed-size => by-reference; the wrapper strides beyond the first element).
         ! dst/src are passed as WHOLE arrays with 0-based element offsets (dst_off/src_off) applied C-side --
         ! the hip_pushseg_fence idiom -- so no element-of-pointer/assumed-shape actual is needed.
+        ! T40a helper is a parameter (no interface). T30 (2026-07-03): gather + 2D peer push on ONE persistent
+        ! HIP stream (g_push_stream) so the gather is stream-ordered before the DMA with no cross-stream device
+        ! sync; the wrapper stream-syncs (MALL commit) before the caller's close MPI_Win_fence. apudirect fwd only.
+        subroutine hip_gather_memcpy2d_push(dst, dst_off, dpitch, src, stage, npro, nmax_p, nlines_p, npage, width, height) &
+            bind(C, name='hip_gather_memcpy2d_push')
+            use iso_c_binding
+            real(c_double), intent(out) :: dst(*)
+            integer(c_int64_t), value   :: dst_off
+            integer(c_int64_t), value   :: dpitch
+            real(c_double), intent(in)  :: src(*)
+            real(c_double), intent(out) :: stage(*)
+            integer(c_int), value       :: npro, nmax_p, nlines_p, npage
+            integer(c_int64_t), value   :: width, height
+        end subroutine
+
         subroutine hip_memcpy2d_push(dst, dst_off, dpitch, src, src_off, spitch, width, height) bind(C, name='hip_memcpy2d_push')
             use iso_c_binding
             real(c_double), intent(out) :: dst(*)
@@ -887,9 +912,20 @@ contains
             ! -- Push: one fused GPU kernel writes our chunk to ALL peers simultaneously.
             ! Eliminates per-peer kernel-launch overhead (npro separate launches → 1).
             size = trp_plan%size3d
-            call MPI_Win_fence(0, apu_win_k, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_k, ims_err)
 #if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY)
 #ifdef TRP_I_MEMCPY
+#ifdef TRP_APU_STREAM_GATHER
+            ! T30 (apudirect K-real forward pilot, 2026-07-03): gather (strided a -> contiguous wrk_mpi_dp) AND
+            ! the 2D all-peer push run on ONE persistent HIP stream, so stream ordering makes the gather visible
+            ! to the DMA with NO cross-stream full-device hipDeviceSynchronize (the OMP gather + presync +
+            ! hip_memcpy2d_push it replaces). Same MALL commit (the async 2D DMA is drained by the wrapper's
+            ! stream-sync before the close MPI_Win_fence). Gated default-OFF; A/B on Hunter (Phase-A bit-match +
+            ! leak probe) before extending to the other forward routines.
+            call hip_gather_memcpy2d_push(apu_all_k, int(ims_pro_k, 8)*int(mas, 8), int(apu_stride_k, 8), &
+                                          a, wrk_mpi_dp, int(ims_npro_k, c_int), int(nmax_p, c_int), &
+                                          int(nlines_p, c_int), int(npage, c_int), int(mas, 8), int(ims_npro_k, 8))
+#else
             ! V2 (memcpy): gather the STRIDED source a into contiguous staging (wrk_mpi_dp), then per-peer
             ! blocking hipMemcpy push.
             !$omp target teams distribute parallel do collapse(3)
@@ -924,6 +960,7 @@ contains
             call hip_memcpy_push_sync()   ! F1: drain the async push batch before the close fence
 #endif
 #endif
+#endif
 #else
             ! FUSED single-kernel push (real-K, 2026-06-29): hip_pushseg_fence scatters the STRIDED source a
             ! DIRECTLY into every peer's window slot with the per-workgroup __threadfence_system (same writer
@@ -948,7 +985,7 @@ contains
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
 #endif
-            call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: our recv buffer is now fully populated
+            call MPI_Win_fence(apu_fence_flags, apu_win_k, ims_err)   ! barrier: our recv buffer is now fully populated
 #if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY)
 #ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_k, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL
@@ -1288,7 +1325,7 @@ contains
             size = trp_plan%size3d
             ! Reinterpret the contiguous real window as complex; size in complex units = apu_stride_k/2
             call c_f_pointer(apu_peer_cptr_k(0), apu_cx_all, [apu_stride_k*ims_npro_k/2])
-            call MPI_Win_fence(0, apu_win_k, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_k, ims_err)
 #ifdef TRP_APU_MEMCPY2D
             ! apudirect optimization (2026-07-01): gather the strided complex a into contiguous real staging
             ! (wrk_mpi_dp, 2 reals/complex, ONE device handle), then ONE strided coherent hipMemcpy2D pushes ALL
@@ -1311,7 +1348,7 @@ contains
 #endif
             call hip_memcpy2d_push(apu_all_k, int(2*ims_pro_k, 8)*int(mas, 8), int(apu_stride_k, 8), &
                                    wrk_mpi_dp, 0_8, int(2*mas, 8), int(2*mas, 8), int(ims_npro_k, 8))
-            call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
+            call MPI_Win_fence(apu_fence_flags, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
 #ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))   ! reader acquire (real alias, 2*size reals)
             TRP_LEAK('LKC:apuwin', apu_recv_fptr_k(1), 2*size, -1)   ! leak-hunt: complex-K recv window after push+fence
@@ -1341,7 +1378,7 @@ contains
                                           apu_all_k(off + 1:off + 2*nmax_p*nlines_p), int(2*nmax_p*nlines_p, c_int))
             end do
             hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
-            call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
+            call MPI_Win_fence(apu_fence_flags, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
             ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real alias of
             ! the complex K window, 2*size reals) -> reloads fresh MALL data, not a stale line from a prior substep.
             call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))
@@ -1358,7 +1395,7 @@ contains
             end do
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence
-            call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
+            call MPI_Win_fence(apu_fence_flags, apu_win_k, ims_err)   ! barrier: recv buffer now fully populated
 #endif
             ! Unpack: flat copy from complex-typed recv alias to b
             !$omp target teams distribute parallel do
@@ -1627,7 +1664,7 @@ contains
         if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
             ! -- Push: b is flat K-space; push our chunk to all peers' recv buffers in one fused kernel.
             size = trp_plan%size3d
-            call MPI_Win_fence(0, apu_win_k, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_k, ims_err)
 #if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY)
 #ifdef TRP_I_MEMCPY
             ! V2 (memcpy): b is flat (contiguous mas per peer) -> per-peer blocking hipMemcpy push (no gather).
@@ -1673,7 +1710,7 @@ contains
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
 #endif
-            call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: all peers have written to our buffer
+            call MPI_Win_fence(apu_fence_flags, apu_win_k, ims_err)   ! barrier: all peers have written to our buffer
 #if defined(TRP_I_FUSEDFENCE) || defined(TRP_I_MEMCPY)
 #ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_k, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL
@@ -1991,7 +2028,7 @@ contains
         if (trp_mode_k == TLAB_MPI_TRP_APU_DIRECT) then
             size = trp_plan%size3d
             call c_f_pointer(apu_peer_cptr_k(0), apu_cx_all, [apu_stride_k*ims_npro_k/2])
-            call MPI_Win_fence(0, apu_win_k, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_k, ims_err)
 #ifdef TRP_APU_MEMCPY2D
             ! apudirect optimization (2026-07-01): gather the flat complex b into contiguous real staging
             ! (wrk_mpi_dp, 2 reals/complex, ONE device handle), then ONE strided coherent hipMemcpy2D pushes ALL
@@ -2012,7 +2049,7 @@ contains
 #endif
             call hip_memcpy2d_push(apu_all_k, int(2*ims_pro_k, 8)*int(mas, 8), int(apu_stride_k, 8), &
                                    wrk_mpi_dp, 0_8, int(2*mas, 8), int(2*mas, 8), int(ims_npro_k, 8))
-            call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
+            call MPI_Win_fence(apu_fence_flags, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
 #ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))   ! reader acquire (real alias, 2*size reals)
             TRP_LEAK('LKC:apuwin', apu_recv_fptr_k(1), 2*size, -1)   ! leak-hunt: complex-K recv window after push+fence
@@ -2038,7 +2075,7 @@ contains
                                           apu_all_k(off + 1:off + 2*nmax_p*nlines_p), int(2*nmax_p*nlines_p, c_int))
             end do
             hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
-            call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
+            call MPI_Win_fence(apu_fence_flags, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
             ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real alias of
             ! the complex K window, 2*size reals) -> reloads fresh MALL data, not a stale line from a prior substep.
             call hip_invalidate_recv(apu_recv_fptr_k, int(2*size, c_int))
@@ -2053,7 +2090,7 @@ contains
             end do
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence
-            call MPI_Win_fence(0, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
+            call MPI_Win_fence(apu_fence_flags, apu_win_k, ims_err)   ! barrier: recv buffer fully populated
 #endif
             ! CRASH-LOC (apudirect K-bwd-cplx): our recv window AFTER cross-rank push+fence, BEFORE the unpack.
             ! SYMMETRIC to the fabricdirect ZKBC probes — covers the OTHER communication branch (single-node
@@ -2335,7 +2372,7 @@ contains
         if (trp_mode_i == TLAB_MPI_TRP_APU_DIRECT) then
             ! -- Push: a is flat; one fused kernel writes our chunk to ALL peers simultaneously.
             size = trp_plan%size3d
-            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)
 #ifdef TRP_APU_MEMCPY2D
             ! apudirect optimization (2026-07-01): a is flat/contiguous per peer, so ONE strided coherent
             ! hipMemcpy2D pushes ALL peers at once (dst stride = apu_stride_i, intra-slot offset ims_pro_i*mas,
@@ -2367,7 +2404,7 @@ contains
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence (cross-rank visibility)
 #endif
-            call MPI_Win_fence(0, apu_win_i, ims_err)   ! barrier: recv buffer fully populated
+            call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)   ! barrier: recv buffer fully populated
 #if defined(TRP_APU_MEMCPY2D) || defined(TRP_I_FUSEDFENCE)
 #ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with the fused writer release)
@@ -2720,7 +2757,7 @@ contains
             ! Build complex-typed view spanning all peers' contiguous window segments.
             call c_f_pointer(apu_peer_cptr_i(0), apu_cx_all, [apu_stride_i*ims_npro_i/2])
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
-            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)
             ! DEBUG (crash hunt): window state BEFORE our push (right after open fence). If this is already
             ! corrupt (>5) the bad value is a PRE-EXISTING clobber/leftover (a prior apu_win_i user, or a
             ! coverage gap), NOT produced by this epoch's push/fence. If clean, the corruption is born here.
@@ -2746,7 +2783,7 @@ contains
             call hip_memcpy2d_push(apu_all_i, int(2*ims_pro_i, 8)*int(mas, 8), int(apu_stride_i, 8), &
                                    wrk_mpi_dp, 0_8, int(2*mas, 8), int(2*mas, 8), int(ims_npro_i, 8))
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
-            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)
 #ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))   ! reader acquire (real alias, 2*size reals)
             TRP_LEAK('LIC:apuwin', apu_recv_fptr_i(1), 2*size, -1)   ! leak-hunt: complex-I recv window after push+fence
@@ -2773,7 +2810,7 @@ contains
             end do
             hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
-            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)
             ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real alias of
             ! the complex I window, 2*size reals) -> reloads fresh MALL data, not a stale line from a prior substep.
             call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))
@@ -2788,7 +2825,7 @@ contains
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
-            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)
 #endif
             ! DEBUG (X-FFT region): recv window AFTER cross-rank push+fence, BEFORE unpack. If this jumps the
             ! corruption is in the push/fence even WITH the flush (apu_recv_fptr_i = real alias; 2*size reals).
@@ -3040,7 +3077,7 @@ contains
             ! DEBUG (X-FFT region): input b BEFORE the transpose (if this jumps, the corruption is upstream).
             if (trp_dbg_fft) DNS_PROBE('X-BWR-in', b(1), size, -1)
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
-            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)
             ! Push: pack strided b[m] → peer m's recv buffer at slot own_rank*chunk (flat).
 #ifdef TRP_APU_MEMCPY2D
             ! apudirect optimization (2026-07-01): the STRIDED source b is gathered into contiguous per-peer
@@ -3083,7 +3120,7 @@ contains
             hip_sync_err = hipDeviceSynchronize()   ! ROOT FIX: flush GPU push to HBM before the fence (cross-rank visibility)
 #endif
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
-            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)
 #if defined(TRP_APU_MEMCPY2D) || defined(TRP_I_FUSEDFENCE)
 #ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_i, int(size, c_int))   ! reader acquire: invalidate L2 -> fresh MALL (pairs with the fused writer release)
@@ -3425,7 +3462,7 @@ contains
             ! Build complex-typed view spanning all peers' contiguous window segments.
             call c_f_pointer(apu_peer_cptr_i(0), apu_cx_all, [apu_stride_i*ims_npro_i/2])
             ! Fence 1: open epoch — all ranks ready to receive direct writes.
-            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)
             ! Push: pack strided b[m] → peer m's recv buffer at slot own_rank*chunk.
 #ifdef TRP_APU_MEMCPY2D
             ! apudirect optimization (2026-07-01): gather the STRIDED complex b into contiguous real staging
@@ -3449,7 +3486,7 @@ contains
             call hip_memcpy2d_push(apu_all_i, int(2*ims_pro_i, 8)*int(mas, 8), int(apu_stride_i, 8), &
                                    wrk_mpi_dp, 0_8, int(2*mas, 8), int(2*mas, 8), int(ims_npro_i, 8))
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
-            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)
 #ifndef TRP_APU_NO_INVALIDATE
             call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))   ! reader acquire (real alias, 2*size reals)
             TRP_LEAK('LIC:apuwin', apu_recv_fptr_i(1), 2*size, -1)   ! leak-hunt: complex-I recv window after push+fence
@@ -3478,7 +3515,7 @@ contains
             end do
             hip_sync_err = hipDeviceSynchronize()   ! wait for the async push+fence kernels before closing the epoch
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
-            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)
             ! reader acquire: invalidate this rank's GPU L2 before the GPU unpack reads the window (real alias of
             ! the complex I window, 2*size reals) -> reloads fresh MALL data, not a stale line from a prior substep.
             call hip_invalidate_recv(apu_recv_fptr_i, int(2*size, c_int))
@@ -3495,7 +3532,7 @@ contains
             !$omp end target teams distribute parallel do
             hip_sync_err = hipDeviceSynchronize()   ! flush GPU push to HBM before the fence
             ! Fence 2: close epoch — all writes committed; recv buffers fully populated.
-            call MPI_Win_fence(0, apu_win_i, ims_err)
+            call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)
 #endif
             ! Flat copy: recv buffer is flat and matches a layout 1:1.
             !$omp target teams distribute parallel do
