@@ -358,11 +358,13 @@ program DNS
                 ! call AvgPhaseSpace(wrk2d, 6       , itime/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride, 8)
                 call AvgPhaseStress(q, itime/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride)
                 DNS_PROBE('LOOP:after-phstress-q', q(1, 1), isize_field*inb_flow, -2)
+                call AvgPhaseFlux(q, s, itime/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride)
                 if (mod(itime - nitera_first, nitera_save) == 0) then
                     call IO_Write_AvgPhase(avg_planes, inb_flow, IO_FLOW, nitera_save, PhAvg%stride, avgu_name, 1, avg_flow)
                     call IO_Write_AvgPhase(avg_planes, inb_scal, IO_SCAL, nitera_save, PhAvg%stride, avgs_name, 2, avg_scal)
                     call IO_Write_AvgPhase(avg_planes, 1, IO_SCAL, nitera_save, PhAvg%stride, avgp_name, 4, avg_p)
                     call IO_Write_AvgPhase(avg_planes, 6, IO_FLOW, nitera_save, PhAvg%stride, avgstr_name, 8, avg_stress)
+                    call IO_Write_AvgPhase(avg_planes, 3, IO_FLOW, nitera_save, PhAvg%stride, avgflux_name, 9, avg_flux)
                     DNS_PROBE('LOOP:after-phaseIO-q', q(1, 1), isize_field*inb_flow, -2)
 
                     call AvgPhaseResetVariable()

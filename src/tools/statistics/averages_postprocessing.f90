@@ -996,6 +996,10 @@ program AVERAGES_POSTPROCESSING
             call IO_Write_AvgPhase(1, 1, IO_SCAL, 0, PhAvg%stride, avgs_name, 4, avg_p, itime_vec(it))
 
             call AvgPhaseStress(q, it, 0, 0)
+            call IO_Write_AvgPhase(1, 6, IO_FLOW, 0, PhAvg%stride, avgstr_name, 8, avg_stress, itime_vec(it))
+
+            call AvgPhaseFlux(q, s, it, 0, 0)
+            call IO_Write_AvgPhase(1, 3, IO_FLOW, 0, PhAvg%stride, avgflux_name, 9, avg_flux, itime_vec(it))
 
             call AvgPhaseResetVariable()
 
