@@ -997,6 +997,9 @@ program AVERAGES
 
             call AvgPhaseStress(q, it, 0, 0)
 
+            call AvgPhaseFlux(q, s, it, 0, 0)
+            call IO_Write_AvgPhase(1, 3, IO_FLOW, 0, PhAvg%stride, avgflux_name, 9, avg_flux, itime_vec(it))
+
             call AvgPhaseResetVariable()
 
         end select

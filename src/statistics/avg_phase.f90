@@ -34,19 +34,20 @@ module AVG_PHASE
     end interface AvgPhaseSpace
 
     type(phaseavg_dt) :: PhAvg
-    real(wp), dimension(:), allocatable, target :: avg_flow, avg_stress, avg_p, avg_scal
+    real(wp), dimension(:), allocatable, target :: avg_flow, avg_stress, avg_p, avg_scal, avg_flux
     integer(wi) :: nxy, nxz, nyz, nz_total
     integer(wi) :: avg_planes
     character(len=32), parameter :: avgu_name = 'avg_flow'
     character(len=32), parameter :: avgstr_name = 'avg_stress'
     character(len=32), parameter :: avgp_name = 'avg_p'
     character(len=32), parameter :: avgs_name = 'avg_scal'
+    character(len=32), parameter :: avgflux_name = 'avg_flux'
 
     integer, parameter, public :: IO_SCAL = 1       ! Header of scalar field
     integer, parameter, public :: IO_FLOW = 2       ! Header of flow field
 
     public :: AvgPhaseSpace
-    public :: avg_flow, avg_p, avg_scal, avg_stress, avg_planes
+    public :: avg_flow, avg_p, avg_scal, avg_stress, avg_flux, avg_planes
     public :: PhAvg
 contains
 
@@ -85,12 +86,13 @@ contains
             call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_stress, [alloc_size*6], 'avgstr.') ! allocated not yet coded
             call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_p, [alloc_size*1], 'avgp.')
             call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_scal, [alloc_size*inb_scal], 'avgscal.')
+            call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_flux, [alloc_size*3], 'avgflux.') ! velocity-scalar flux u_i*s1 (3 components)
 
             avg_flow(:) = 0.0_wp
             avg_stress(:) = 0.0_wp
             avg_p(:) = 0.0_wp
             avg_scal(:) = 0.0_wp
-
+            avg_flux(:) = 0.0_wp
 #ifdef USE_MPI
         end if
 #endif
@@ -286,6 +288,101 @@ contains
 
     end subroutine AvgPhaseCalcStress
 
+    subroutine AvgPhaseFlux(q, s, itr, it_first, it_save)
+        real(wp), dimension(:, :), intent(in) :: q
+        real(wp), dimension(:, :), intent(in) :: s
+        integer(wi), intent(in) :: itr
+        integer(wi), intent(in) :: it_first
+        integer(wi), intent(in) :: it_save
+
+        real(wp), dimension(:), pointer :: u, v, w, sc
+        integer(wi) :: plane_id
+
+        target q, s
+
+        ! Velocity-scalar flux uses the FIRST scalar only; needs at least one scalar.
+        if (inb_scal < 1) return
+
+        u => q(:, 1)
+        v => q(:, 2)
+        w => q(:, 3)
+        sc => s(:, 1)
+
+        ! Order of computation (destination component in avg_flux)
+        ! u*s1 1
+        ! v*s1 2
+        ! w*s1 3
+
+        plane_id = 1
+        if (it_save /= 0) plane_id = mod((itr - 1) - (it_first), it_save) + 1
+
+        call AvgPhaseCalcFlux(u, sc, 1, plane_id)
+        call AvgPhaseCalcFlux(v, sc, 2, plane_id)
+        call AvgPhaseCalcFlux(w, sc, 3, plane_id)
+
+    end subroutine AvgPhaseFlux
+
+    subroutine AvgPhaseCalcFlux(field1, field2, flux_id, plane_id)
+#ifdef USE_MPI
+        use mpi_f08
+        use TLabMPI_VARS, only: ims_comm_z, ims_err, ims_pro, ims_pro_k
+#endif
+        real(wp), pointer, intent(in) :: field1(:)
+        real(wp), pointer, intent(in) :: field2(:)
+        integer(wi), intent(in) :: flux_id
+        integer(wi), intent(in) :: plane_id
+
+        integer(wi) :: k, ipl_srt, ipl_end, iavg_srt, iavg_end, lpl_srt, lpl_end
+
+        wrk3d(:) = 0.0_wp
+        wrk2d(:, :) = 0.0_wp
+
+        ! Conformant assignment: field1/field2 have isize_field elements, but wrk3d is
+        ! sized isize_wrk3d ( = max(isize_field, isize_txc_field) ) and is LARGER when
+        ! fourier_on (isize_txc_field = (imax+2)*jmax*kmax). A bare "wrk3d(:) = ..." would
+        ! be a non-conformant assignment; Cray over-reads the RHS temporary -> SIGSEGV.
+        ! Only the first isize_field elements are used by the k-loop below.
+        wrk3d(1:size(field1)) = field1(:)*field2(:)
+
+        do k = 1, kmax
+            ipl_srt = nxy*(k - 1) + 1
+            ipl_end = nxy*k
+
+            ! Slice the LHS to nxy: wrk2d's first dim is isize_wrk2d ( >= nxy ), so the
+            ! bare "wrk2d(:,1) = wrk2d(:,1) + wrk3d(ipl_srt:ipl_end)" is non-conformant.
+            wrk2d(1:nxy, 1) = wrk2d(1:nxy, 1) + (wrk3d(ipl_srt:ipl_end))/g(3)%size
+        end do
+
+        iavg_srt = (flux_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id - 1) + 1
+        iavg_end = (flux_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id)
+
+#ifdef USE_MPI
+        if (ims_pro_k == 0) then
+            call MPI_Reduce(wrk2d, avg_flux(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
+        else
+            ! Non-root: recvbuf not significant, but must not be MPI_IN_PLACE (illegal here;
+            ! OpenMPI rejects it). wrk3d is free at this point (its product is already summed
+            ! into wrk2d above), so reuse it as the ignored scratch recvbuf.
+            call MPI_Reduce(wrk2d, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
+        end if
+#else
+        ! Slice the RHS to nxy (wrk2d's first dim isize_wrk2d >= nxy) to stay conformant.
+        avg_flux(iavg_srt:iavg_end) = wrk2d(1:nxy, 1)
+#endif
+
+        lpl_srt = (flux_id - 1)*nxy*(avg_planes + 1) + nxy*avg_planes + 1
+        lpl_end = (flux_id)*nxy*(avg_planes + 1)
+
+#ifdef USE_MPI
+        if (ims_pro_k == 0) then
+#endif
+            avg_flux(lpl_srt:lpl_end) = avg_flux(lpl_srt:lpl_end) + avg_flux(iavg_srt:iavg_end)/avg_planes
+#ifdef USE_MPI
+        end if
+#endif
+
+    end subroutine AvgPhaseCalcFlux
+
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     subroutine IO_WRITE_HEADER(unit, isize, nx, ny, nz, nt, params)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -351,7 +448,7 @@ contains
 #endif
         nxy = imax*jmax
 
-        if (index > 8 .or. index == 3 .or. index == 5 .or. index == 6 .or. index == 7) then
+        if (index > 9 .or. index == 3 .or. index == 5 .or. index == 6 .or. index == 7) then
             call TLAB_WRITE_ASCII(efile, __FILE__//'. Unassigned case type check the index of the field in PhaseAvg_Write')
             call TLAB_STOP(DNS_ERROR_AVG_PHASE)
         end if
@@ -464,6 +561,7 @@ contains
             avg_stress(:) = 0.0_wp
             avg_p(:) = 0.0_wp
             avg_scal(:) = 0.0_wp
+            avg_flux(:) = 0.0_wp
 #ifdef USE_MPI
         end if
 #endif
