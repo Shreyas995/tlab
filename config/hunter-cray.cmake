@@ -86,6 +86,14 @@ elseif( ${ACCELERATE} STREQUAL "TRUE" )
     add_definitions(-DTRP_CX_MPI)        # only (real transposes stay on the GPU).
   endif ()
 
+  # IBM/APU coherence A/B (default OFF). The CPU IBM spline (IBM_SPLINE_XYZ, no target regions) reads the
+  # GPU apudirect-transpose output on the CPU inside OPR_Partial1_IBM / OPR_IBM with no flush. -DIBM_SPLINE_SYNC
+  # inserts a hipDeviceSynchronize (device->system flush) right before that CPU read. Build A (default)
+  # reproduces the blow-up; build B (-DIBM_SPLINE_SYNC=TRUE) tests whether the stale GPU->CPU read is the seed.
+  if (IBM_SPLINE_SYNC)
+    add_definitions(-DIBM_SPLINE_SYNC)
+  endif ()
+
   # apudirect push optimization (2026-07-01, DEFAULT ON): replace the per-peer writer-release loop
   # (N blocking hipMemcpy) AND the per-workgroup __threadfence_system push (hip_pushseg_fence /
   # hip_write_with_fence, the profiler's 46%-of-GPU hot spot) with ONE strided coherent hipMemcpy2D

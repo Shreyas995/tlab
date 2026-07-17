@@ -25,6 +25,18 @@ module OPR_Partial
     integer, parameter, public :: OPR_P0_INT_PV = 8
     integer, parameter, public :: OPR_P0_IBM = 9            ! Immersed boundary method
 
+#if defined(USE_APU) && defined(IBM_SPLINE_SYNC)
+    ! Test 1 (IBM/APU coherence, -DIBM_SPLINE_SYNC; default OFF = unchanged build). The CPU IBM spline
+    ! (IBM_SPLINE_XYZ, no target regions) reads the GPU apudirect-transpose output on the CPU inside
+    ! OPR_Partial1_IBM / OPR_IBM. Flush the GPU (device->system) before that CPU read so the spline never
+    ! sees stale HBM. A/B this build vs the default to confirm/deny the IBM-spline GPU->CPU coherence race.
+    interface
+        function hipDeviceSynchronize() bind(C, name='hipDeviceSynchronize') result(ierr)
+            integer :: ierr
+        end function hipDeviceSynchronize
+    end interface
+#endif
+
 contains
     ! ###################################################################
     ! ###################################################################
@@ -388,6 +400,9 @@ contains
         real(wp), intent(out) :: result(nlines*g%size)
 
         integer(wi), parameter :: is = 0    ! scalar index; if 0, then velocity
+#if defined(USE_APU) && defined(IBM_SPLINE_SYNC)
+        integer :: hip_err
+#endif
 
         ! -------------------------------------------------------------------
         ! modify incoming fields (fill solids with spline functions, depending on direction)
@@ -396,6 +411,9 @@ contains
 
         case ('x')
             if (ims_pro_ibm_x) then ! only active IBM-Tasks (with objects in their subdomain) enter IBM-routines
+#if defined(USE_APU) && defined(IBM_SPLINE_SYNC)
+                hip_err = hipDeviceSynchronize()  ! flush GPU transpose output before the CPU IBM spline reads u
+#endif
                 call IBM_SPLINE_XYZ(is, u, fld_ibm, g, isize_nobi, isize_nobi_be, nobi, nobi_b, nobi_e, ibm_case_x)
                 call FDM_Der1_Solve(nlines, ibc, g%der1, g%der1%lu, fld_ibm, result, wrk2d)  ! now with modified u fields
             else ! idle IBM-Tasks
@@ -404,6 +422,9 @@ contains
 
         case ('y')
             if (ims_pro_ibm_y) then ! only active IBM-Tasks (with objects in their subdomain) enter IBM-routines
+#if defined(USE_APU) && defined(IBM_SPLINE_SYNC)
+                hip_err = hipDeviceSynchronize()  ! flush GPU transpose output before the CPU IBM spline reads u
+#endif
                 call IBM_SPLINE_XYZ(is, u, fld_ibm, g, isize_nobj, isize_nobj_be, nobj, nobj_b, nobj_e, ibm_case_y)
                 call FDM_Der1_Solve(nlines, ibc, g%der1, g%der1%lu, fld_ibm, result, wrk2d)  ! now with modified u fields
             else ! idle IBM-Tasks
@@ -412,6 +433,9 @@ contains
 
         case ('z')
             if (ims_pro_ibm_z) then ! only active IBM-Tasks (with objects in their subdomain) enter IBM-routines
+#if defined(USE_APU) && defined(IBM_SPLINE_SYNC)
+                hip_err = hipDeviceSynchronize()  ! flush GPU transpose output before the CPU IBM spline reads u
+#endif
                 call IBM_SPLINE_XYZ(is, u, fld_ibm, g, isize_nobk, isize_nobk_be, nobk, nobk_b, nobk_e, ibm_case_z)
                 call FDM_Der1_Solve(nlines, ibc, g%der1, g%der1%lu, fld_ibm, result, wrk2d)  ! now with modified u fields
             else ! idle IBM-Tasks
@@ -433,10 +457,16 @@ contains
         type(fdm_dt), intent(in) :: g
         real(wp), intent(in) :: u(nlines*g%size)
         real(wp), intent(out) :: result(nlines*g%size)
+#if defined(USE_APU) && defined(IBM_SPLINE_SYNC)
+        integer :: hip_err
+#endif
 
         ! -------------------------------------------------------------------
         ! modify incoming fields (fill solids with spline functions, depending on direction)
 
+#if defined(USE_APU) && defined(IBM_SPLINE_SYNC)
+        hip_err = hipDeviceSynchronize()  ! flush GPU transpose output before the CPU IBM spline reads u
+#endif
         select case (g%name)
         case ('x')
             call IBM_SPLINE_XYZ(is, u, result, g, isize_nobi, isize_nobi_be, nobi, nobi_b, nobi_e, ibm_case_x)
