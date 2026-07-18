@@ -424,7 +424,9 @@ contains
 
         call dfftw_execute_dft(fft_plan_fz, p_org, p_dst)
         ! after the z2z FFTW (CPU). In the parallel path p_dst aliases in (= r_in_dbg).
+#ifdef USE_MPI
         if (ims_npro_k > 1) DNS_PROBE('ZFWD:post-fft', r_in_dbg(1), 2*isize_txc_field, -1)
+#endif
 
         if (fft_reordering_k) then                    ! re-shuffle spectra in z
             do k = 1, size_fft_z/2
