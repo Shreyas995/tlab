@@ -6,7 +6,7 @@
 module AVG_PHASE
 
     use TLab_WorkFlow
-    use TLab_Constants, only: wp, wi, longi, efile
+    use TLab_Constants, only: wp, wi, longi, efile, mas
     use TLAB_CONSTANTS, only: sizeofint, sizeofreal
     use FDM, only: g
     use TLab_Memory, only: imax, jmax, kmax, isize_field
@@ -19,9 +19,28 @@ module AVG_PHASE
     use TLab_Arrays, only: wrk2d, wrk3d
     use Thermodynamics, only: gama0
     use TLab_Memory, only: Tlab_Allocate_Real_LONG
-    use, intrinsic :: iso_c_binding, only: c_f_pointer, c_loc
+    ! NOTE: c_f_pointer/c_loc are deliberately NOT imported. The plane reductions
+    ! read the source fields by name; aliasing them would reintroduce the MI300A
+    ! "different device address for an aliased pointer" fault (see CLAUDE.md).
 
     implicit none
+#ifdef USE_APU
+    ! MI300A: required so this unit's !$omp target regions share host memory
+    ! coherently (matches the program-scope declaration in dns_main.f90). Per
+    ! OpenMP the directive must appear in EVERY compilation unit containing
+    ! device constructs; a mixed USM/non-USM binary is UB on Cray CCE.
+    !$omp requires unified_shared_memory
+
+    interface
+        ! Device-scope flush. The plane reductions below are written by the GPU and
+        ! then read by the CPU for MPI_Reduce; on the APU `target update`/`map(from:)`
+        ! are no-ops, so hipDeviceSynchronize is the only reliable handoff.
+        function hipDeviceSynchronize() bind(C, name='hipDeviceSynchronize') result(ierr)
+            use, intrinsic :: iso_c_binding, only: c_int
+            integer(c_int) :: ierr
+        end function hipDeviceSynchronize
+    end interface
+#endif
     type phaseavg_dt
         sequence
         logical :: active
@@ -45,6 +64,12 @@ module AVG_PHASE
 
     integer, parameter, public :: IO_SCAL = 1       ! Header of scalar field
     integer, parameter, public :: IO_FLOW = 2       ! Header of flow field
+
+    ! Destination selector for the shared AvgPhaseCalcProduct worker. The target
+    ! arrays are allocated only on ims_pro_k == 0, so they are resolved to a pointer
+    ! inside the worker (as AvgPhaseSpaceExec already does) rather than passed in.
+    integer(wi), parameter :: AVGPH_STRESS = 1
+    integer(wi), parameter :: AVGPH_FLUX = 2
 
     public :: AvgPhaseSpace
     public :: avg_flow, avg_p, avg_scal, avg_stress, avg_flux, avg_planes
@@ -99,6 +124,114 @@ contains
         return
     end subroutine AvgPhaseInitializeMemory
 
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Plane reductions: average over the LOCAL k-extent into an (imax*jmax) plane.
+!
+! Both workers are FUSED -- the pointwise term is consumed directly by the
+! k-reduction, so the isize_field staging buffer the old code materialized in
+! wrk3d (zero it, fill it, read it straight back) is never created at all. That
+! removes ~3 of the ~5 full-field memory passes per call.
+!
+! The loop ORDER differs by target, and the difference matters a lot:
+!
+!   GPU: ij outer / k inner, one private accumulator per ij. Neighbouring threads
+!        (ij, ij+1) touch neighbouring addresses => fully coalesced, and each
+!        output element is owned by one thread => NO atomics (unlike AVG_IK_V).
+!
+!   CPU: k outer / ij inner, accumulating into the plane. The GPU order would walk
+!        the inner loop with a stride of nxy*8 bytes (~288 KB at 4 ranks here) --
+!        a new cache line and often a new page every step, which measured ~18%
+!        SLOWER overall than the staged version it replaced. Streaming ij-inner
+!        keeps both source reads sequential and the whole plane hot in L2.
+!
+! Both orders sum the same terms in the same sequence per output element, so they
+! agree bit-for-bit with each other.
+!
+! The fields (q, s, and the pressure field) are already GPU-resident in unified
+! memory; they are passed as explicit-shape dummies and read BY NAME inside the
+! target region. Do NOT reintroduce a c_f_pointer/c_loc alias here -- on MI300A an
+! aliased pointer and its backing array have different device addresses inside a
+! target region (see CLAUDE.md, "same handle" rule).
+!
+! Division by g(3)%size (the GLOBAL z size) happens once at the end instead of per
+! k-term; the MPI_Reduce over ims_comm_z at the call site completes the average.
+! Fewer divides and slightly less rounding than the old per-term form.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    subroutine AvgPhasePlaneAvg(f, plane)
+        real(wp), intent(in) :: f(isize_field)
+        real(wp), intent(out) :: plane(nxy)
+
+        integer(wi) :: ij, k, base
+        real(wp) :: acc, znorm
+
+        znorm = real(g(3)%size, wp)     ! hoisted: no derived-type access on device
+
+#ifdef USE_APU
+        !$omp target teams distribute parallel do default(shared) private(ij,k,acc) &
+        !$omp if (nxy*kmax > mas)
+        do ij = 1, nxy
+            acc = 0.0_wp
+            do k = 1, kmax
+                acc = acc + f(nxy*(k - 1) + ij)
+            end do
+            plane(ij) = acc/znorm
+        end do
+        !$omp end target teams distribute parallel do
+#else
+        do ij = 1, nxy
+            plane(ij) = 0.0_wp
+        end do
+        do k = 1, kmax
+            base = nxy*(k - 1)
+            do ij = 1, nxy
+                plane(ij) = plane(ij) + f(base + ij)
+            end do
+        end do
+        do ij = 1, nxy
+            plane(ij) = plane(ij)/znorm
+        end do
+#endif
+    end subroutine AvgPhasePlaneAvg
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    subroutine AvgPhasePlaneProd(f1, f2, plane)
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        real(wp), intent(in) :: f1(isize_field), f2(isize_field)
+        real(wp), intent(out) :: plane(nxy)
+
+        integer(wi) :: ij, k, idx, base
+        real(wp) :: acc, znorm
+
+        znorm = real(g(3)%size, wp)
+
+#ifdef USE_APU
+        !$omp target teams distribute parallel do default(shared) private(ij,k,idx,acc) &
+        !$omp if (nxy*kmax > mas)
+        do ij = 1, nxy
+            acc = 0.0_wp
+            do k = 1, kmax
+                idx = nxy*(k - 1) + ij
+                acc = acc + f1(idx)*f2(idx)
+            end do
+            plane(ij) = acc/znorm
+        end do
+        !$omp end target teams distribute parallel do
+#else
+        do ij = 1, nxy
+            plane(ij) = 0.0_wp
+        end do
+        do k = 1, kmax
+            base = nxy*(k - 1)
+            do ij = 1, nxy
+                plane(ij) = plane(ij) + f1(base + ij)*f2(base + ij)
+            end do
+        end do
+        do ij = 1, nxy
+            plane(ij) = plane(ij)/znorm
+        end do
+#endif
+    end subroutine AvgPhasePlaneProd
+
     subroutine AvgPhaseSpaceFieldPtr(localsum, nfield, itr, it_first, it_save, field)
         implicit none
         real(wp), dimension(imax, jmax), intent(inout) :: localsum
@@ -133,30 +266,32 @@ contains
         real(wp), dimension(imax*jmax), intent(inout) :: localsum
         integer(wi), intent(in) :: nfield
         integer(wi), intent(in) :: itr, it_first, it_save, index
-        real(wp), dimension(imax, jmax, kmax, 1), target, intent(in) :: field
+        ! Assumed-size in the field index so ifld > 1 stays in bounds (the old code
+        ! reached the same elements through a c_f_pointer shaped [isize_field*nfield]).
+        real(wp), dimension(isize_field, *), target, intent(in) :: field
 
-        integer(wi) :: k, ifld, plane_id
+        integer(wi) :: ifld, plane_id
         real(wp), dimension(:), pointer :: avg_ptr
-        real(wp), dimension(:), pointer :: loc_field
-        integer(wi) :: ipl_srt, ipl_end, iavg_srt, iavg_end, lpl_srt, lpl_end
+        integer(wi) :: iavg_srt, iavg_end, lpl_srt, lpl_end
+#ifdef USE_APU
+        integer :: hip_err
+#endif
         ! ================================================================== !
         ! Calculation of the plane id to write the spatial average
         plane_id = 1
         if (it_save /= 0) plane_id = mod((itr - 1) - (it_first), it_save) + 1
 
-        ! Determing the tendency to be written
+        ! Determing the tendency to be written. The source field is NOT aliased via
+        ! c_f_pointer any more: each branch below hands the plane reduction the real
+        ! array by name (see the "same handle" note on AvgPhasePlaneAvg).
         if (index == 1) then
             avg_ptr => avg_flow
-            call c_f_pointer(c_loc(q), loc_field, shape=[imax*jmax*kmax*nfield])
         elseif (index == 2) then
             avg_ptr => avg_scal
-            call c_f_pointer(c_loc(s), loc_field, shape=[imax*jmax*kmax*nfield])
         elseif (index == 4) then
             avg_ptr => avg_p
-            call c_f_pointer(c_loc(field), loc_field, shape=[imax*jmax*kmax*nfield])
         elseif (index == 5) then
             avg_ptr => avg_stress
-            call c_f_pointer(c_loc(q), loc_field, shape=[imax*jmax*kmax*nfield])
             ! Not yet coded
         else
             call TLAB_WRITE_ASCII(efile, __FILE__//'. Unassigned case type check the index of the field in AvgPhaseSpaceExec')
@@ -165,15 +300,17 @@ contains
 
         if ((index == 1) .or. (index == 2) .or. (index == 4)) then
             do ifld = 1, nfield
-                localsum = 0.0_wp
-                ! Computing the space average
-                do k = 1, kmax
-                    ! Computing the start and end of the plane in field
-                    ipl_srt = (ifld - 1)*isize_field + nxy*(k - 1) + 1
-                    ipl_end = (ifld - 1)*isize_field + nxy*k
-
-                    localsum = localsum + loc_field(ipl_srt:ipl_end)/g(3)%size !loc_field(:,:,k,ifld)/g(3)%size
-                end do
+                ! Fused plane reduction directly off the source field.
+                if (index == 1) then
+                    call AvgPhasePlaneAvg(q(1, ifld), localsum)
+                elseif (index == 2) then
+                    call AvgPhasePlaneAvg(s(1, ifld), localsum)
+                else
+                    call AvgPhasePlaneAvg(field(1, ifld), localsum)
+                end if
+#ifdef USE_APU
+                hip_err = hipDeviceSynchronize()    ! GPU-written localsum -> CPU MPI
+#endif
 
                 ! Computing the local sum from start and end of the field for accumulating the space averages
                 iavg_srt = (ifld - 1)*nxy*(avg_planes + 1) + nxy*(plane_id - 1) + 1
@@ -207,194 +344,125 @@ contains
     end subroutine AvgPhaseSpaceExec
 
     subroutine AvgPhaseStress(q, itr, it_first, it_save)
-        real(wp), dimension(:, :), intent(in) :: q
+        ! Assumed-size in the component index: q is handed through as a base address,
+        ! so the q(1,iq) actual arguments below need no descriptor and no copy. (An
+        ! assumed-shape dummy would let the compiler emit a contiguity check and, in
+        ! the worst case, a full isize_field temporary per component.)
+        real(wp), dimension(isize_field, *), intent(in) :: q
         integer(wi), intent(in) :: itr
         integer(wi), intent(in) :: it_first
         integer(wi), intent(in) :: it_save
 
-        real(wp), dimension(:), pointer :: u, v, w
         integer(wi) :: plane_id
-
-        target q
-
-        u => q(:, 1)
-        v => q(:, 2)
-        w => q(:, 3)
-
-        ! Order of computation to reuse cache
-        ! uu 1
-        ! uv 2
-        ! uw 5
-        ! vv 3
-        ! vw 4
-        ! ww 6
 
         plane_id = 1
         if (it_save /= 0) plane_id = mod((itr - 1) - (it_first), it_save) + 1
 
-        call AvgPhaseCalcStress(u, u, 1, plane_id)
-        call AvgPhaseCalcStress(u, v, 2, plane_id)
-        call AvgPhaseCalcStress(v, v, 4, plane_id)
-        call AvgPhaseCalcStress(v, w, 5, plane_id)
-        call AvgPhaseCalcStress(u, w, 3, plane_id)
-        call AvgPhaseCalcStress(w, w, 6, plane_id)
+        ! Component slots in avg_stress: uu 1, uv 2, uw 3, vv 4, vw 5, ww 6
+        ! (q components: 1 = u, 2 = v, 3 = w). Order chosen to reuse cache.
+        call AvgPhaseCalcProduct(q(1, 1), q(1, 1), AVGPH_STRESS, 1, plane_id)
+        call AvgPhaseCalcProduct(q(1, 1), q(1, 2), AVGPH_STRESS, 2, plane_id)
+        call AvgPhaseCalcProduct(q(1, 2), q(1, 2), AVGPH_STRESS, 4, plane_id)
+        call AvgPhaseCalcProduct(q(1, 2), q(1, 3), AVGPH_STRESS, 5, plane_id)
+        call AvgPhaseCalcProduct(q(1, 1), q(1, 3), AVGPH_STRESS, 3, plane_id)
+        call AvgPhaseCalcProduct(q(1, 3), q(1, 3), AVGPH_STRESS, 6, plane_id)
 
     end subroutine AvgPhaseStress
 
-    subroutine AvgPhaseCalcStress(field1, field2, stress_id, plane_id)
-#ifdef USE_MPI
-        use mpi_f08
-        use TLabMPI_VARS, only: ims_comm_z, ims_err, ims_pro, ims_pro_k
-#endif
-        real(wp), pointer, intent(in) :: field1(:)
-        real(wp), pointer, intent(in) :: field2(:)
-        integer(wi), intent(in) :: stress_id
-        integer(wi), intent(in) :: plane_id
-
-        integer(wi) :: k, ipl_srt, ipl_end, iavg_srt, iavg_end, lpl_srt, lpl_end
-
-        wrk3d(:) = 0.0_wp
-        wrk2d(:, :) = 0.0_wp
-
-        ! Conformant assignment: field1/field2 have isize_field elements, but wrk3d is
-        ! sized isize_wrk3d ( = max(isize_field, isize_txc_field) ) and is LARGER when
-        ! fourier_on (isize_txc_field = (imax+2)*jmax*kmax). The old "wrk3d(:) = ..."
-        ! was a non-conformant assignment; Cray over-reads the RHS temporary -> SIGSEGV.
-        ! Only the first isize_field elements are used by the k-loop below.
-        wrk3d(1:size(field1)) = field1(:)*field2(:)
-
-        do k = 1, kmax
-            ipl_srt = nxy*(k - 1) + 1
-            ipl_end = nxy*k
-
-            ! Slice the LHS to nxy: wrk2d's first dim is isize_wrk2d ( >= nxy ), so the
-            ! bare "wrk2d(:,1) = wrk2d(:,1) + wrk3d(ipl_srt:ipl_end)" is non-conformant.
-            wrk2d(1:nxy, 1) = wrk2d(1:nxy, 1) + (wrk3d(ipl_srt:ipl_end))/g(3)%size
-        end do
-
-        iavg_srt = (stress_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id - 1) + 1
-        iavg_end = (stress_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id)
-
-#ifdef USE_MPI
-        if (ims_pro_k == 0) then
-            call MPI_Reduce(wrk2d, avg_stress(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
-        else
-            ! Non-root: recvbuf not significant, but must not be MPI_IN_PLACE (illegal here;
-            ! OpenMPI rejects it). wrk3d is free at this point (its product is already summed
-            ! into wrk2d above), so reuse it as the ignored scratch recvbuf.
-            call MPI_Reduce(wrk2d, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
-        end if
-#else
-        avg_stress(iavg_srt:iavg_end) = wrk2d(:, 1)
-#endif
-
-        lpl_srt = (stress_id - 1)*nxy*(avg_planes + 1) + nxy*avg_planes + 1
-        lpl_end = (stress_id)*nxy*(avg_planes + 1)
-
-#ifdef USE_MPI
-        if (ims_pro_k == 0) then
-#endif
-            avg_stress(lpl_srt:lpl_end) = avg_stress(lpl_srt:lpl_end) + avg_stress(iavg_srt:iavg_end)/avg_planes
-#ifdef USE_MPI
-        end if
-#endif
-
-    end subroutine AvgPhaseCalcStress
-
     subroutine AvgPhaseFlux(q, s, itr, it_first, it_save)
-        real(wp), dimension(:, :), intent(in) :: q
-        real(wp), dimension(:, :), intent(in) :: s
+        real(wp), dimension(isize_field, *), intent(in) :: q
+        real(wp), dimension(isize_field, *), intent(in) :: s
         integer(wi), intent(in) :: itr
         integer(wi), intent(in) :: it_first
         integer(wi), intent(in) :: it_save
 
-        real(wp), dimension(:), pointer :: u, v, w, sc
         integer(wi) :: plane_id
-
-        target q, s
 
         ! Velocity-scalar flux uses the FIRST scalar only; needs at least one scalar.
         if (inb_scal < 1) return
 
-        u => q(:, 1)
-        v => q(:, 2)
-        w => q(:, 3)
-        sc => s(:, 1)
-
-        ! Order of computation (destination component in avg_flux)
-        ! u*s1 1
-        ! v*s1 2
-        ! w*s1 3
-
         plane_id = 1
         if (it_save /= 0) plane_id = mod((itr - 1) - (it_first), it_save) + 1
 
-        call AvgPhaseCalcFlux(u, sc, 1, plane_id)
-        call AvgPhaseCalcFlux(v, sc, 2, plane_id)
-        call AvgPhaseCalcFlux(w, sc, 3, plane_id)
+        ! Component slots in avg_flux: u*s1 1, v*s1 2, w*s1 3
+        call AvgPhaseCalcProduct(q(1, 1), s(1, 1), AVGPH_FLUX, 1, plane_id)
+        call AvgPhaseCalcProduct(q(1, 2), s(1, 1), AVGPH_FLUX, 2, plane_id)
+        call AvgPhaseCalcProduct(q(1, 3), s(1, 1), AVGPH_FLUX, 3, plane_id)
 
     end subroutine AvgPhaseFlux
 
-    subroutine AvgPhaseCalcFlux(field1, field2, flux_id, plane_id)
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    subroutine AvgPhaseCalcProduct(field1, field2, dest_id, comp_id, plane_id)
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Single worker for both the Reynolds-stress and the velocity-scalar-flux phase
+! averages. The two were byte-identical apart from the destination array, so they
+! are merged here and selected by dest_id.
+!
+! Was: zero all of wrk3d (dead -- the next line overwrote every element the
+! k-loop ever reads), stage field1*field2 into wrk3d, then read wrk3d straight
+! back in the k-loop. That is ~5 full-field memory passes per call, on one CPU
+! core, nine times per iteration.
+!
+! Now: one fused device pass (2 reads, no full-field write) into the plane
+! accumulator. wrk3d is no longer touched as a compute buffer anywhere in this
+! module -- it survives only as the ignored non-root MPI_Reduce recvbuf.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #ifdef USE_MPI
         use mpi_f08
         use TLabMPI_VARS, only: ims_comm_z, ims_err, ims_pro, ims_pro_k
 #endif
-        real(wp), pointer, intent(in) :: field1(:)
-        real(wp), pointer, intent(in) :: field2(:)
-        integer(wi), intent(in) :: flux_id
+        real(wp), intent(in) :: field1(isize_field), field2(isize_field)
+        integer(wi), intent(in) :: dest_id      ! AVGPH_STRESS or AVGPH_FLUX
+        integer(wi), intent(in) :: comp_id      ! component slot within that array
         integer(wi), intent(in) :: plane_id
 
-        integer(wi) :: k, ipl_srt, ipl_end, iavg_srt, iavg_end, lpl_srt, lpl_end
+        real(wp), dimension(:), pointer :: avg_ptr
+        integer(wi) :: iavg_srt, iavg_end, lpl_srt, lpl_end
+#ifdef USE_APU
+        integer :: hip_err
+#endif
 
-        wrk3d(:) = 0.0_wp
-        wrk2d(:, :) = 0.0_wp
+        if (dest_id == AVGPH_STRESS) then
+            avg_ptr => avg_stress
+        else
+            avg_ptr => avg_flux
+        end if
 
-        ! Conformant assignment: field1/field2 have isize_field elements, but wrk3d is
-        ! sized isize_wrk3d ( = max(isize_field, isize_txc_field) ) and is LARGER when
-        ! fourier_on (isize_txc_field = (imax+2)*jmax*kmax). A bare "wrk3d(:) = ..." would
-        ! be a non-conformant assignment; Cray over-reads the RHS temporary -> SIGSEGV.
-        ! Only the first isize_field elements are used by the k-loop below.
-        wrk3d(1:size(field1)) = field1(:)*field2(:)
+        ! Fused product + k-reduction. Writes every element of wrk2d(1:nxy,1), so
+        ! the old defensive wrk2d/wrk3d zeroing is not needed.
+        call AvgPhasePlaneProd(field1, field2, wrk2d(1, 1))
+#ifdef USE_APU
+        hip_err = hipDeviceSynchronize()        ! GPU-written wrk2d -> CPU-side MPI
+#endif
 
-        do k = 1, kmax
-            ipl_srt = nxy*(k - 1) + 1
-            ipl_end = nxy*k
-
-            ! Slice the LHS to nxy: wrk2d's first dim is isize_wrk2d ( >= nxy ), so the
-            ! bare "wrk2d(:,1) = wrk2d(:,1) + wrk3d(ipl_srt:ipl_end)" is non-conformant.
-            wrk2d(1:nxy, 1) = wrk2d(1:nxy, 1) + (wrk3d(ipl_srt:ipl_end))/g(3)%size
-        end do
-
-        iavg_srt = (flux_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id - 1) + 1
-        iavg_end = (flux_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id)
+        iavg_srt = (comp_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id - 1) + 1
+        iavg_end = (comp_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id)
 
 #ifdef USE_MPI
         if (ims_pro_k == 0) then
-            call MPI_Reduce(wrk2d, avg_flux(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
+            call MPI_Reduce(wrk2d, avg_ptr(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
         else
-            ! Non-root: recvbuf not significant, but must not be MPI_IN_PLACE (illegal here;
-            ! OpenMPI rejects it). wrk3d is free at this point (its product is already summed
-            ! into wrk2d above), so reuse it as the ignored scratch recvbuf.
+            ! Non-root: recvbuf is not significant, but it must NOT be MPI_IN_PLACE
+            ! (that sentinel is only legal in the SEND buffer at the root; OpenMPI
+            ! rejects it here). wrk3d is entirely free now, so reuse it as scratch.
             call MPI_Reduce(wrk2d, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
         end if
 #else
-        ! Slice the RHS to nxy (wrk2d's first dim isize_wrk2d >= nxy) to stay conformant.
-        avg_flux(iavg_srt:iavg_end) = wrk2d(1:nxy, 1)
+        avg_ptr(iavg_srt:iavg_end) = wrk2d(1:nxy, 1)
 #endif
 
-        lpl_srt = (flux_id - 1)*nxy*(avg_planes + 1) + nxy*avg_planes + 1
-        lpl_end = (flux_id)*nxy*(avg_planes + 1)
+        lpl_srt = (comp_id - 1)*nxy*(avg_planes + 1) + nxy*avg_planes + 1
+        lpl_end = (comp_id)*nxy*(avg_planes + 1)
 
 #ifdef USE_MPI
         if (ims_pro_k == 0) then
 #endif
-            avg_flux(lpl_srt:lpl_end) = avg_flux(lpl_srt:lpl_end) + avg_flux(iavg_srt:iavg_end)/avg_planes
+            avg_ptr(lpl_srt:lpl_end) = avg_ptr(lpl_srt:lpl_end) + avg_ptr(iavg_srt:iavg_end)/avg_planes
 #ifdef USE_MPI
         end if
 #endif
 
-    end subroutine AvgPhaseCalcFlux
+    end subroutine AvgPhaseCalcProduct
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     subroutine IO_WRITE_HEADER(unit, isize, nx, ny, nz, nt, params)

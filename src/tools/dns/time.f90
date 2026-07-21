@@ -31,6 +31,13 @@ module TIME
     use TLabMPI_VARS
 #endif
     implicit none
+#ifdef USE_APU
+    ! MI300A: required so this unit's !$omp target regions share host memory
+    ! coherently (matches the program-scope declaration in dns_main.f90). Per
+    ! OpenMP the directive must appear in EVERY compilation unit containing
+    ! device constructs; a mixed USM/non-USM binary is UB on Cray CCE.
+    !$omp requires unified_shared_memory
+#endif
     save
     private
 
@@ -213,9 +220,38 @@ contains
         ! -------------------------------------------------------------------
         ! Initialize arrays to zero for the explcit low-storage algorithm
         ! -------------------------------------------------------------------
+        ! The low-storage (Williamson 2N) accumulator MUST start at zero: kco holds
+        ! only rkm_endstep-1 entries, so there is no coefficient that zeroes hq/hs at
+        ! substep 1. Keep the initialization, but do it on the device -- hq/hs are
+        ! GPU-resident and are (isize_field x inb_flow/inb_scal), so a host-side
+        ! whole-array assignment is a large single-threaded memset every timestep.
         if (rkm_mode == RKM_EXP3 .or. rkm_mode == RKM_EXP4) then
+#ifdef USE_APU
+            if (flow_on) then
+                !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
+                !$omp if (inb_flow*isize_field > mas)
+                do is = 1, inb_flow
+                    do ij = 1, isize_field
+                        hq(ij, is) = 0.0_wp
+                    end do
+                end do
+                !$omp end target teams distribute parallel do
+            end if
+            if (scal_on) then
+                !$omp target teams distribute parallel do collapse(2) default(shared) private(is,ij) &
+                !$omp if (inb_scal*isize_field > mas)
+                do is = 1, inb_scal
+                    do ij = 1, isize_field
+                        hs(ij, is) = 0.0_wp
+                    end do
+                end do
+                !$omp end target teams distribute parallel do
+            end if
+#else
             if (flow_on) hq = 0.0_wp
             if (scal_on) hs = 0.0_wp
+#endif
+            ! Particle RHS stays on the host: the particle path is not GPU-ported.
             if (part%type /= PART_TYPE_NONE) l_hq = 0.0_wp
         end if
         !########################################################################

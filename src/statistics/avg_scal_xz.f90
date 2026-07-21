@@ -59,6 +59,8 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
     integer, parameter :: MAX_VARS_GROUPS = 10
     integer i ,j, k, bcs(2, 2), is_loc
     real(wp) diff, dummy, coefT, coefR, coefQ, c23
+    real(wp) acc                                    ! per-element accumulator for the fused source-term sum
+    logical flag_ir, flag_ev, flag_se               ! which source terms contribute to the "total" below
 
     integer ig(MAX_VARS_GROUPS), sg(MAX_VARS_GROUPS), ng, nv, im
 
@@ -667,20 +669,53 @@ subroutine AVG_SCAL_XZ(is, q, s, s_local, dsdx, dsdy, dsdz, tmp1, tmp2, tmp3, me
         k = k + 1; call AVG_IK_V(imax, jmax, kmax, dsdz, mean2d(1, k), wrk1d) ! correction term or flux
     end if
 
+    ! Total source term. The terms are conditional, so p_wrk3d must still be
+    ! initialized -- but the old form was a host-side whole-array zero followed by up
+    ! to three whole-array read-modify-write accumulations (4 full-field passes). Hoist
+    ! the (host-known) conditions into flags and build the sum in ONE device pass.
+    flag_ir = infraredProps%active(is)
+    flag_ev = (is > inb_scal) .and. &
+              (imixture == MIXT_TYPE_AIRWATER_LINEAR .or. imixture == MIXT_TYPE_AIRWATER)
+    flag_se = sedimentationProps%active(is)
+
+#ifdef USE_APU
+    !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k,acc) &
+    !$omp if (kmax*jmax*imax > mas)
+    do k = 1, kmax
+        do j = 1, jmax
+            do i = 1, imax
+                acc = 0.0_wp
+                if (flag_ir) acc = acc + tmp1(i, j, k)
+                if (flag_ev) acc = acc + tmp2(i, j, k)
+                if (flag_se) acc = acc + tmp3(i, j, k)
+                p_wrk3d(i, j, k) = acc
+            end do
+        end do
+    end do
+    !$omp end target teams distribute parallel do
+#else
     p_wrk3d = 0.0_wp ! total
-    if (infraredProps%active(is)) then
-        p_wrk3d = p_wrk3d + tmp1
-    end if
-    if (is > inb_scal) then
-        if (imixture == MIXT_TYPE_AIRWATER_LINEAR .or. imixture == MIXT_TYPE_AIRWATER) then
-            p_wrk3d = p_wrk3d + tmp2
-        end if
-    end if
-    if (sedimentationProps%active(is)) then
-        p_wrk3d = p_wrk3d + tmp3
-    end if
+    if (flag_ir) p_wrk3d = p_wrk3d + tmp1
+    if (flag_ev) p_wrk3d = p_wrk3d + tmp2
+    if (flag_se) p_wrk3d = p_wrk3d + tmp3
+#endif
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, rQ(1), wrk1d)
-    if (any([DNS_EQNS_TOTAL, DNS_EQNS_INTERNAL] == nse_eqns)) p_wrk3d = p_wrk3d*rho
+    if (any([DNS_EQNS_TOTAL, DNS_EQNS_INTERNAL] == nse_eqns)) then
+#ifdef USE_APU
+        !$omp target teams distribute parallel do collapse(3) default(shared) private(i,j,k) &
+        !$omp if (kmax*jmax*imax > mas)
+        do k = 1, kmax
+            do j = 1, jmax
+                do i = 1, imax
+                    p_wrk3d(i, j, k) = p_wrk3d(i, j, k)*rho(i, j, k)
+                end do
+            end do
+        end do
+        !$omp end target teams distribute parallel do
+#else
+        p_wrk3d = p_wrk3d*rho
+#endif
+    end if
     call AVG_IK_V(imax, jmax, kmax, p_wrk3d, fQ(1), wrk1d)
     fQ(:) = fQ(:)/rR(:)
 
