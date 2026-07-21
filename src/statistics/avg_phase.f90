@@ -40,6 +40,12 @@ module AVG_PHASE
             integer(c_int) :: ierr
         end function hipDeviceSynchronize
     end interface
+    ! This module has no `private` default, so without this the interface is exported
+    ! and collides with the local hipDeviceSynchronize interface in every unit that
+    ! does an unrestricted `use AVG_PHASE` (Cray ftn-613: "defined with more than one
+    ! explicit interface"). The codebase convention is a local interface per scoping
+    ! unit; keep this one internal.
+    private :: hipDeviceSynchronize
 #endif
     type phaseavg_dt
         sequence
