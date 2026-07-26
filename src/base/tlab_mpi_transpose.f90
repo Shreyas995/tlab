@@ -3080,33 +3080,10 @@ contains
             call MPI_Win_fence(apu_fence_flags, apu_win_i, ims_err)
             ! Push: pack strided b[m] → peer m's recv buffer at slot own_rank*chunk (flat).
 #ifdef TRP_APU_MEMCPY2D
-#ifndef TRP_APU_NO_STREAM_GATHER
-            ! COHERENCE FIX (2026-07-23): single-stream gather + 2D peer push. The gather (strided b -> contiguous
-            ! per-peer staging wrk_mpi_dp) AND the strided all-peer DMA (hipMemcpy2DAsync) run on ONE persistent HIP
-            ! stream (g_push_stream), so HIP stream ordering guarantees the gather has finished before the DMA reads
-            ! the staging -- with NO cross-queue hipDeviceSynchronize. This removes the race that seeded the EkRe500
-            ! apudirect it=281706 blow-up: X-BWR-in was clean but X-BWR-win read back garbage (partial, ~1e4 pts) on
-            ! the pro_k=0 I-comm XCD, because the OLD two-step (OMP-target gather on the OMP OFFLOAD queue ->
-            ! hipDeviceSynchronize -> hip_memcpy2d_push on the DEFAULT HIP stream) let peers DMA a HALF-gathered
-            ! staging buffer: hipDeviceSynchronize does not reliably drain the OMP target queue on Cray CCE. Same
-            ! wrapper the forward-K path uses; the async 2D DMA is drained (hipStreamSynchronize) inside the wrapper
-            ! before the caller's close MPI_Win_fence, so the writer release to MALL is identical to the blocking copy.
-            !
-            ! Backward index mapping. The generic gather kernel is
-            !   stage[m*mas + i*nlines_p + j] = src[m*nlines_p + i*npage + j],  i in [0,nmax_p), j in [0,nlines_p).
-            ! The BACKWARD gather we need (see the two-step OMP loop under the #else) is
-            !   wrk_mpi_dp[m*mas + i*nmax_p + j] = b[m*nmax_p + i*nmax_full + j],  i in [0,nlines_p), j in [0,nmax_p).
-            ! These coincide when the kernel's (nmax_p, nlines_p, npage) slots receive (nlines_p, nmax_p, nmax_full)
-            ! -- i.e. nmax_p/nlines_p are passed SWAPPED and npage=nmax_full (b is strided the other way than the
-            ! forward a). mas = nmax_p*nlines_p is order-independent. Do NOT "un-swap" this. The DMA geometry
-            ! (dst=apu_all_i, off=ims_pro_i*mas, pitch=apu_stride_i, width=mas, height=npro_i) is unchanged.
-            call hip_gather_memcpy2d_push(apu_all_i, int(ims_pro_i, 8)*int(mas, 8), int(apu_stride_i, 8), &
-                                          b, wrk_mpi_dp, int(ims_npro_i, c_int), int(nlines_p, c_int), &
-                                          int(nmax_p, c_int), int(nmax_full, c_int), int(mas, 8), int(ims_npro_i, 8))
-#else
-            ! A/B OPT-OUT (-DTRP_APU_NO_STREAM_GATHER): the ORIGINAL cross-stream two-step (2026-07-01) -- OMP-target
-            ! gather + full-device hipDeviceSynchronize + hip_memcpy2d_push. Kept ONLY to reproduce the it=281706
-            ! race; the OMP gather runs on the offload queue while the DMA runs on the default stream.
+            ! apudirect optimization (2026-07-01): the STRIDED source b is gathered into contiguous per-peer
+            ! staging (wrk_mpi_dp), then ONE strided coherent hipMemcpy2D pushes ALL peers (dst stride
+            ! apu_stride_i, intra-slot offset ims_pro_i*mas, width mas, height npro_i), replacing the per-workgroup
+            ! __threadfence_system scatter (hip_pushseg_fence). Pre-sync orders the gather (OMP) before the DMA.
             !$omp target teams distribute parallel do collapse(3)
             do m = 0, ims_npro_i - 1
                 do i = 0, nlines_p - 1
@@ -3121,7 +3098,6 @@ contains
 #endif
             call hip_memcpy2d_push(apu_all_i, int(ims_pro_i, 8)*int(mas, 8), int(apu_stride_i, 8), &
                                    wrk_mpi_dp, 0_8, int(mas, 8), int(mas, 8), int(ims_npro_i, 8))
-#endif
 #elif defined(TRP_I_FUSEDFENCE)
             ! FUSED single-kernel push (real-I backward, 2026-06-29): the STRIDED source b is scattered DIRECTLY
             ! into every peer's window slot by hip_pushseg_fence (per-workgroup __threadfence_system) -- this
