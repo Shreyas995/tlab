@@ -19,11 +19,23 @@ module AVG_PHASE
     use TLab_Arrays, only: wrk2d, wrk3d
     use Thermodynamics, only: gama0
     use TLab_Memory, only: Tlab_Allocate_Real_LONG
+#ifdef USE_MPI
+    use mpi_f08, only: MPI_Comm
+#endif
     ! NOTE: c_f_pointer/c_loc are deliberately NOT imported. The plane reductions
     ! read the source fields by name; aliasing them would reintroduce the MI300A
     ! "different device address for an aliased pointer" fault (see CLAUDE.md).
 
     implicit none
+#ifdef USE_MPI
+    ! Dedicated communicator for the phase-average MPI-IO -- must NOT be the Cartesian
+    ! ims_comm_x. See the long note in AvgPhaseInitializeMemory. Kept module-private so
+    ! AVG_PHASE does not re-export mpi_f08 entities into every unit that uses it
+    ! (same reasoning as the `private :: hipDeviceSynchronize` below).
+    type(MPI_Comm) :: avgph_io_comm
+    logical :: avgph_io_comm_ready = .false.
+    private :: MPI_Comm, avgph_io_comm, avgph_io_comm_ready
+#endif
 #ifdef USE_APU
     ! MI300A: required so this unit's !$omp target regions share host memory
     ! coherently (matches the program-scope declaration in dns_main.f90). Per
@@ -87,7 +99,7 @@ contains
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #ifdef USE_MPI
         use mpi_f08
-        use TLabMPI_VARS, only: ims_pro, ims_npro_i, ims_pro_k
+        use TLabMPI_VARS, only: ims_pro, ims_npro_i, ims_pro_i, ims_pro_k, ims_err
 #endif
 
         implicit none
@@ -110,6 +122,31 @@ contains
         end if
 
 #ifdef USE_MPI
+        ! ------------------------------------------------------------------
+        ! Communicator for the phase-average MPI-IO (IO_Write_AvgPhase).
+        !
+        ! It must NOT be ims_comm_x. ims_comm_x is a CARTESIAN sub-communicator
+        ! (MPI_Cart_sub of ims_comm_xz) and on Cray MPICH allocating ANY
+        ! MPI_Win_allocate_shared in the job retroactively breaks two-sided traffic on
+        ! ims_comm_x / ims_comm_z *and on any dup of them* -- verified standalone by
+        ! src/valid/mpi/vmpi_commtest_p1..p4 (p1 = dup(ims_comm_x) HANGS, p3/p4 =
+        ! MPI_Comm_split(MPI_COMM_WORLD, color=k, key=i) PASSES), and the reason
+        ! tlab_mpi_transpose.f90 routes fabricdirect over fabric_mpi_comm_i/k.
+        ! MPI_File_open dups its communicator and the collective MPI_File_write_all
+        ! (ROMIO two-phase I/O) drives two-sided traffic on that dup => DEADLOCK.
+        ! Every APU transpose mode allocates a shared window (apu_win_* on the
+        ! Cartesian comms, node_win_* on the hostname split), so the taint is always
+        ! active in a production run; this write is simply the only MPI-IO in the code
+        ! that was still on a Cartesian comm.
+        !
+        ! color = ims_pro_k reproduces the ims_comm_x group exactly (all ranks of one
+        ! k-row) and key = ims_pro_i reproduces its rank order, so the file layout is
+        ! unchanged -- f_offset below is built from ims_pro_i, not from the comm rank.
+        if (.not. avgph_io_comm_ready) then
+            call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_k, ims_pro_i, avgph_io_comm, ims_err)
+            avgph_io_comm_ready = .true.
+        end if
+
         if (ims_pro_k == 0) then
 #endif
             alloc_size = int(imax, longi)*int(jmax, longi)*int(avg_planes + 1, longi)
@@ -543,6 +580,7 @@ contains
         type(MPI_File) :: f_handle
         TYPE(MPI_Datatype) :: ftype, mtype
         type(MPI_Status) :: status
+        type(MPI_Comm) :: io_comm
 #endif
         nxy = imax*jmax
         nxy_planes = int(nxy, longi)*int(avg_planes + 1, longi)   ! 64-bit per-field block length
@@ -553,6 +591,17 @@ contains
         end if
 
         nz_total = it_save/stride + 1
+
+#ifdef USE_MPI
+        ! Clean (non-Cartesian) I-row comm built in AvgPhaseInitializeMemory; see the note
+        ! there. Fall back to ims_comm_x only if init never ran -- in that case avg_ptr is
+        ! not allocated either, so the write could not work anyway.
+        if (avgph_io_comm_ready) then
+            io_comm = avgph_io_comm
+        else
+            io_comm = ims_comm_x
+        end if
+#endif
 
         isize = 0
         isize = isize + 1; params(isize) = rtime
@@ -619,8 +668,11 @@ contains
                 call MPI_TYPE_CONTIGUOUS(imax, MPI_REAL8, mtype, ims_err)
                 call MPI_TYPE_COMMIT(mtype, ims_err)
 
-                ! Open the file for writing
-                call MPI_FILE_OPEN(ims_comm_x, name, ior(MPI_MODE_CREATE, MPI_MODE_WRONLY), MPI_INFO_NULL, f_handle, ims_err)
+                ! Open the file for writing.
+                ! io_comm, NOT ims_comm_x: MPI_File_open dups its communicator and
+                ! MPI_File_write_all runs two-sided traffic on that dup, which Cray MPICH
+                ! deadlocks on for a Cartesian comm once a shared window exists in the job.
+                call MPI_FILE_OPEN(io_comm, name, ior(MPI_MODE_CREATE, MPI_MODE_WRONLY), MPI_INFO_NULL, f_handle, ims_err)
 
                 ! Set the file view
                 call MPI_File_set_view(f_handle, f_offset, MPI_REAL8, ftype, 'native', MPI_INFO_NULL, ims_err)
