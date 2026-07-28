@@ -32,7 +32,7 @@
 !
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 module DNS_TOWER
-    use TLab_Constants, only: wp, wi
+    use TLab_Constants, only: wp, wi, longi
     use TLab_Memory, only: inb_flow, inb_scal
     use TLab_WorkFlow, only: TLab_Write_ASCII
 
@@ -40,7 +40,10 @@ module DNS_TOWER
     integer(wi), target :: tower_isize_plane, tower_isize_plane_total
     integer(wi) tower_imax_total, tower_jmax_total, tower_kmax_total
     integer(wi) tower_offset_i, tower_offset_j, tower_offset_k
-    integer(wi) tower_isize_acc_field, tower_isize_acc_mean, tower_isize_acc_write
+    ! tower_isize_acc_field = nitera_save*tower_jmax*tower_isize_plane can exceed 2**31
+    ! (dense towers x many steps) -> 64-bit so the buffer sizing/indexing below don't wrap.
+    integer(longi) tower_isize_acc_field
+    integer(wi) tower_isize_acc_mean, tower_isize_acc_write
     integer(wi) tower_accumulation, tower_varcount
     integer(wi) tower_ncid, tower_ncmid, tower_stat
     integer(wi) tower_istride, tower_jstride, tower_kstride
@@ -81,7 +84,8 @@ contains
 
         integer(wi), dimension(3), intent(IN) :: stride
 
-        integer(wi) :: istart, iend, jstart, jend, kstart, kend, ibuf, i, j, k, ii
+        integer(wi) :: istart, iend, jstart, jend, kstart, kend, i, j, k, ii
+        integer(longi) :: ibuf   ! 64-bit buffer offset (tower_buf can exceed 2**31)
         integer(wi), pointer :: tip, tip_total
         !
         if (ims_offset_i == 0 .and. ims_offset_k == 0) then
@@ -151,7 +155,7 @@ contains
         tower_isize_plane = tower_imax*tower_kmax
         tower_isize_field = tower_imax*tower_jmax*tower_kmax
         tower_isize_plane_total = tower_imax_total*tower_kmax_total
-        tower_isize_acc_field = tower_isize_acc_write*tower_jmax*tip
+        tower_isize_acc_field = int(tower_isize_acc_write, longi)*tower_jmax*tip
         tower_isize_acc_mean = tower_isize_acc_write*tower_jmax
         tower_bufsize = 5*tower_isize_acc_field + 5*tower_isize_acc_mean + 2*tower_isize_acc_write
 
@@ -222,11 +226,12 @@ contains
         real(wp), dimension(imax, jmax, kmax, *), intent(IN) :: v
         real(wp), dimension(*), intent(INOUT) :: wrk1d
 
-        integer(wi) :: ii, kk, ip, ipm
+        integer(wi) :: ii, kk
+        integer(longi) :: ip, ipm   ! 64-bit: (tower_accumulation-1)*tower_jmax*tip can exceed 2**31
         integer(wi), pointer :: tip
 
         tip => tower_isize_plane
-        ip = 1 + (tower_accumulation - 1)*tower_jmax*tip; ipm = ip + tower_jmax - 1
+        ip = 1 + int(tower_accumulation - 1, longi)*tower_jmax*tip; ipm = ip + tower_jmax - 1
 
         ! HANDLE PRESSURE
         ! The Counter tower_accumulation is only increased when the pressure is handled
@@ -317,7 +322,8 @@ contains
         integer(wi) :: it, ivar
         character(LEN=64) :: cdummy
 
-        integer(wi) :: itower, ktower, ip_skp, ip_srt, ip_end, tower_count, op_srt, op_end
+        integer(wi) :: itower, ktower, ip_skp, tower_count, op_srt, op_end
+        integer(longi) :: ip_srt, ip_end   ! 64-bit: field offset over nitera_save steps can exceed 2**31
 #ifdef USE_H5
         integer :: h5_err
         integer(HID_T) :: h5_avgFileID, h5_Space1ID, h5_Space2ID, h5_avgDsetID, h5_avgTsetID, h5_avgIsetID
