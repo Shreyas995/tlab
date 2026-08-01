@@ -125,6 +125,7 @@ program TRANSFIELDS
         write (*, '(A)') '8. Add mean profiles'
         write (*, '(A)') '9. Extrude fields in Oz'
         write (*, '(A)') '10. Change to single precision'
+        write (*, '(A)') '11. Rotate horizontal velocity about Oy'
         read (*, *) opt_main
 #endif
     else
@@ -236,6 +237,31 @@ program TRANSFIELDS
         end if
         if (iopt_size /= 2) then
             call TLab_Write_ASCII(efile, C_FILE_LOC//'. Number of blend coefficient incorrect.')
+            call TLab_Stop(DNS_ERROR_UNDEVELOP)
+        end if
+
+    case (11) ! 2nd and 3rd entries in opt_vec contain alpha_old, alpha_new; optional 4th is the mode
+        if (sRes == '-1') then
+#ifdef USE_MPI
+#else
+            write (*, *) 'Angles alpha_old, alpha_new (radians) and mode (0 mean only / 1 mean+fluctuations) ?'
+            read (*, '(A512)') sRes
+            iopt_size = 3
+            call LIST_REAL(sRes, iopt_size, opt_vec(2))
+#endif
+        else
+            iopt_size = iopt_size - 1
+        end if
+        if (iopt_size == 2) then    ! mode omitted; default to rotating the mean only
+            opt_vec(4) = 0.0_wp
+            iopt_size = 3
+        end if
+        if (iopt_size /= 3) then
+            call TLab_Write_ASCII(efile, C_FILE_LOC//'. ParamTransform needs alpha_old, alpha_new [, mode].')
+            call TLab_Stop(DNS_ERROR_UNDEVELOP)
+        end if
+        if (int(opt_vec(4)) /= 0 .and. int(opt_vec(4)) /= 1) then
+            call TLab_Write_ASCII(efile, C_FILE_LOC//'. Rotation mode must be 0 (mean only) or 1 (mean+fluctuations).')
             call TLab_Stop(DNS_ERROR_UNDEVELOP)
         end if
 
@@ -677,6 +703,22 @@ program TRANSFIELDS
             idummy = io_datatype
             io_datatype = IO_TYPE_SINGLE
 
+            ! ###################################################################
+            ! Rotate the horizontal velocity about Oy
+            ! ###################################################################
+        case (11)
+            if (flow_on) then
+                if (inb_flow < 3) then
+                    call TLab_Write_ASCII(efile, C_FILE_LOC//'. Rotation needs the three velocity components.')
+                    call TLab_Stop(DNS_ERROR_UNDEVELOP)
+                end if
+                q_dst(:, 1:inb_flow) = q(:, 1:inb_flow)
+                call TRANS_ROTATE_MEAN(imax, jmax, kmax, opt_vec(3) - opt_vec(2), int(opt_vec(4), wi), &
+                                       q_dst(1, 1), q_dst(1, 3))
+            end if
+
+            if (scal_on) s_dst(:, 1:inb_scal) = s(:, 1:inb_scal)
+
         end select
 
         ! ###################################################################
@@ -820,6 +862,117 @@ contains
 
         return
     end subroutine TRANS_ADD_MEAN
+
+    !########################################################################
+    !# Rotate the horizontal velocity about Oy by beta (radians).
+    !#
+    !# mode 0: rotate the horizontal plane mean only. The fluctuations u-ubar,
+    !#         w-wbar are left bit-identical. The increment is a function of y
+    !#         alone, so its x- and z-derivatives vanish identically and it adds
+    !#         nothing to div(u): the field stays exactly as solenoidal as it was.
+    !#
+    !# mode 1: rotate mean and fluctuations, i.e. the horizontal velocity vector
+    !#         at every point. This also reorients the Reynolds stress, but it
+    !#         injects a divergence (1-cos b)*dv/dy - sin(b)*omega_y. That is
+    !#         removed by the first pressure solve of the DNS, whose Poisson
+    !#         forcing is div(RHS + u/dt) and so already contains div(u)/dt (see
+    !#         rhs_global_incompressible_1.f90, tmp3 = hq(:,1) + u/dte). Note the
+    !#         projection is not free: it also removes an O(beta*u') potential
+    !#         component of the fluctuations.
+    !#
+    !# The rotation is orthogonal in both modes, so the velocity magnitude is
+    !# preserved exactly. Rotation form follows VELOCITY_MEAN in flow_mean.f90.
+    !########################################################################
+    subroutine TRANS_ROTATE_MEAN(nx, ny, nz, beta, mode, u, w)
+        use Averages, only: AVG_IK_V
+
+        integer(wi), intent(IN) :: nx, ny, nz, mode
+        real(wp), intent(IN) :: beta
+        real(wp), intent(INOUT) :: u(nx, ny, nz), w(nx, ny, nz)
+
+        ! -----------------------------------------------------------------------
+        integer(wi) i, j, k
+        real(wp) cbeta, sbeta, utmp, drift
+        real(wp) ubar(ny), wbar(ny), ubar_new(ny), wbar_new(ny), wrk(ny)
+        real(wp) hvar(ny), hvar_new(ny)
+        real(wp), contiguous, pointer :: aux(:, :, :)
+        character(len=128) line
+
+        ! #######################################################################
+        ! State before the rotation: plane means and the horizontal fluctuation
+        ! energy <u'^2 + w'^2>(y). The latter is the quantity that would show a
+        ! loss of turbulence; it is re-measured after the rotation below.
+        aux(1:nx, 1:ny, 1:nz) => wrk3d(1:nx*ny*nz)
+
+        call AVG_IK_V(nx, ny, nz, u, ubar, wrk)
+        call AVG_IK_V(nx, ny, nz, w, wbar, wrk)
+        aux = u*u + w*w
+        call AVG_IK_V(nx, ny, nz, aux, hvar, wrk)
+        hvar(:) = hvar(:) - ubar(:)**2 - wbar(:)**2
+
+        cbeta = cos(beta); sbeta = sin(beta)
+
+        ubar_new(:) = ubar(:)*cbeta + wbar(:)*sbeta
+        wbar_new(:) = -ubar(:)*sbeta + wbar(:)*cbeta
+
+        if (mode == 0) then         ! plane mean only; fluctuations untouched
+            do j = 1, ny
+                u(:, j, :) = u(:, j, :) + (ubar_new(j) - ubar(j))
+                w(:, j, :) = w(:, j, :) + (wbar_new(j) - wbar(j))
+            end do
+
+        else                        ! mean and fluctuations
+            do k = 1, nz
+                do j = 1, ny
+                    do i = 1, nx
+                        utmp = u(i, j, k)
+                        u(i, j, k) = utmp*cbeta + w(i, j, k)*sbeta
+                        w(i, j, k) = -utmp*sbeta + w(i, j, k)*cbeta
+                    end do
+                end do
+            end do
+
+        end if
+
+        ! -----------------------------------------------------------------------
+        ! Re-measure the rotated field and certify the three invariants
+        call AVG_IK_V(nx, ny, nz, u, ubar_new, wrk)
+        call AVG_IK_V(nx, ny, nz, w, wbar_new, wrk)
+        aux = u*u + w*w
+        call AVG_IK_V(nx, ny, nz, aux, hvar_new, wrk)
+        hvar_new(:) = hvar_new(:) - ubar_new(:)**2 - wbar_new(:)**2
+
+        write (line, *) beta, mode
+        call TLab_Write_ASCII(lfile, 'Rotating horizontal velocity, beta [rad] and mode: '//trim(adjustl(line)))
+
+        ! (1) no turbulence lost: the horizontal fluctuation energy is untouched
+        drift = 0.0_wp
+        do j = 1, ny
+            drift = max(drift, abs(hvar_new(j) - hvar(j)))
+        end do
+        write (line, *) drift, maxval(hvar)
+        call TLab_Write_ASCII(lfile, 'Max drift of <u''^2+w''^2>, and its peak value: '//trim(adjustl(line)))
+
+        ! (2) the rotation is orthogonal: the mean-velocity magnitude is unchanged
+        drift = 0.0_wp
+        do j = 1, ny
+            drift = max(drift, abs(sqrt(ubar_new(j)**2 + wbar_new(j)**2) - sqrt(ubar(j)**2 + wbar(j)**2)))
+        end do
+        write (line, *) drift
+        call TLab_Write_ASCII(lfile, 'Max drift of the mean-velocity magnitude: '//trim(adjustl(line)))
+
+        ! (3) the mean turned by -beta (the same way the geostrophic wind turns,
+        !     whose direction is -alpha); a sign error shows up here immediately
+        write (line, *) atan2(wbar(ny), ubar(ny)), atan2(wbar_new(ny), ubar_new(ny)), -beta
+        call TLab_Write_ASCII(lfile, 'Top-plane mean angle before, after, and expected change: '//trim(adjustl(line)))
+
+        write (line, *) ubar(ny), wbar(ny), ubar_new(ny), wbar_new(ny)
+        call TLab_Write_ASCII(lfile, 'Mean at the top plane, before and after: '//trim(adjustl(line)))
+
+        nullify (aux)
+
+        return
+    end subroutine TRANS_ROTATE_MEAN
 
     !########################################################################
     !# Calculate b = f(a)
