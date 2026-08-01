@@ -1,0 +1,89 @@
+#!/bin/bash
+#PBS -N onesided
+#PBS -l select=2:node_type=mi300a:mpiprocs=24
+#PBS -l walltime=00:40:00
+#
+# Adjudicate the "one-sided MPI never delivers inter-node" verdict (CLAUDE.md / CLAUDE.log).
+# Each mode runs as its OWN timeout-guarded mpirun so that a HANG in one case cannot hide
+# the results of the others -- and so that a hang is itself a recorded datum (exit=124).
+#
+# Copy vmpi_onesided.f90 + Makefile.onesided + this script into your run dir and `qsub` it.
+# Read back: this stdout (the [CASE]/[VERDICT]/[PERF] lines) + fort.400..447 (per-rank detail).
+#
+# HOW TO READ THE RESULT -- the decision table:
+#   A2..A5 PASS and A1 FAIL          -> (a) the 2026-05 test had a usage bug (no epoch close).
+#                                        The rejected-approaches entry is WRONG; one-sided is live.
+#   A* PASS, B1/B2 PASS, B3/B4 FAIL  -> (b) GPU-RMA gap confined to true device allocations.
+#   A* PASS, B* FAIL                 -> (b) full GPU-RMA gap. Verdict stands. Next: ROC_SHMEM/libfabric.
+#   A2 PASS but C1 FAIL              -> (c) shared-window taint, not an RMA defect.
+#   A2 FAIL                          -> the HARNESS is broken. Do not publish a verdict; debug first.
+
+ulimit -c unlimited
+export HSA_XNACK=1
+export MPICH_GPU_SUPPORT_ENABLED=1
+export OMP_NUM_THREADS=1
+
+cd "$PBS_O_WORKDIR" || exit 1
+# NO module load here: inherit the .bashrc HLRS/APU/2026.1 env.
+
+echo "=== source being built: $(ls -l vmpi_onesided.f90) ==="
+if grep -q "use mpi_f08" vmpi_onesided.f90; then
+    echo "FATAL: vmpi_onesided.f90 uses mpi_f08 -> STALE copy (must be 'use mpi'). Re-upload."
+    exit 1
+fi
+
+make -f Makefile.onesided clean
+make -f Makefile.onesided || { echo "BUILD FAILED"; exit 1; }
+
+# Old per-rank logs would be appended to; move them aside so the run is unambiguous.
+mkdir -p prev_onesided && mv -f fort.4?? prev_onesided/ 2>/dev/null
+
+PIN="--cpu-bind list:0:1:2:3:4:5:24:25:26:27:28:29:48:49:50:51:52:53:72:73:74:75:76:77 --gpu-bind list:0:0:0:0:0:0:1:1:1:1:1:1:2:2:2:2:2:2:3:3:3:3:3:3"
+
+run () {   # run <mode> <timeout_s> <description>
+    echo ""
+    echo "################ mode $1 : $3 ################"
+    timeout "$2" mpirun -np 48 --ppn 24 $PIN ./vmpi_onesided.x "$1"
+    echo ">>> mode $1 exit=$?   (124 = TIMEOUT/HANG -- that is a result, not a failure to record)"
+}
+
+echo "########################################################################"
+echo "# PHASE 1 -- SELF-TEST. If this fails, the harness is wrong, not Cray.  #"
+echo "########################################################################"
+run 2  90 "A2 host Win_create + fence  [MUST PASS or stop here]"
+
+echo "########################################################################"
+echo "# PHASE 2 -- SYNCHRONIZATION axis (hypothesis (a): missing epoch close) #"
+echo "########################################################################"
+run 1  90 "A1 host Win_create NO-CLOSE   [CONTROL: expected to FAIL]"
+run 3  90 "A3 host Win_create lock/unlock"
+run 4  90 "A4 host Win_create lock_all/flush_all"
+run 5  90 "A5 host Win_create PSCW"
+run 6  90 "A6 host Win_allocate + fence"
+
+echo "########################################################################"
+echo "# PHASE 3 -- MEMORY axis (hypothesis (b): Cray GPU-RMA gap)             #"
+echo "########################################################################"
+run 7  90 "B1 USM GPU-written  Win_create  + fence"
+run 8  90 "B2 USM GPU-written  Win_allocate+ fence"
+run 9  90 "B3 device pointer   Win_create  + fence"
+run 10 90 "B4 device pointer   Win_dynamic + lock_all/flush_all"
+
+echo "########################################################################"
+echo "# PHASE 4 -- TAINT axis (hypothesis (c): MPI_Win_allocate_shared alive) #"
+echo "########################################################################"
+run 11 90 "C1 = A2 with a shared window alive"
+run 12 90 "C2 = B1 with a shared window alive"
+
+echo "########################################################################"
+echo "# PHASE 5 -- PERFORMANCE. Only meaningful if PHASE 2/3 said one-sided   #"
+echo "# actually delivers. Compares Put against the PRODUCTION two-sided       #"
+echo "# inter-node K leg at production message sizes.                          #"
+echo "# GO/NO-GO: adopt one-sided only if P2 or P3 beats P1 by >5% at 4-16 MB. #"
+echo "# Expect NO bandwidth win above ~16 MB (the fabric saturates -- see the  #"
+echo "# vmpi_gpuaware M5 sweep); any win here is latency/overhead only.        #"
+echo "########################################################################"
+run 23 600 "P-SWEEP two-sided vs Put+fence vs Put+flush, 1/4/16/64 MB per peer"
+
+echo ""
+echo "DONE -- copy this stdout + fort.400..447 back."

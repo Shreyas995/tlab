@@ -1,0 +1,30 @@
+# Makefile.onesided -- standalone one-sided-MPI (MPI_Put) adjudication harness.
+#
+# Purpose: settle whether the project's "one-sided MPI never delivers inter-node on Cray
+# MPICH" verdict is (a) a missing epoch-close in the original test, (b) a genuine Cray
+# GPU-RMA gap, or (c) the known MPI_Win_allocate_shared taint. See vmpi_onesided.f90 header.
+#
+# Env comes from .bashrc (HLRS/APU/2026.1) inside the PBS job.
+# Do NOT `module load craype-accel-amd-gfx942` here -- it reloads cce and breaks MPI
+# predefined datatypes (hard-won, see CLAUDE.md "Hunter harness/build gotchas").
+#
+# Build:  make -f Makefile.onesided        Run: qsub run_onesided.pbs
+# Clean:  make -f Makefile.onesided clean
+#
+# -eZ is required: the source uses #ifdef USE_APU, so it must go through the Cray cpp.
+
+FC      = ftn
+FFLAGS  = -eZ -DUSE_APU -fopenmp
+LIBS    = -lamdhip64
+TARGET  = vmpi_onesided.x
+SRC     = vmpi_onesided.f90
+
+all: $(TARGET)
+
+$(TARGET): $(SRC)
+	$(FC) $(FFLAGS) $(SRC) $(LIBS) -o $(TARGET)
+
+clean:
+	rm -f $(TARGET) *.mod fort.4[0-4][0-9]
+
+.PHONY: all clean
