@@ -240,26 +240,17 @@ program TRANSFIELDS
             call TLab_Stop(DNS_ERROR_UNDEVELOP)
         end if
 
-    case (11) ! 2nd and 3rd entries in opt_vec contain alpha_old, alpha_new; optional 4th is the mode
-        if (sRes == '-1') then
-#ifdef USE_MPI
-#else
-            write (*, *) 'Angles alpha_old, alpha_new (radians) and mode (0 mean only / 1 mean+fluctuations) ?'
-            read (*, '(A512)') sRes
-            iopt_size = 3
-            call LIST_REAL(sRes, iopt_size, opt_vec(2))
-#endif
-        else
-            iopt_size = iopt_size - 1
-        end if
-        if (iopt_size == 2) then    ! mode omitted; default to rotating the mean only
-            opt_vec(4) = 0.0_wp
-            iopt_size = 3
-        end if
-        if (iopt_size /= 3) then
-            call TLab_Write_ASCII(efile, C_FILE_LOC//'. ParamTransform needs alpha_old, alpha_new [, mode].')
+    case (11) ! ParamTransform = 11, alpha_old, alpha_new [, mode]
+        ! Do NOT test sRes here: it has been overwritten by the 'Subdomain'
+        ! ScanFile_Char above. iopt_size still holds the ParamTransform token
+        ! count (the Subdomain parse uses idummy), so drive the check off that.
+        ! There is deliberately no interactive fallback: this tool is run under
+        ! MPI, where reading stdin gives EOF on every rank.
+        if (iopt_size < 3) then
+            call TLab_Write_ASCII(efile, C_FILE_LOC//'. ParamTransform needs 11,alpha_old,alpha_new[,mode].')
             call TLab_Stop(DNS_ERROR_UNDEVELOP)
         end if
+        if (iopt_size < 4) opt_vec(4) = 0.0_wp  ! mode omitted; rotate the mean only
         if (int(opt_vec(4)) /= 0 .and. int(opt_vec(4)) /= 1) then
             call TLab_Write_ASCII(efile, C_FILE_LOC//'. Rotation mode must be 0 (mean only) or 1 (mean+fluctuations).')
             call TLab_Stop(DNS_ERROR_UNDEVELOP)
