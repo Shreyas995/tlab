@@ -28,13 +28,14 @@ module AVG_PHASE
 
     implicit none
 #ifdef USE_MPI
-    ! Dedicated communicator for the phase-average MPI-IO -- must NOT be the Cartesian
-    ! ims_comm_x. See the long note in AvgPhaseInitializeMemory. Kept module-private so
-    ! AVG_PHASE does not re-export mpi_f08 entities into every unit that uses it
-    ! (same reasoning as the `private :: hipDeviceSynchronize` below).
+    ! Dedicated communicators for the phase average -- must NOT be the Cartesian
+    ! ims_comm_x/ims_comm_z. See the long note in AvgPhaseInitializeMemory. Kept
+    ! module-private so AVG_PHASE does not re-export mpi_f08 entities into every
+    ! unit that uses it (same reasoning as the `private :: hipDeviceSynchronize` below).
     type(MPI_Comm) :: avgph_io_comm
+    type(MPI_Comm) :: avgph_z_comm
     logical :: avgph_io_comm_ready = .false.
-    private :: MPI_Comm, avgph_io_comm, avgph_io_comm_ready
+    private :: MPI_Comm, avgph_io_comm, avgph_z_comm, avgph_io_comm_ready
 #endif
 #ifdef USE_APU
     ! MI300A: required so this unit's !$omp target regions share host memory
@@ -142,8 +143,17 @@ contains
         ! color = ims_pro_k reproduces the ims_comm_x group exactly (all ranks of one
         ! k-row) and key = ims_pro_i reproduces its rank order, so the file layout is
         ! unchanged -- f_offset below is built from ims_pro_i, not from the comm rank.
+        !
+        ! Same taint applies to ims_comm_z, used by the MPI_Reduce calls in
+        ! AvgPhaseSpaceExec/AvgPhaseCalcProduct that actually COMPUTE the Z-direction
+        ! space average -- those are two-sided traffic directly on the Cartesian comm
+        ! (not even a dup), so the taint corrupts the reduction itself, not just I/O.
+        ! avgph_z_comm reproduces ims_comm_z's group/order: color = ims_pro_i (all
+        ! K-ranks sharing one I-column) and key = ims_pro_k (K-rank order), so rank 0
+        ! in this comm is still ims_pro_k == 0, matching the existing root convention.
         if (.not. avgph_io_comm_ready) then
             call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_k, ims_pro_i, avgph_io_comm, ims_err)
+            call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_i, ims_pro_k, avgph_z_comm, ims_err)
             avgph_io_comm_ready = .true.
         end if
 
@@ -302,7 +312,7 @@ contains
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #ifdef USE_MPI
         use mpi_f08
-        use TLabMPI_VARS, only: ims_comm_z, ims_err, ims_pro, ims_pro_k
+        use TLabMPI_VARS, only: ims_err, ims_pro, ims_pro_k
 #endif
 
         implicit none
@@ -366,12 +376,12 @@ contains
                 iavg_end = (ifld - 1)*nxy_planes + int(nxy, longi)*plane_id
 #ifdef USE_MPI
                 if (ims_pro_k == 0) then
-                    call MPI_Reduce(localsum, avg_ptr(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
+                    call MPI_Reduce(localsum, avg_ptr(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, avgph_z_comm, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
                 else
                     ! Non-root: recvbuf is not significant, but it must NOT be MPI_IN_PLACE
                     ! (that sentinel is only legal in the SEND buffer at the root). OpenMPI
                     ! (Curta) rejects MPI_IN_PLACE here; pass a real, distinct scratch (wrk3d).
-                    call MPI_Reduce(localsum, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
+                    call MPI_Reduce(localsum, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, avgph_z_comm, ims_err)
                 end if
 #else
                 avg_ptr(iavg_srt:iavg_end) = localsum
@@ -458,7 +468,7 @@ contains
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #ifdef USE_MPI
         use mpi_f08
-        use TLabMPI_VARS, only: ims_comm_z, ims_err, ims_pro, ims_pro_k
+        use TLabMPI_VARS, only: ims_err, ims_pro, ims_pro_k
 #endif
         real(wp), intent(in) :: field1(isize_field), field2(isize_field)
         integer(wi), intent(in) :: dest_id      ! AVGPH_STRESS or AVGPH_FLUX
@@ -491,12 +501,12 @@ contains
 
 #ifdef USE_MPI
         if (ims_pro_k == 0) then
-            call MPI_Reduce(wrk2d, avg_ptr(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
+            call MPI_Reduce(wrk2d, avg_ptr(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, avgph_z_comm, ims_err)
         else
             ! Non-root: recvbuf is not significant, but it must NOT be MPI_IN_PLACE
             ! (that sentinel is only legal in the SEND buffer at the root; OpenMPI
             ! rejects it here). wrk3d is entirely free now, so reuse it as scratch.
-            call MPI_Reduce(wrk2d, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
+            call MPI_Reduce(wrk2d, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, avgph_z_comm, ims_err)
         end if
 #else
         avg_ptr(iavg_srt:iavg_end) = wrk2d(1:nxy, 1)
@@ -551,7 +561,9 @@ contains
 
 #ifdef USE_MPI
         use mpi_f08
-        use TLabMPI_VARS, only: ims_comm_x, ims_err, ims_npro_i, ims_pro_i, ims_pro, ims_comm_z, ims_pro_k
+        ! No ims_comm_x / ims_comm_z here on purpose: this routine must never touch a
+        ! Cartesian communicator (see AvgPhaseInitializeMemory).
+        use TLabMPI_VARS, only: ims_err, ims_npro_i, ims_pro_i, ims_pro, ims_pro_k
 #endif
         implicit none
         integer(wi), intent(in) :: avg_planes
@@ -594,13 +606,15 @@ contains
 
 #ifdef USE_MPI
         ! Clean (non-Cartesian) I-row comm built in AvgPhaseInitializeMemory; see the note
-        ! there. Fall back to ims_comm_x only if init never ran -- in that case avg_ptr is
-        ! not allocated either, so the write could not work anyway.
-        if (avgph_io_comm_ready) then
-            io_comm = avgph_io_comm
-        else
-            io_comm = ims_comm_x
+        ! there. There is deliberately NO ims_comm_x fallback: handing MPI_File_open a
+        ! Cartesian comm is exactly the deadlock this routine was fixed for, and if init
+        ! never ran then avg_ptr is unallocated and the write could not work anyway. Fail
+        ! loudly here rather than hang the whole job inside the file collective.
+        if (.not. avgph_io_comm_ready) then
+            call TLAB_WRITE_ASCII(efile, __FILE__//'. IO_Write_AvgPhase called before AvgPhaseInitializeMemory.')
+            call TLAB_STOP(DNS_ERROR_AVG_PHASE)
         end if
+        io_comm = avgph_io_comm
 #endif
 
         isize = 0
@@ -702,7 +716,7 @@ contains
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #ifdef USE_MPI
         use mpi_f08
-        use TLabMPI_VARS, only: ims_comm_x, ims_err, ims_pro, ims_pro_k
+        use TLabMPI_VARS, only: ims_pro_k
 #endif
 
 #ifdef USE_MPI
