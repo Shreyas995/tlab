@@ -81,7 +81,9 @@ contains
 #ifdef USE_MPI
         if (ims_pro_k == 0) then
 #endif
-            alloc_size = imax*jmax*(avg_planes + 1)
+            ! 64-bit: imax*jmax*(avg_planes+1) overflows a signed 32-bit int on large
+            ! grids. A longi LHS does NOT promote a 32-bit RHS -- cast the first factor.
+            alloc_size = int(imax, longi)*int(jmax, longi)*int(avg_planes + 1, longi)
             call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_flow, [alloc_size*inb_flow], 'avgflow.')
             call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_stress, [alloc_size*6], 'avgstr.') ! allocated not yet coded
             call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_p, [alloc_size*1], 'avgp.')
@@ -138,7 +140,11 @@ contains
         integer(wi) :: k, ifld, plane_id
         real(wp), dimension(:), pointer :: avg_ptr
         real(wp), dimension(:), pointer :: loc_field
-        integer(wi) :: ipl_srt, ipl_end, iavg_srt, iavg_end, lpl_srt, lpl_end
+        integer(wi) :: ipl_srt, ipl_end
+        ! 64-bit: nxy*(avg_planes+1)*nfield can exceed 2**31 (avg_* are LONG-allocated),
+        ! so (ifld-1)*nxy*(avg_planes+1) wraps NEGATIVE in 32-bit -> OOB avg_ptr access.
+        ! nxy_planes = per-field block length, computed in 64-bit once below.
+        integer(longi) :: iavg_srt, iavg_end, lpl_srt, lpl_end, nxy_planes
         ! ================================================================== !
         ! Calculation of the plane id to write the spatial average
         plane_id = 1
@@ -163,6 +169,10 @@ contains
             call TLAB_STOP(DNS_ERROR_AVG_PHASE)
         end if
 
+        ! Per-field block length in 64-bit; the base offset (ifld-1)*nxy_planes below
+        ! would otherwise wrap a signed 32-bit int on large grids -> OOB avg_ptr access.
+        nxy_planes = int(nxy, longi)*int(avg_planes + 1, longi)
+
         if ((index == 1) .or. (index == 2) .or. (index == 4)) then
             do ifld = 1, nfield
                 localsum = 0.0_wp
@@ -176,20 +186,23 @@ contains
                 end do
 
                 ! Computing the local sum from start and end of the field for accumulating the space averages
-                iavg_srt = (ifld - 1)*nxy*(avg_planes + 1) + nxy*(plane_id - 1) + 1
-                iavg_end = (ifld - 1)*nxy*(avg_planes + 1) + nxy*plane_id
+                iavg_srt = (ifld - 1)*nxy_planes + int(nxy, longi)*(plane_id - 1) + 1
+                iavg_end = (ifld - 1)*nxy_planes + int(nxy, longi)*plane_id
 #ifdef USE_MPI
                 if (ims_pro_k == 0) then
                     call MPI_Reduce(localsum, avg_ptr(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
                 else
-                    call MPI_Reduce(localsum, MPI_IN_PLACE, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
+                    ! Non-root: recvbuf is not significant, but it must NOT be MPI_IN_PLACE
+                    ! (that sentinel is only legal in the SEND buffer at the root). OpenMPI
+                    ! (Curta) rejects MPI_IN_PLACE here; pass a real, distinct scratch (wrk3d).
+                    call MPI_Reduce(localsum, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
                 end if
 #else
                 avg_ptr(iavg_srt:iavg_end) = localsum
 #endif
 
-                lpl_srt = (ifld - 1)*nxy*(avg_planes + 1) + nxy*avg_planes + 1
-                lpl_end = ifld*nxy*(avg_planes + 1)
+                lpl_srt = (ifld - 1)*nxy_planes + int(nxy, longi)*avg_planes + 1
+                lpl_end = ifld*nxy_planes
 
 #ifdef USE_MPI
                 if (ims_pro_k == 0) then
@@ -248,35 +261,51 @@ contains
         integer(wi), intent(in) :: stress_id
         integer(wi), intent(in) :: plane_id
 
-        integer(wi) :: k, ipl_srt, ipl_end, iavg_srt, iavg_end, lpl_srt, lpl_end
+        integer(wi) :: k, ipl_srt, ipl_end
+        ! 64-bit: (stress_id-1)*nxy*(avg_planes+1) can exceed 2**31 on large grids
+        ! (avg_stress is LONG-allocated with 6 components -- it overflows first).
+        integer(longi) :: iavg_srt, iavg_end, lpl_srt, lpl_end, nxy_planes
+
+        nxy_planes = int(nxy, longi)*int(avg_planes + 1, longi)   ! 64-bit per-field block length
 
         wrk3d(:) = 0.0_wp
         wrk2d(:, :) = 0.0_wp
 
-        wrk3d(:) = field1(:)*field2(:)
+        ! Conformant assignment: field1/field2 have isize_field elements, but wrk3d is
+        ! sized isize_wrk3d ( = max(isize_field, isize_txc_field) ) and is LARGER when
+        ! fourier_on (isize_txc_field = (imax+2)*jmax*kmax). A bare "wrk3d(:) = ..." would
+        ! be a non-conformant assignment; Cray over-reads the RHS temporary -> SIGSEGV.
+        ! Only the first isize_field elements are used by the k-loop below.
+        wrk3d(1:size(field1)) = field1(:)*field2(:)
 
         do k = 1, kmax
             ipl_srt = nxy*(k - 1) + 1
             ipl_end = nxy*k
 
-            wrk2d(:, 1) = wrk2d(:, 1) + (wrk3d(ipl_srt:ipl_end))/g(3)%size
+            ! Slice the LHS to nxy: wrk2d's first dim is isize_wrk2d ( >= nxy ), so the
+            ! bare "wrk2d(:,1) = wrk2d(:,1) + wrk3d(ipl_srt:ipl_end)" is non-conformant.
+            wrk2d(1:nxy, 1) = wrk2d(1:nxy, 1) + (wrk3d(ipl_srt:ipl_end))/g(3)%size
         end do
 
-        iavg_srt = (stress_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id - 1) + 1
-        iavg_end = (stress_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id)
+        iavg_srt = (stress_id - 1)*nxy_planes + int(nxy, longi)*(plane_id - 1) + 1
+        iavg_end = (stress_id - 1)*nxy_planes + int(nxy, longi)*(plane_id)
 
 #ifdef USE_MPI
         if (ims_pro_k == 0) then
             call MPI_Reduce(wrk2d, avg_stress(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
         else
-            call MPI_Reduce(wrk2d, MPI_IN_PLACE, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
+            ! Non-root: recvbuf not significant, but must not be MPI_IN_PLACE (illegal here;
+            ! OpenMPI rejects it). wrk3d is free at this point (its product is already summed
+            ! into wrk2d above), so reuse it as the ignored scratch recvbuf.
+            call MPI_Reduce(wrk2d, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
         end if
 #else
-        avg_stress(iavg_srt:iavg_end) = wrk2d(:, 1)
+        ! Slice the RHS to nxy (wrk2d's first dim isize_wrk2d >= nxy) to stay conformant.
+        avg_stress(iavg_srt:iavg_end) = wrk2d(1:nxy, 1)
 #endif
 
-        lpl_srt = (stress_id - 1)*nxy*(avg_planes + 1) + nxy*avg_planes + 1
-        lpl_end = (stress_id)*nxy*(avg_planes + 1)
+        lpl_srt = (stress_id - 1)*nxy_planes + int(nxy, longi)*avg_planes + 1
+        lpl_end = (stress_id)*nxy_planes
 
 #ifdef USE_MPI
         if (ims_pro_k == 0) then
@@ -332,7 +361,12 @@ contains
         integer(wi), intent(in) :: flux_id
         integer(wi), intent(in) :: plane_id
 
-        integer(wi) :: k, ipl_srt, ipl_end, iavg_srt, iavg_end, lpl_srt, lpl_end
+        integer(wi) :: k, ipl_srt, ipl_end
+        ! 64-bit: (flux_id-1)*nxy*(avg_planes+1) can exceed 2**31 on large grids
+        ! (avg_flux is LONG-allocated).
+        integer(longi) :: iavg_srt, iavg_end, lpl_srt, lpl_end, nxy_planes
+
+        nxy_planes = int(nxy, longi)*int(avg_planes + 1, longi)   ! 64-bit per-field block length
 
         wrk3d(:) = 0.0_wp
         wrk2d(:, :) = 0.0_wp
@@ -353,8 +387,8 @@ contains
             wrk2d(1:nxy, 1) = wrk2d(1:nxy, 1) + (wrk3d(ipl_srt:ipl_end))/g(3)%size
         end do
 
-        iavg_srt = (flux_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id - 1) + 1
-        iavg_end = (flux_id - 1)*nxy*(avg_planes + 1) + nxy*(plane_id)
+        iavg_srt = (flux_id - 1)*nxy_planes + int(nxy, longi)*(plane_id - 1) + 1
+        iavg_end = (flux_id - 1)*nxy_planes + int(nxy, longi)*(plane_id)
 
 #ifdef USE_MPI
         if (ims_pro_k == 0) then
@@ -370,8 +404,8 @@ contains
         avg_flux(iavg_srt:iavg_end) = wrk2d(1:nxy, 1)
 #endif
 
-        lpl_srt = (flux_id - 1)*nxy*(avg_planes + 1) + nxy*avg_planes + 1
-        lpl_end = (flux_id)*nxy*(avg_planes + 1)
+        lpl_srt = (flux_id - 1)*nxy_planes + int(nxy, longi)*avg_planes + 1
+        lpl_end = (flux_id)*nxy_planes
 
 #ifdef USE_MPI
         if (ims_pro_k == 0) then
@@ -435,7 +469,10 @@ contains
         character(len=32) :: varname(1)
         integer(wi), parameter :: isize_max = 20
         real(wp) :: params(isize_max)
-        integer(wi) :: isize, iheader, ifld, ifld_srt, ifld_end
+        integer(wi) :: isize, iheader, ifld
+        ! 64-bit: (ifld-1)*nxy*(avg_planes+1) is the MPI-IO buffer offset; it overflows a
+        ! signed 32-bit int on large grids -> avg_ptr(ifld_srt) wild pointer -> collective fault/hang.
+        integer(longi) :: ifld_srt, ifld_end, nxy_planes
         character(len=10) :: start, end, fld_id
         integer(wi) :: arr_planes, header_offset, ioffset_local
         integer(wi) :: nxy
@@ -447,6 +484,7 @@ contains
         type(MPI_Status) :: status
 #endif
         nxy = imax*jmax
+        nxy_planes = int(nxy, longi)*int(avg_planes + 1, longi)   ! 64-bit per-field block length
 
         if (index > 9 .or. index == 3 .or. index == 5 .or. index == 6 .or. index == 7) then
             call TLAB_WRITE_ASCII(efile, __FILE__//'. Unassigned case type check the index of the field in PhaseAvg_Write')
@@ -482,8 +520,8 @@ contains
         end if
 
         do ifld = 1, nfield
-            ifld_srt = (ifld - 1)*nxy*(avg_planes + 1) + 1
-            ifld_end = ifld*nxy*(avg_planes + 1)
+            ifld_srt = (ifld - 1)*nxy_planes + 1
+            ifld_end = ifld*nxy_planes
             write (fld_id, '(I10)') ifld
             varname(1) = ''
             if (start == end) then ! write single iteration

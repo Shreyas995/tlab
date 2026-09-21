@@ -989,13 +989,14 @@ program AVERAGES
             call IO_Write_AvgPhase(1, inb_flow, IO_FLOW, 0, PhAvg%stride, avgu_name, 1, avg_flow, itime_vec(it))
 
             call AvgPhaseSpace(wrk2d, inb_scal, it, 0, 0, 2)
-            call IO_Write_AvgPhase(1, inb_scal, IO_SCAL, 0, PhAvg%stride, avgp_name, 2, avg_scal, itime_vec(it))
+            call IO_Write_AvgPhase(1, inb_scal, IO_SCAL, 0, PhAvg%stride, avgs_name, 2, avg_scal, itime_vec(it))
 
             p => txc(:, 9) !makes sure to only pass the address, not the entire array
             call AvgPhaseSpace(wrk2d, 1, it, 0, 0, p)
-            call IO_Write_AvgPhase(1, 1, IO_SCAL, 0, PhAvg%stride, avgs_name, 4, avg_p, itime_vec(it))
+            call IO_Write_AvgPhase(1, 1, IO_SCAL, 0, PhAvg%stride, avgp_name, 4, avg_p, itime_vec(it))
 
             call AvgPhaseStress(q, it, 0, 0)
+            call IO_Write_AvgPhase(1, 6, IO_FLOW, 0, PhAvg%stride, avgstr_name, 8, avg_stress, itime_vec(it))
 
             call AvgPhaseFlux(q, s, it, 0, 0)
             call IO_Write_AvgPhase(1, 3, IO_FLOW, 0, PhAvg%stride, avgflux_name, 9, avg_flux, itime_vec(it))
