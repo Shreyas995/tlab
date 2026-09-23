@@ -36,6 +36,17 @@ program TRANSFIELDS
     use IBM_VARS, only: imode_ibm
 
     implicit none
+#ifdef USE_APU
+    ! Program-scope OpenMP requirement, matching dns_main.f90. TRANS_ROTATE_MEAN
+    ! (ParamTransform=11) is the only transfields path that reaches a !$omp target
+    ! region -- AVG_IK_V in src/utils/averages.f90, which declares this same
+    ! requirement. Without it here the main program's translation unit brings the
+    ! OpenMP runtime up in non-USM (mapped) mode, so AVG_IK_V's target region
+    ! implicitly maps its whole 3-D argument to the device instead of sharing host
+    ! memory: a second copy of an isize_field array per call. A mixed USM/non-USM
+    ! binary is UB on Cray CCE (see CLAUDE.md, "DNS post-processing on Hunter").
+    !$omp requires unified_shared_memory
+#endif
 
     ! Parameter definitions
     integer(wi), parameter :: itime_size_max = 3000
