@@ -93,8 +93,8 @@ contains
     ! ###################################################################
     subroutine PLANES_INITIALIZE()
 #ifdef USE_MPI
-        use mpi_f08, only: MPI_REAL4, MPI_COMM_WORLD
-        use TLabMPI_VARS, only: ims_comm_x, ims_comm_z, ims_pro_i, ims_pro_k
+        use mpi_f08, only: MPI_REAL4, MPI_COMM_WORLD, MPI_Comm_split
+        use TLabMPI_VARS, only: ims_pro_i, ims_pro_k, ims_err
 #endif
 
         ! -------------------------------------------------------------------
@@ -177,8 +177,15 @@ contains
             io_subarray_xy%precision = IO_TYPE_SINGLE
 #ifdef USE_MPI
             io_subarray_xy%active = .false.  ! defaults
-            if (ims_pro_k == (kplanes%nodes(1)/kmax)) io_subarray_xy%active = .true.
-            io_subarray_xy%communicator = ims_comm_x
+            if (any((kplanes%nodes(:kplanes%n) - 1)/kmax /= (kplanes%nodes(1) - 1)/kmax)) then
+                call TLab_Write_ASCII(efile, 'PLANES_INITIALIZE. All Kplanes must lie in the same z-subdomain.')
+                call TLab_Stop(DNS_ERROR_OPTION)
+            end if
+            if (ims_pro_k == (kplanes%nodes(1) - 1)/kmax) io_subarray_xy%active = .true.
+            ! Not ims_comm_x: MPI-IO on a Cartesian sub-comm (or a dup of it) deadlocks on Cray MPICH once any
+            ! MPI_Win_allocate_shared exists (transpose windows). Same group and rank order, but WORLD lineage.
+            ! Collective on MPI_COMM_WORLD, so it must stay outside any active-rank guard.
+            call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_k, ims_pro_i, io_subarray_xy%communicator, ims_err)
             io_subarray_xy%subarray = IO_Create_Subarray_XOY(imax, jmax*kplanes%size, MPI_REAL4)
 #endif
         end if
@@ -188,8 +195,13 @@ contains
             io_subarray_zy%precision = IO_TYPE_SINGLE
 #ifdef USE_MPI
             io_subarray_zy%active = .false.  ! defaults
-            if (ims_pro_i == (iplanes%nodes(1)/imax)) io_subarray_zy%active = .true.
-            io_subarray_zy%communicator = ims_comm_z
+            if (any((iplanes%nodes(:iplanes%n) - 1)/imax /= (iplanes%nodes(1) - 1)/imax)) then
+                call TLab_Write_ASCII(efile, 'PLANES_INITIALIZE. All Iplanes must lie in the same x-subdomain.')
+                call TLab_Stop(DNS_ERROR_OPTION)
+            end if
+            if (ims_pro_i == (iplanes%nodes(1) - 1)/imax) io_subarray_zy%active = .true.
+            ! Not ims_comm_z; see io_subarray_xy above
+            call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_i, ims_pro_k, io_subarray_zy%communicator, ims_err)
             io_subarray_zy%subarray = IO_Create_Subarray_ZOY(jmax*iplanes%size, kmax, MPI_REAL4)
 #endif
         end if
@@ -211,6 +223,9 @@ contains
     ! ###################################################################
     ! ###################################################################
     subroutine PLANES_SAVE()
+#ifdef USE_MPI
+        use TLabMPI_VARS, only: ims_offset_i, ims_offset_k
+#endif
         use TLab_Pointers_3D, only: p_wrk2d
         use TLab_Pointers_3D, only: pointers3d_dt
         use Tlab_Background, only: sbg
@@ -218,7 +233,8 @@ contains
         use Integration, only: Int_Simpson
 
         ! -------------------------------------------------------------------
-        integer(wi) offset, j, k, iv, nvars
+        integer(wi) offset, j, k, iv, ip, nvars
+        integer(wi) idsp, kdsp     ! global-to-local grid-index shift of this subdomain
         character*32 fname, str, fmt
         character*250 line1
         type(pointers3d_dt) :: vars(16)
@@ -227,6 +243,12 @@ contains
         ! ###################################################################
         ! general order of variabeles
         ! [u,v,w,{scal1,...},p,{log(entstrophy),log(grad(scal1)),...)}]
+
+#ifdef USE_MPI
+        idsp = ims_offset_i; kdsp = ims_offset_k
+#else
+        idsp = 0; kdsp = 0
+#endif
 
         fmt = '('//fmt_r//')'
         write (line1, fmt) rtime
@@ -283,11 +305,21 @@ contains
             end do
             call TLab_Write_ASCII(lfile, trim(adjustl(line1))//' '//trim(adjustl(str)))
 
-            offset = 0
-            do iv = 1, nvars
-                data_k(:, :, 1 + offset:kplanes%n + offset) = vars(iv)%field(:, :, kplanes%nodes(1:kplanes%n))
-                offset = offset + kplanes%n
-            end do
+            ! kplanes%nodes are global indices; vars()%field is local -> shift by kdsp.
+            ! Only the ranks owning the planes gather; only they write (io_subarray_xy%active)
+#ifdef USE_MPI
+            if (io_subarray_xy%active) then
+#endif
+                offset = 0
+                do iv = 1, nvars
+                    do ip = 1, kplanes%n
+                        data_k(:, :, ip + offset) = vars(iv)%field(:, :, kplanes%nodes(ip) - kdsp)
+                    end do
+                    offset = offset + kplanes%n
+                end do
+#ifdef USE_MPI
+            end if
+#endif
             write (fname, *) itime; fname = 'planesK.'//trim(adjustl(fname))
             call IO_Write_Subarray(io_subarray_xy, fname, varname, data_k, kplanes%io)
 
@@ -327,15 +359,24 @@ contains
             end do
             call TLab_Write_ASCII(lfile, trim(adjustl(line1))//' '//trim(adjustl(str)))
 
-            offset = 0
-            do iv = 1, nvars
-                do k = 1, kmax
-                    do j = 1, jmax
-                        data_i(j, 1 + offset:iplanes%n + offset, k) = vars(iv)%field(iplanes%nodes(1:iplanes%n), j, k)
+            ! iplanes%nodes are global indices; vars()%field is local -> shift by idsp
+#ifdef USE_MPI
+            if (io_subarray_zy%active) then
+#endif
+                offset = 0
+                do iv = 1, nvars
+                    do k = 1, kmax
+                        do j = 1, jmax
+                            do ip = 1, iplanes%n
+                                data_i(j, ip + offset, k) = vars(iv)%field(iplanes%nodes(ip) - idsp, j, k)
+                            end do
+                        end do
                     end do
+                    offset = offset + iplanes%n
                 end do
-                offset = offset + iplanes%n
-            end do
+#ifdef USE_MPI
+            end if
+#endif
             write (fname, *) itime; fname = 'planesI.'//trim(adjustl(fname))
             call IO_Write_Subarray(io_subarray_zy, fname, varname, data_i, iplanes%io)
 
