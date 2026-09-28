@@ -14,9 +14,11 @@ In order to compile the code, run the following commands:
 cd ${PATH_TO_TLAB}
 mkdir build
 cd build
-cmake ../src -DSYST={mpipc,juqueen,...} -DBUILD_TYPE={BIG,LITTLE,PARALLEL,NONBLOCKING}
-make
+cmake ../src -DSYST=hunter-cray -DBUILD_TYPE={SERIAL OR PARALLEL} -DACCELERATE={TRUE OR FALSE} -DPROFILE={TRUE OR FALSE}
+make -f dns.x
 ```
+To run the app with example, link the executable with the desired configuration to in the example/Case<ID>  
+
 Instead of mpipc or juqueen, you have to use the corresponding file from the directory ${PATH_TO_TLAB}/config
 
 You can also run `./configure.sh`, which would create the different build_* directories automatically for your system if appropriately set up.
