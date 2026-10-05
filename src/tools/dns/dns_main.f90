@@ -293,6 +293,7 @@ program DNS
                     call IO_Write_AvgPhase(avg_planes, 1, IO_SCAL, nitera_save, PhAvg%stride, avgp_name, 4, avg_p)
                     call IO_Write_AvgPhase(avg_planes, 6, IO_FLOW, nitera_save, PhAvg%stride, avgstr_name, 8, avg_stress)
                     call IO_Write_AvgPhase(avg_planes, 3, IO_FLOW, nitera_save, PhAvg%stride, avgflux_name, 9, avg_flux)
+                    call IO_Write_AvgPhase(avg_planes, 3, IO_FLOW, nitera_save, PhAvg%stride, avgpu_name, 10, avg_pu)
 
                     call AvgPhaseResetVariable()
                 end if

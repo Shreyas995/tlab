@@ -93,8 +93,8 @@ contains
     ! ###################################################################
     subroutine PLANES_INITIALIZE()
 #ifdef USE_MPI
-        use mpi_f08, only: MPI_REAL4, MPI_COMM_WORLD
-        use TLabMPI_VARS, only: ims_comm_x, ims_comm_z, ims_pro_i, ims_pro_k
+        use mpi_f08, only: MPI_REAL4, MPI_COMM_WORLD, MPI_Comm_split
+        use TLabMPI_VARS, only: ims_pro_i, ims_pro_k, ims_err
 #endif
 
         ! -------------------------------------------------------------------
@@ -182,7 +182,10 @@ contains
                 call TLab_Stop(DNS_ERROR_OPTION)
             end if
             if (ims_pro_k == (kplanes%nodes(1) - 1)/kmax) io_subarray_xy%active = .true.
-            io_subarray_xy%communicator = ims_comm_x
+            ! Not ims_comm_x: MPI-IO on a Cartesian sub-comm (or a dup of it) deadlocks on Cray MPICH once any
+            ! MPI_Win_allocate_shared exists (transpose windows). Same group and rank order, but WORLD lineage.
+            ! Collective on MPI_COMM_WORLD, so it must stay outside any active-rank guard.
+            call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_k, ims_pro_i, io_subarray_xy%communicator, ims_err)
             io_subarray_xy%subarray = IO_Create_Subarray_XOY(imax, jmax*kplanes%size, MPI_REAL4)
 #endif
         end if
@@ -197,7 +200,8 @@ contains
                 call TLab_Stop(DNS_ERROR_OPTION)
             end if
             if (ims_pro_i == (iplanes%nodes(1) - 1)/imax) io_subarray_zy%active = .true.
-            io_subarray_zy%communicator = ims_comm_z
+            ! Not ims_comm_z; see io_subarray_xy above
+            call MPI_Comm_split(MPI_COMM_WORLD, ims_pro_i, ims_pro_k, io_subarray_zy%communicator, ims_err)
             io_subarray_zy%subarray = IO_Create_Subarray_ZOY(jmax*iplanes%size, kmax, MPI_REAL4)
 #endif
         end if

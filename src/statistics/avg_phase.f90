@@ -34,7 +34,7 @@ module AVG_PHASE
     end interface AvgPhaseSpace
 
     type(phaseavg_dt) :: PhAvg
-    real(wp), dimension(:), allocatable, target :: avg_flow, avg_stress, avg_p, avg_scal, avg_flux
+    real(wp), dimension(:), allocatable, target :: avg_flow, avg_stress, avg_p, avg_scal, avg_flux, avg_pu
     integer(wi) :: nxy, nxz, nyz, nz_total
     integer(wi) :: avg_planes
     character(len=32), parameter :: avgu_name = 'avg_flow'
@@ -42,12 +42,13 @@ module AVG_PHASE
     character(len=32), parameter :: avgp_name = 'avg_p'
     character(len=32), parameter :: avgs_name = 'avg_scal'
     character(len=32), parameter :: avgflux_name = 'avg_flux'
+    character(len=32), parameter :: avgpu_name = 'avg_pu'
 
     integer, parameter, public :: IO_SCAL = 1       ! Header of scalar field
     integer, parameter, public :: IO_FLOW = 2       ! Header of flow field
 
     public :: AvgPhaseSpace
-    public :: avg_flow, avg_p, avg_scal, avg_stress, avg_flux, avg_planes
+    public :: avg_flow, avg_p, avg_scal, avg_stress, avg_flux, avg_pu, avg_planes
     public :: PhAvg
 contains
 
@@ -89,12 +90,14 @@ contains
             call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_p, [alloc_size*1], 'avgp.')
             call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_scal, [alloc_size*inb_scal], 'avgscal.')
             call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_flux, [alloc_size*3], 'avgflux.') ! velocity-scalar flux u_i*s1 (3 components)
+            call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_pu, [alloc_size*3], 'avgpu.') ! pressure-velocity p*u_i (3 components)
 
             avg_flow(:) = 0.0_wp
             avg_stress(:) = 0.0_wp
             avg_p(:) = 0.0_wp
             avg_scal(:) = 0.0_wp
             avg_flux(:) = 0.0_wp
+            avg_pu(:) = 0.0_wp
 #ifdef USE_MPI
         end if
 #endif
@@ -351,6 +354,27 @@ contains
 
     end subroutine AvgPhaseFlux
 
+    subroutine AvgPhasePressureVelocity(u, v, w, p, itr, it_first, it_save)
+        ! Pressure-velocity products p*u, p*v, p*w. Called from the RHS routine at the
+        ! last RK substep, where the pressure exists (same place avg_p is accumulated),
+        ! so p and u_i are taken at the same instant. p must be on the velocity grid.
+        real(wp), dimension(:), pointer, intent(in) :: u, v, w, p
+        integer(wi), intent(in) :: itr
+        integer(wi), intent(in) :: it_first
+        integer(wi), intent(in) :: it_save
+
+        integer(wi) :: plane_id
+
+        plane_id = 1
+        if (it_save /= 0) plane_id = mod((itr - 1) - (it_first), it_save) + 1
+
+        ! Component slots in avg_pu: p*u 1, p*v 2, p*w 3
+        call AvgPhaseCalcPU(p, u, 1, plane_id)
+        call AvgPhaseCalcPU(p, v, 2, plane_id)
+        call AvgPhaseCalcPU(p, w, 3, plane_id)
+
+    end subroutine AvgPhasePressureVelocity
+
     subroutine AvgPhaseCalcFlux(field1, field2, flux_id, plane_id)
 #ifdef USE_MPI
         use mpi_f08
@@ -416,6 +440,82 @@ contains
 #endif
 
     end subroutine AvgPhaseCalcFlux
+
+    subroutine AvgPhaseCalcPU(field1, field2, pu_id, plane_id)
+#ifdef USE_MPI
+        use mpi_f08
+        use TLabMPI_VARS, only: ims_comm_z, ims_err, ims_pro, ims_pro_k
+#endif
+        real(wp), pointer, intent(in) :: field1(:)
+        real(wp), pointer, intent(in) :: field2(:)
+        integer(wi), intent(in) :: pu_id
+        integer(wi), intent(in) :: plane_id
+
+        integer(wi) :: ij, k, base
+        real(wp) :: znorm
+        ! 64-bit: (pu_id-1)*nxy*(avg_planes+1) can exceed 2**31 on large grids
+        ! (avg_pu is LONG-allocated).
+        integer(longi) :: iavg_srt, iavg_end, lpl_srt, lpl_end, nxy_planes
+
+        nxy_planes = int(nxy, longi)*int(avg_planes + 1, longi)   ! 64-bit per-field block length
+
+        ! Fused product + k-reduction, written to match the APU tree's AvgPhasePlaneProd
+        ! EXACTLY so that avg_pu is bit-identical between the CPU and the GPU build.
+        ! Two properties matter and must not be "tidied" back to the AvgPhaseCalcStress /
+        ! AvgPhaseCalcFlux form above:
+        !   (1) divide by g(3)%size ONCE at the end, not per k-term. Sum(x_k)/n and
+        !       Sum(x_k/n) differ by ~1e-13 relative at kmax=144 -- the same order as the
+        !       run-to-run noise this project chased down to the FFTW planner.
+        !   (2) k outer / ij inner, so both source reads stay sequential (the ij-outer
+        !       order the GPU wants walks the inner loop with an nxy*8-byte stride).
+        ! The isize_field staging in wrk3d is gone: the product feeds the reduction
+        ! directly, which also removes the non-conformant-assignment hazard that shape
+        ! needed guarding against. wrk2d(1:nxy,1) is fully written below, so the old
+        ! defensive zeroing of wrk3d/wrk2d is unnecessary.
+        znorm = real(g(3)%size, wp)
+
+        do ij = 1, nxy
+            wrk2d(ij, 1) = 0.0_wp
+        end do
+        do k = 1, kmax
+            base = nxy*(k - 1)
+            do ij = 1, nxy
+                wrk2d(ij, 1) = wrk2d(ij, 1) + field1(base + ij)*field2(base + ij)
+            end do
+        end do
+        do ij = 1, nxy
+            wrk2d(ij, 1) = wrk2d(ij, 1)/znorm
+        end do
+
+        iavg_srt = (pu_id - 1)*nxy_planes + int(nxy, longi)*(plane_id - 1) + 1
+        iavg_end = (pu_id - 1)*nxy_planes + int(nxy, longi)*(plane_id)
+
+#ifdef USE_MPI
+        if (ims_pro_k == 0) then
+            call MPI_Reduce(wrk2d, avg_pu(iavg_srt:iavg_end), nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err) ! avg_ptr(imax*jmax*restarts*fld)
+        else
+            ! Non-root: recvbuf not significant, but must not be MPI_IN_PLACE (illegal here;
+            ! OpenMPI rejects it). wrk3d is free at this point (its product is already summed
+            ! into wrk2d above), so reuse it as the ignored scratch recvbuf.
+            call MPI_Reduce(wrk2d, wrk3d, nxy, MPI_REAL8, MPI_SUM, 0, ims_comm_z, ims_err)
+        end if
+#else
+        ! Slice the RHS to nxy (wrk2d's first dim isize_wrk2d >= nxy) to stay conformant.
+        avg_pu(iavg_srt:iavg_end) = wrk2d(1:nxy, 1)
+#endif
+
+        lpl_srt = (pu_id - 1)*nxy_planes + int(nxy, longi)*avg_planes + 1
+        lpl_end = (pu_id)*nxy_planes
+
+#ifdef USE_MPI
+        if (ims_pro_k == 0) then
+#endif
+            avg_pu(lpl_srt:lpl_end) = avg_pu(lpl_srt:lpl_end) + avg_pu(iavg_srt:iavg_end)/avg_planes
+#ifdef USE_MPI
+        end if
+#endif
+
+    end subroutine AvgPhaseCalcPU
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     subroutine IO_WRITE_HEADER(unit, isize, nx, ny, nz, nt, params)
@@ -486,7 +586,7 @@ contains
         nxy = imax*jmax
         nxy_planes = int(nxy, longi)*int(avg_planes + 1, longi)   ! 64-bit per-field block length
 
-        if (index > 9 .or. index == 3 .or. index == 5 .or. index == 6 .or. index == 7) then
+        if (index > 10 .or. index == 3 .or. index == 5 .or. index == 6 .or. index == 7) then
             call TLAB_WRITE_ASCII(efile, __FILE__//'. Unassigned case type check the index of the field in PhaseAvg_Write')
             call TLAB_STOP(DNS_ERROR_AVG_PHASE)
         end if
@@ -600,6 +700,7 @@ contains
             avg_p(:) = 0.0_wp
             avg_scal(:) = 0.0_wp
             avg_flux(:) = 0.0_wp
+            avg_pu(:) = 0.0_wp
 #ifdef USE_MPI
         end if
 #endif

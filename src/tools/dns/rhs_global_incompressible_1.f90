@@ -300,6 +300,8 @@ subroutine RHS_GLOBAL_INCOMPRESSIBLE_1()
         if ( PhAvg%active) then   
             if (mod((itime+1),PhAvg%stride) == 0)  then
                 call AvgPhaseSpace(wrk2d, 1, (itime+1)/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride, tmp4)
+                ! Pressure-velocity products p*u_i, same instant and same phase plane as avg_p
+                call AvgPhasePressureVelocity(u, v, w, tmp4, (itime+1)/PhAvg%stride, nitera_first, nitera_save/PhAvg%stride)
             end if
         end if
     end if
