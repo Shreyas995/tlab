@@ -72,7 +72,7 @@ module AVG_PHASE
     end interface AvgPhaseSpace
 
     type(phaseavg_dt) :: PhAvg
-    real(wp), dimension(:), allocatable, target :: avg_flow, avg_stress, avg_p, avg_scal, avg_flux
+    real(wp), dimension(:), allocatable, target :: avg_flow, avg_stress, avg_p, avg_scal, avg_flux, avg_pu
     integer(wi) :: nxy, nxz, nyz, nz_total
     integer(wi) :: avg_planes
     character(len=32), parameter :: avgu_name = 'avg_flow'
@@ -80,6 +80,7 @@ module AVG_PHASE
     character(len=32), parameter :: avgp_name = 'avg_p'
     character(len=32), parameter :: avgs_name = 'avg_scal'
     character(len=32), parameter :: avgflux_name = 'avg_flux'
+    character(len=32), parameter :: avgpu_name = 'avg_pu'
 
     integer, parameter, public :: IO_SCAL = 1       ! Header of scalar field
     integer, parameter, public :: IO_FLOW = 2       ! Header of flow field
@@ -89,9 +90,10 @@ module AVG_PHASE
     ! inside the worker (as AvgPhaseSpaceExec already does) rather than passed in.
     integer(wi), parameter :: AVGPH_STRESS = 1
     integer(wi), parameter :: AVGPH_FLUX = 2
+    integer(wi), parameter :: AVGPH_PU = 3
 
     public :: AvgPhaseSpace
-    public :: avg_flow, avg_p, avg_scal, avg_stress, avg_flux, avg_planes
+    public :: avg_flow, avg_p, avg_scal, avg_stress, avg_flux, avg_pu, avg_planes
     public :: PhAvg
 contains
 
@@ -165,12 +167,14 @@ contains
             call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_p, [alloc_size*1], 'avgp.')
             call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_scal, [alloc_size*inb_scal], 'avgscal.')
             call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_flux, [alloc_size*3], 'avgflux.') ! velocity-scalar flux u_i*s1 (3 components)
+            call Tlab_Allocate_Real_LONG(C_FILE_LOC, avg_pu, [alloc_size*3], 'avgpu.') ! pressure-velocity p*u_i (3 components)
 
             avg_flow(:) = 0.0_wp
             avg_stress(:) = 0.0_wp
             avg_p(:) = 0.0_wp
             avg_scal(:) = 0.0_wp
             avg_flux(:) = 0.0_wp
+            avg_pu(:) = 0.0_wp
 #ifdef USE_MPI
         end if
 #endif
@@ -450,6 +454,27 @@ contains
 
     end subroutine AvgPhaseFlux
 
+    subroutine AvgPhasePressureVelocity(u, v, w, p, itr, it_first, it_save)
+        ! Pressure-velocity products p*u, p*v, p*w. Called from the RHS routine at the
+        ! last RK substep, where the pressure exists (same place avg_p is accumulated),
+        ! so p and u_i are taken at the same instant. p must be on the velocity grid.
+        real(wp), dimension(isize_field), intent(in) :: u, v, w, p
+        integer(wi), intent(in) :: itr
+        integer(wi), intent(in) :: it_first
+        integer(wi), intent(in) :: it_save
+
+        integer(wi) :: plane_id
+
+        plane_id = 1
+        if (it_save /= 0) plane_id = mod((itr - 1) - (it_first), it_save) + 1
+
+        ! Component slots in avg_pu: p*u 1, p*v 2, p*w 3
+        call AvgPhaseCalcProduct(p, u, AVGPH_PU, 1, plane_id)
+        call AvgPhaseCalcProduct(p, v, AVGPH_PU, 2, plane_id)
+        call AvgPhaseCalcProduct(p, w, AVGPH_PU, 3, plane_id)
+
+    end subroutine AvgPhasePressureVelocity
+
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     subroutine AvgPhaseCalcProduct(field1, field2, dest_id, comp_id, plane_id)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -471,7 +496,7 @@ contains
         use TLabMPI_VARS, only: ims_err, ims_pro, ims_pro_k
 #endif
         real(wp), intent(in) :: field1(isize_field), field2(isize_field)
-        integer(wi), intent(in) :: dest_id      ! AVGPH_STRESS or AVGPH_FLUX
+        integer(wi), intent(in) :: dest_id      ! AVGPH_STRESS, AVGPH_FLUX or AVGPH_PU
         integer(wi), intent(in) :: comp_id      ! component slot within that array
         integer(wi), intent(in) :: plane_id
 
@@ -484,8 +509,10 @@ contains
 
         if (dest_id == AVGPH_STRESS) then
             avg_ptr => avg_stress
-        else
+        elseif (dest_id == AVGPH_FLUX) then
             avg_ptr => avg_flux
+        else
+            avg_ptr => avg_pu
         end if
         nxy_planes = int(nxy, longi)*int(avg_planes + 1, longi)   ! 64-bit per-field block length
 
@@ -597,7 +624,7 @@ contains
         nxy = imax*jmax
         nxy_planes = int(nxy, longi)*int(avg_planes + 1, longi)   ! 64-bit per-field block length
 
-        if (index > 9 .or. index == 3 .or. index == 5 .or. index == 6 .or. index == 7) then
+        if (index > 10 .or. index == 3 .or. index == 5 .or. index == 6 .or. index == 7) then
             call TLAB_WRITE_ASCII(efile, __FILE__//'. Unassigned case type check the index of the field in PhaseAvg_Write')
             call TLAB_STOP(DNS_ERROR_AVG_PHASE)
         end if
@@ -727,6 +754,7 @@ contains
             avg_p(:) = 0.0_wp
             avg_scal(:) = 0.0_wp
             avg_flux(:) = 0.0_wp
+            avg_pu(:) = 0.0_wp
 #ifdef USE_MPI
         end if
 #endif

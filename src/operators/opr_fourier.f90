@@ -77,6 +77,15 @@ contains
 
 #ifdef USE_FFTW
 #include "fftw3.f03"
+        ! FFTW planner flag. FFTW_MEASURE times candidate algorithms at start-up and keeps the
+        ! fastest, so two otherwise identical runs can get different plans and then differ in
+        ! the last bits everywhere (the Poisson solve spreads it): runs are not bit-reproducible.
+        ! FFTW_ESTIMATE chooses the plan deterministically. -DFFTW_PLAN_MEASURE restores the timed planner.
+#ifdef FFTW_PLAN_MEASURE
+        integer, parameter :: fftw_plan_flag = FFTW_MEASURE
+#else
+        integer, parameter :: fftw_plan_flag = FFTW_ESTIMATE
+#endif
 #endif
         ! -----------------------------------------------------OPR_Fourier_Initialize------------------
         integer(wi) stride, isize_disp, nlines
@@ -129,12 +138,12 @@ contains
             call dfftw_plan_many_dft(fft_plan_fz, 1, size_fft_z, nlines, &
                                      txc(:, 1), size_fft_z, stride, 1, &
                                      wrk3d, size_fft_z, stride, 1, &
-                                     FFTW_FORWARD, FFTW_MEASURE)
+                                     FFTW_FORWARD, fftw_plan_flag)
 
             call dfftw_plan_many_dft(fft_plan_bz, 1, size_fft_z, nlines, &
                                      txc(:, 1), size_fft_z, stride, 1, &
                                      wrk3d, size_fft_z, stride, 1, &
-                                     FFTW_BACKWARD, FFTW_MEASURE)
+                                     FFTW_BACKWARD, fftw_plan_flag)
 #endif
         end if
 
@@ -180,11 +189,11 @@ contains
             call dfftw_plan_many_dft_r2c(fft_plan_fx, 1, size_fft_x, nlines, &
                                          txc(:, 1), size_fft_x, 1, size_fft_x, &
                                          wrk3d, size_fft_x/2 + 1, 1, isize_disp, &
-                                         FFTW_MEASURE)
+                                         fftw_plan_flag)
             call dfftw_plan_many_dft_c2r(fft_plan_bx, 1, size_fft_x, nlines, &
                                          txc(:, 1), size_fft_x/2 + 1, 1, isize_disp, &
                                          wrk3d, size_fft_x, 1, size_fft_x, &
-                                         FFTW_MEASURE)
+                                         fftw_plan_flag)
 #endif
 
         end if
@@ -212,12 +221,12 @@ contains
             call dfftw_plan_many_dft(fft_plan_fy, 1, size_fft_y, nlines, &
                                      txc(:, 1), size_fft_y, stride, 1, &
                                      wrk3d, size_fft_y, stride, 1, &
-                                     FFTW_FORWARD, FFTW_MEASURE)
+                                     FFTW_FORWARD, fftw_plan_flag)
 
             call dfftw_plan_many_dft(fft_plan_by, 1, size_fft_y, nlines, &
                                      txc(:, 1), size_fft_y, stride, 1, &
                                      wrk3d, size_fft_y, stride, 1, &
-                                     FFTW_BACKWARD, FFTW_MEASURE)
+                                     FFTW_BACKWARD, fftw_plan_flag)
 #endif
         end if
         ! wrk3d(:) =  0.0_wp  
